@@ -4,3 +4,9 @@ django-filter==25.2
 djangorestframework==3.16.1
 Markdown==3.10
 sqlparse==0.5.5
+asgiref==3.11.0
+Django==6.0.1
+django-filter==25.2
+djangorestframework==3.16.1
+Markdown==3.10
+sqlparse==0.5.5
