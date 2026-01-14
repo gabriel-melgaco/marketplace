@@ -1,32 +1,35 @@
 from pathlib import Path
+import os
+from dotenv import load_dotenv
+from datetime import timedelta
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+load_dotenv(BASE_DIR / '.env')
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
+SECRET_KEY = os.getenv('SECRET_KEY')
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-$878=&p_w)ryf5v1!#$&hz(&wek0pjro$62wjaqbv3mlvv)f25'
+DEBUG = os.getenv('DEBUG', True)
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
 
 
 # Application definition
+AUTH_USER_MODEL = 'authentication.CustomUser'
+
 
 INSTALLED_APPS = [
+    'django.contrib.sites',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'rest_framework',
     'authentication',
+
+    'rest_framework',
     #DRF Auth Kit Basic Config
     'allauth',
     'allauth.account',    
@@ -71,7 +74,7 @@ ROOT_URLCONF = 'api.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -119,7 +122,7 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/6.0/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = 'pt-br'
 
 TIME_ZONE = 'UTC'
 
@@ -134,9 +137,68 @@ USE_TZ = True
 STATIC_URL = 'static/'
 
 
+# ===================================================================
+# AUTHENTICATION SETTINGS
+# ===================================================================
+
+AUTH_KIT = {
+    "REGISTER_SERIALIZER": "authentication.serializers.CustomRegisterSerializer",
+}
 
 ACCOUNT_EMAIL_VERIFICATION = "mandatory"
-ACCOUNT_SIGNUP_FIELDS = ["email*", "username*"]
 SOCIALACCOUNT_EMAIL_AUTHENTICATION = True
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"  # For development
+ACCOUNT_EMAIL_CONFIRMATION_EXPIRE_DAYS = 7
+ACCOUNT_LOGIN_ON_EMAIL_CONFIRMATION = True
+
+
+ACCOUNT_LOGIN_METHODS = {'email'}
+
+ACCOUNT_SIGNUP_FIELDS = [
+    'email*',
+    'complete_name*',
+    'cpf*',
+    'birthday*',
+    'password1*',
+    'password2*',
+]
+
+
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
+}
+
+SITE_ID = 1
+
+SOCIALACCOUNT_ADAPTER = 'authentication.adapters.CustomSocialAccountAdapter'
+
+
+SOCIALACCOUNT_PROVIDERS = {
+    'google': {
+        'SCOPE': ['profile', 'email', 'birthday'],
+        'AUTH_PARAMS': {'access_type': 'online'},
+        'OAUTH_PKCE_ENABLED': True,
+        'FETCH_USERINFO': True,
+        'APP': {
+            'client_id': os.getenv('CLIENT_ID_OAUTH'),
+            'secret': os.getenv('SECRET_KEY_OAUTH'),
+            'key': '',
+        }
+    },
+}
+# Access https://developers.google.com/oauthplayground/ for tests 
+#====================================================================
+
+# ===================================================================
+# EMAIL API SETTINGS
+# ==================================================================
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.resend.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = 'resend'
+EMAIL_HOST_PASSWORD = os.getenv('RESEND_API_KEY')
+DEFAULT_FROM_EMAIL = 'Meg Dev <no-reply@email.megdev.com.br>'
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
 

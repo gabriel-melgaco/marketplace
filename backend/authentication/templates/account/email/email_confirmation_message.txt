@@ -1,0 +1,9 @@
+Olá {{ user.email }},
+
+Obrigado por se cadastrar.
+
+Para confirmar seu e-mail, acesse o link abaixo:
+
+https://app.megdev.com.br/confirm-email?key={{ key }}
+
+Se você não solicitou este cadastro, ignore este e-mail.
