@@ -1,44 +1,18 @@
 from auth_kit.serializers.registration import RegisterSerializer
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .validators import only_digits, validate_cnpj, validate_cpf
 from .models import CustomUser
+from .validators import CpfCnpjValidationMixin, FullNameValidationMixin
 
 User = get_user_model()
 
-class CustomRegisterSerializer(RegisterSerializer):
+class CustomRegisterSerializer(CpfCnpjValidationMixin, FullNameValidationMixin, RegisterSerializer):
     full_name = serializers.CharField()
     cpf = serializers.CharField()
     birthday = serializers.DateField()
     picture = serializers.CharField()
     first_name = None
     last_name = None
-
-    def validate_full_name(self, value):
-        if len(value.split()) < 2 or len(value.strip()) < 8:
-            raise serializers.ValidationError('Deverá ser inserido o nome completo')
-        return value
-    
-    def validate_cpf(self, value):
-        value = only_digits(value)
-
-        if CustomUser.objects.filter(cpf=value).exists():
-            raise serializers.ValidationError('CPF já cadastrado.')
-
-        elif len(value) == 11:
-            if not validate_cpf(value):
-                raise serializers.ValidationError("CPF inválido.")
-            return value
-
-        elif len(value) == 14:
-            if not validate_cnpj(value):
-                raise serializers.ValidationError("CNPJ inválido.")
-            return value
-
-        raise serializers.ValidationError(
-            "Informe CPF ou CNPJ válido, apenas números."
-        )
-        
 
     def save(self, **kwargs):
         user = super().save()
@@ -50,9 +24,9 @@ class CustomRegisterSerializer(RegisterSerializer):
 
         user.save()
         return user
-    
 
-class CustomUserSerializer(serializers.ModelSerializer):
+
+class CustomUserSerializer(CpfCnpjValidationMixin, FullNameValidationMixin, serializers.ModelSerializer):
     class Meta:
         model = User
         fields = (

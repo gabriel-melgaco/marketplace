@@ -43,15 +43,3 @@ class CustomLoginView(BaseLoginView):
         
         return response
     
-
-'''
-#Views only for documentation
-@extend_schema(
-    responses={200: LoginResponseSerializer},
-)
-class CustomLoginView(BaseLoginView):
-    def get_response_data(self, user, access, refresh):
-        data = super().get_response_data(user, access, refresh)
-        data["user"] = CustomUserSerializer(user).data
-        return data
-'''
