@@ -41,6 +41,9 @@ INSTALLED_APPS = [
     'auth_kit.social',
     #Documentation
     'drf_spectacular',
+    'products',
+
+    'storage',
 
 ]
 
@@ -48,8 +51,12 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'auth_kit.authentication.JWTCookieAuthentication',
     ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
+
 
 SPECTACULAR_SETTINGS = {
     'TITLE': 'MARKETPLACE API Documentation',
@@ -202,3 +209,12 @@ EMAIL_HOST_PASSWORD = os.getenv('RESEND_API_KEY')
 DEFAULT_FROM_EMAIL = 'Meg Dev <no-reply@email.megdev.com.br>'
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 
+
+# ===================================================================
+# MINIO BUCKET S3 SETTINGS
+# ==================================================================
+MINIO_ENDPOINT = os.getenv('MINIO_ENDPOINT')
+MINIO_ACCESS_KEY = os.getenv('MINIO_ACCESS_KEY')
+MINIO_SECRET_KEY = os.getenv('MINIO_SECRET_KEY')
+MINIO_BUCKET = os.getenv('MINIO_BUCKET')
+MINIO_USE_SSL = False
