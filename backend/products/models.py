@@ -162,7 +162,9 @@ class MarketplaceListingImages(models.Model):
         related_name='images'
     )
 
-    image = models.URLField(max_length=500)
+    image_url = models.URLField(max_length=500)
+
+    object_name = models.CharField(max_length=255)
    
     is_primary = models.BooleanField(default=False)
     order = models.PositiveSmallIntegerField(default=0)
