@@ -3,7 +3,6 @@ from datetime import timedelta
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-
 from django.conf import settings
 from .minio_client import get_minio_client
 from .serializers import PresignedUrlSerializer, PresignedUrlResponseSerializer
@@ -46,3 +45,6 @@ class GeneratePresignedUrlView(APIView):
             "object_name": object_name,
             "file_url": f"http://{settings.MINIO_ENDPOINT}/{settings.MINIO_BUCKET}/{object_name}"
         })
+
+
+

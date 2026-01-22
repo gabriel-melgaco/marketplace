@@ -41,3 +41,9 @@ class Brand(admin.ModelAdmin):
     search_fields = ('name', 'slug','logo', 'website')
 
 admin.site.register(models.Brand, Brand)
+
+class MarketplaceListingImages(admin.ModelAdmin):
+    list_display = ('listing', 'image_url', 'object_name', 'is_primary', 'order', 'created_at')
+    search_fields = ('listing', 'image_url', 'object_name', 'is_primary', 'order', 'created_at')
+
+admin.site.register(models.MarketplaceListingImages, MarketplaceListingImages)

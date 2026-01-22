@@ -41,6 +41,9 @@ class CustomUser(AbstractUser):
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['cpf', 'full_name', 'birthday']
 
+    def get_full_name(self):
+        return self.full_name
+
     objects = CustomUserManager()
 
     def __str__(self):
