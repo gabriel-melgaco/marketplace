@@ -14,8 +14,11 @@ DEBUG = os.getenv('DEBUG', True)
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
 
+#PARA LOGIN COM HTTPS
 CSRF_TRUSTED_ORIGINS = os.getenv('TRUSTED_ORIGINS', '').split(',')
 
+#PARA REQUISIÇÕES API COM HTTPS
+CORS_ALLOWED_ORIGINS = os.getenv('ALLOWED_ORIGINS', '').split(',')
 
 
 # Application definition
@@ -23,6 +26,9 @@ AUTH_USER_MODEL = 'authentication.CustomUser'
 
 
 INSTALLED_APPS = [
+    #ALLOWED ORIGINS
+    'corsheaders',
+
     'django.contrib.sites',
     'django.contrib.admin',
     'django.contrib.auth',
@@ -69,6 +75,10 @@ SPECTACULAR_SETTINGS = {
 }
 
 MIDDLEWARE = [
+    #ALLOWED ORIGINS
+    'corsheaders.middleware.CorsMiddleware',
+    'django.middleware.security.SecurityMiddleware',
+
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'allauth.account.middleware.AccountMiddleware',
