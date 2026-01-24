@@ -141,6 +141,50 @@ class MarketplaceListingCreateSerializer(serializers.ModelSerializer):
             'height_cm', 'width_cm', 'length_cm'
         ]
     
+    def validate_price(self, value):
+        if value < 15:
+            raise serializers.ValidationError('O valor mínimo de venda é de R$15,00')
+        return value
+    
+    def validate_description(self, value):
+        if len(value) < 30:
+            raise serializers.ValidationError('Sua Descrição deve ter mais que 30 caracteres')
+        return value
+    
+    def validate_quantity(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('Você deve ter pelo menos 1(um) item a venda')
+        return value
+    
+    def validate_weight_kg(self, value):
+        if value < 0.1:
+            raise serializers.ValidationError(
+                "Peso incompatível informado."
+            )
+        return value
+    
+    def validate_height_cm(self, value):
+        if value < 1:
+            raise serializers.ValidationError(
+                "Altura menor que a mínima permitida."
+            )
+        return value
+    
+    def validate_width_cm(self, value):
+        if value < 1:
+            raise serializers.ValidationError(
+                "Largura menor que a mínima permitida."
+            )
+        return value
+    
+    def validate_length_cm(self, value):
+        if value < 1:
+            raise serializers.ValidationError(
+                "Comprimento menor que o mínimo permitido."
+            )
+        return value
+    
+    
     def create(self, validated_data):
         # O seller será adicionado na view
         return super().create(validated_data)

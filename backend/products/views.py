@@ -2,11 +2,11 @@ from rest_framework import generics, status, filters
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from django.db.models import Q, Min, Max, Count
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
+from storage.minio_client import delete_object
 
 from .models import (
     Category, Series, Products, Brand, 
@@ -263,13 +263,41 @@ def toggle_listing_active(request, pk):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def mark_as_sold(request, pk):
-    """Marcar como vendido"""
-    listing = get_object_or_404(MarketplaceListing, pk=pk, seller=request.user)
-    listing.sold_at = timezone.now()
-    listing.is_active = False
-    listing.quantity = 0
-    listing.save(update_fields=['sold_at', 'is_active', 'quantity'])
-    return Response({'message': 'Listagem marcada como vendida'})
+    """Marcar como vendido. Caso anúncio desativado retorna 400. Caso haja uma quantidade maior ou igual a 2 (dois) itens à venda, o endpoint apenas fará o decréscimo de 1 (um) item. Caso haja apenas 1(um) item, irá desativar o listing, preencher o sold_at e igualar a quantidade a '0'."""
+    listing = get_object_or_404(
+        MarketplaceListing,
+        pk=pk,
+        seller=request.user
+    )
+
+    # Anúncio inativo
+    if not listing.is_active:
+        return Response(
+            {'detail': 'Este anúncio já está inativo.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Sem estoque
+    if listing.quantity <= 0:
+        return Response(
+            {'detail': 'Este anúncio não possui estoque disponível.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Reduz estoque
+    listing.quantity -= 1
+
+    # Última unidade vendida
+    if listing.quantity == 0:
+        listing.is_active = False
+        listing.sold_at = timezone.now()
+
+    listing.save(update_fields=['quantity', 'is_active', 'sold_at'])
+
+    return Response(
+        {'message': 'Venda registrada com sucesso.'},
+        status=status.HTTP_200_OK
+    )
 
 
 # =================== Listing Images Views ===================
@@ -301,12 +329,23 @@ class ListingImageDeleteView(generics.DestroyAPIView):
     """Deletar imagem"""
     permission_classes = [IsAuthenticated]
     
-    def get_queryset(self):
+    def get_object(self):
         listing_id = self.kwargs.get('listing_id')
-        return MarketplaceListingImages.objects.filter(
+        image_id = self.kwargs.get('pk')
+
+        return get_object_or_404(
+            MarketplaceListingImages,
+            pk=image_id,
             listing_id=listing_id,
             listing__seller=self.request.user
         )
+
+    def perform_destroy(self, instance):
+        # Deleta do MinIO
+        delete_object(instance.object_name)
+
+        #Deleta do banco
+        instance.delete()
 
 
 @api_view(['POST'])
