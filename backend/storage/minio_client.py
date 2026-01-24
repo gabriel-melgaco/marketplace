@@ -1,5 +1,7 @@
 from minio import Minio
 from django.conf import settings
+from minio.error import S3Error
+
 
 
 minio_client = Minio(
@@ -13,5 +15,8 @@ minio_client = Minio(
 def get_minio_client():
     return minio_client
 
-def delete_object(bucket_name: str, object_name: str):
-    minio_client.remove_object(bucket_name, object_name)
+def delete_object(object_name: str):
+    try:
+        minio_client.remove_object(settings.MINIO_BUCKET, object_name)
+    except S3Error as e:
+        raise RuntimeError(f"Erro ao deletar objeto no MinIO: {e}")
