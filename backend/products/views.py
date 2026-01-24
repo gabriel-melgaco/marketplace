@@ -263,6 +263,7 @@ def toggle_listing_active(request, pk):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def mark_as_sold(request, pk):
+    """Marcar como vendido. Caso anúncio desativado retorna 400. Caso haja uma quantidade maior ou igual a 2 (dois) itens à venda, o endpoint apenas fará o decréscimo de 1 (um) item. Caso haja apenas 1(um) item, irá desativar o listing, preencher o sold_at e igualar a quantidade a '0'."""
     listing = get_object_or_404(
         MarketplaceListing,
         pk=pk,
