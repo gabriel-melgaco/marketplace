@@ -10,7 +10,11 @@ class CustomRegisterSerializer(CpfCnpjValidationMixin, FullNameValidationMixin, 
     full_name = serializers.CharField()
     cpf = serializers.CharField()
     birthday = serializers.DateField()
-    picture = serializers.CharField()
+    picture = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True
+    )
     first_name = None
     last_name = None
 
