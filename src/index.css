@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #090a20;
+  --color-secundary: #1761b9;
+
+  --color-header: #000000;
+
+  --color-text-primary: #ffffff;
+  --color-text-secundary: #000000;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
