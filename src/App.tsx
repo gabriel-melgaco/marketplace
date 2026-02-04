@@ -15,7 +15,7 @@ import { EditAd } from "@/pages/Dashboard/EditAd";
 import { MyPurchase } from "@/pages/Dashboard/MyPurchases";
 import { MySales } from "@/pages/Dashboard/MySales";
 import { MyReviews } from "@/pages/Dashboard/MyReviews";
-import ProtectedRoute from "@/routes/privateroutes";
+import PivateRoutes from "@/routes/PrivateRoutes";
 import EmailSent from "@/pages/auth/EmailSent";
 import VerifyEmail from "@/pages/auth/VerifyEmail";
 
@@ -41,7 +41,7 @@ const router = createBrowserRouter([
 
   // 🔒 PRIVADAS
   {
-    element: <ProtectedRoute />,
+    element: <PivateRoutes />,
     children: [
       {
         element: <HomeLayout />,
