@@ -54,6 +54,12 @@ INSTALLED_APPS = [
 
     'storage',
 
+    'orders',
+
+    'payments',
+
+    'logistics',
+
 ]
 
 REST_FRAMEWORK = {
@@ -157,7 +163,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'pt-br'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'America/Sao_Paulo'
 
 USE_I18N = True
 
@@ -244,3 +250,22 @@ MINIO_ACCESS_KEY = os.getenv('MINIO_ACCESS_KEY')
 MINIO_SECRET_KEY = os.getenv('MINIO_SECRET_KEY')
 MINIO_BUCKET = os.getenv('MINIO_BUCKET')
 MINIO_USE_SSL = False
+
+
+
+# ==================================================================
+# STRIPE CONFIGURATION
+# ==================================================================
+STRIPE_PUBLIC_KEY = os.getenv('STRIPE_PUBLIC_KEY', 'pk_test_...')
+STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY', 'sk_test_...')
+STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', 'whsec_...')
+
+# =================== MELHOR ENVIO CONFIGURATION ===================
+MELHOR_ENVIO_TOKEN = os.getenv('MELHOR_ENVIO_TOKEN', '')
+MELHOR_ENVIO_SANDBOX = os.getenv('MELHOR_ENVIO_SANDBOX', True)
+# =================== PAYMENT CONFIGURATION ===================
+# Taxa da plataforma (%)
+PLATFORM_FEE_PERCENTAGE = 10  # 10% de taxa
+
+# Dias para liberar pagamento ao vendedor
+PAYOUT_DAYS = 7  # Após 7 dias da confirmação da entrega
