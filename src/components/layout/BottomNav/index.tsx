@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Search,
   Menu,
@@ -12,23 +13,40 @@ import {
 
 export function BottomNav() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const navigate = useNavigate();
+
+  const handleSearch = () => {
+    const term = window.prompt("Buscar produto por palavra-chave:");
+    if (!term) return;
+
+    const normalizedTerm = term.trim();
+    if (!normalizedTerm) return;
+
+    navigate(`/productlist?search=${encodeURIComponent(normalizedTerm)}`);
+  };
 
   return (
     <div>
       {/* Menu Inferior */}
       <nav className="fixed bottom-0 left-0 right-0 bg-black border-t shadow-lg">
         <div className="max-w-7xl mx-auto flex justify-around items-center py-3">
-          <button className="flex flex-col items-center gap-1 text-white hover:text-blue-800 transition">
+          <Link
+            to="/"
+            className="flex flex-col items-center gap-1 text-white hover:text-blue-800 transition"
+          >
             <Home size={24} />
             <span className="text-xs font-semibold">Início</span>
-          </button>
+          </Link>
 
-          <button className="flex flex-col items-center gap-1 text-white hover:text-blue-800 transition">
+          <button
+            onClick={handleSearch}
+            className="flex flex-col items-center gap-1 text-white hover:text-blue-800 transition cursor-pointer"
+          >
             <Search size={24} />
             <span className="text-xs">Busca</span>
           </button>
 
-          <button className="group flex flex-col items-center gap-1 text-white transition">
+          <button className="group flex flex-col items-center gap-1 text-white transition cursor-pointer">
             <div
               className="w-12 h-12 bg-white transition rounded-full flex items-center justify-center -mt-6 shadow-lg
                   group-hover:bg-blue-900"
@@ -44,14 +62,14 @@ export function BottomNav() {
             </span>
           </button>
 
-          <button className="flex flex-col items-center gap-1 text-white hover:text-blue-800 transition">
+          <button className="flex flex-col items-center gap-1 text-white hover:text-blue-800 transition cursor-pointer">
             <MessageCircle size={24} />
             <span className="text-xs">Chat</span>
           </button>
 
           <button
             onClick={() => setMenuOpen(!menuOpen)}
-            className="flex flex-col items-center gap-1 text-white hover:text-blue-800 transition relative"
+            className="flex flex-col items-center gap-1 text-white hover:text-blue-800 transition relative cursor-pointer"
           >
             <Menu size={24} />
             <span className="text-xs">Menu</span>
