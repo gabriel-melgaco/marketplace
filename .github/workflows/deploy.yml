@@ -1,0 +1,96 @@
+name: Deploy to MelgaServer
+
+on:
+  push:
+    branches:
+      - develop  # Deploy automático ao fazer push na branch develop
+  workflow_dispatch:  # Permite execução manual pelo GitHub
+
+jobs:
+  deploy:
+    name: Deploy via SSH Gateway
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.MELGASERVER }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          
+          # Adicionar fingerprint do servidor (evita prompt)
+          ssh-keyscan -p 2222 -H 69.169.111.101 >> ~/.ssh/known_hosts
+
+      - name: Test SSH Connection
+        run: |
+          ssh -p 2222 -i ~/.ssh/deploy_key melgaserver@69.169.111.101 \
+            "echo '✅ Conexão SSH estabelecida com sucesso'"
+
+      - name: Deploy Application
+        run: |
+          ssh -p 2222 -i ~/.ssh/deploy_key melgaserver@69.169.111.101 << 'ENDSSH'
+            set -e
+            
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "🚀 Iniciando Deploy - Branch: develop"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo ""
+            
+            # ⚠️ SUBSTITUA <CAMINHO_DO_PROJETO> pelo caminho real
+            PROJECT_PATH="</home/melgaserver/marketplace_api>"
+            
+            echo "📂 Navegando para o projeto..."
+            cd "$PROJECT_PATH"
+            pwd
+            echo ""
+            
+            echo "📥 Atualizando código da branch develop..."
+            git fetch origin develop
+            git reset --hard origin/develop
+            echo ""
+            
+            echo "📝 Último commit:"
+            git log -1 --oneline --decorate
+            echo ""
+            
+            echo "🐳 Parando containers antigos..."
+            docker compose down || true
+            echo ""
+            
+            echo "🏗️  Building e iniciando containers..."
+            docker compose up -d --build
+            echo ""
+            
+            echo "⏳ Aguardando containers iniciarem (10s)..."
+            sleep 10
+            echo ""
+            
+            echo "📊 Status dos containers:"
+            docker compose ps
+            echo ""
+            
+          
+            
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "✅ Deploy concluído com sucesso!"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          ENDSSH
+
+      - name: Cleanup SSH Key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
+
+      - name: Deployment Summary
+        if: success()
+        run: |
+          echo "### ✅ Deploy realizado com sucesso!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Detalhes:**" >> $GITHUB_STEP_SUMMARY
+          echo "- 🌿 Branch: develop" >> $GITHUB_STEP_SUMMARY
+          echo "- 📦 Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- 🖥️  Servidor: MelgaServer (192.168.15.10)" >> $GITHUB_STEP_SUMMARY
+          echo "- ⏰ Horário: $(date)" >> $GITHUB_S
