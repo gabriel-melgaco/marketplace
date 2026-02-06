@@ -7,7 +7,7 @@ import { authService } from "@/services/authService";
 
 type VerificationStatus = "loading" | "success" | "error" | "invalid";
 
-export default function VerifyEmail() {
+export default function ConfirmEmail() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
