@@ -17,7 +17,7 @@ import { MySales } from "@/pages/Dashboard/MySales";
 import { MyReviews } from "@/pages/Dashboard/MyReviews";
 import PivateRoutes from "@/routes/PrivateRoutes";
 import EmailSent from "@/pages/auth/EmailSent";
-import VerifyEmail from "@/pages/auth/VerifyEmail";
+import ConfirmEmail from "@/pages/auth/ConfirmEmail";
 
 const router = createBrowserRouter([
   // 🌍 PÚBLICAS COM LAYOUT
@@ -37,7 +37,7 @@ const router = createBrowserRouter([
   { path: "/forgotpassword", element: <ForgotPassword /> },
   { path: "/resetpassword", element: <ResetPassword /> },
   { path: "/email-sent", element: <EmailSent /> },
-  { path: "/verify-email", element: <VerifyEmail /> },
+  { path: "/confirm-email", element: <ConfirmEmail /> },
 
   // 🔒 PRIVADAS
   {
