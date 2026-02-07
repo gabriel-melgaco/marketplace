@@ -57,9 +57,6 @@ jobs:
             git log -1 --oneline --decorate
             echo ""
             
-            echo "🐳 Parando containers antigos..."
-            docker compose down || true
-            echo ""
             
             echo "🏗️  Building e iniciando containers..."
             docker compose up -d --build
