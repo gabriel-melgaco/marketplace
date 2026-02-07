@@ -41,7 +41,7 @@ jobs:
             echo ""
             
             # ⚠️ SUBSTITUA <CAMINHO_DO_PROJETO> pelo caminho real
-            PROJECT_PATH="</home/melgaserver/marketplace_api>"
+            PROJECT_PATH="/home/melgaserver/marketplace_api"
             
             echo "📂 Navegando para o projeto..."
             cd "$PROJECT_PATH"
