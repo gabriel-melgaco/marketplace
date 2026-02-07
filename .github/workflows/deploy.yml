@@ -19,7 +19,7 @@ jobs:
       - name: Setup SSH Key
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.MELGASERVER }}" > ~/.ssh/deploy_key
+          echo "${{ secrets.MELGASERVER }}" > ~/.ssh/github_actions_key
           chmod 600 ~/.ssh/deploy_key
           
           # Adicionar fingerprint do servidor (evita prompt)
