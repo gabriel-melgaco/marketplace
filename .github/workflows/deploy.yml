@@ -20,19 +20,19 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.MELGASERVER }}" > ~/.ssh/github_actions_key
-          chmod 600 ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/github_actions_key
           
           # Adicionar fingerprint do servidor (evita prompt)
           ssh-keyscan -p 2222 -H 69.169.111.101 >> ~/.ssh/known_hosts
 
       - name: Test SSH Connection
         run: |
-          ssh -p 2222 -i ~/.ssh/deploy_key melgaserver@69.169.111.101 \
+          ssh -p 2222 -i ~/.ssh/github_actions_key melgaserver@69.169.111.101 \
             "echo '✅ Conexão SSH estabelecida com sucesso'"
 
       - name: Deploy Application
         run: |
-          ssh -p 2222 -i ~/.ssh/deploy_key melgaserver@69.169.111.101 << 'ENDSSH'
+          ssh -p 2222 -i ~/.ssh/github_actions_key melgaserver@69.169.111.101 << 'ENDSSH'
             set -e
             
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -82,7 +82,7 @@ jobs:
 
       - name: Cleanup SSH Key
         if: always()
-        run: rm -f ~/.ssh/deploy_key
+        run: rm -f ~/.ssh/github_actions_key
 
       - name: Deployment Summary
         if: success()
