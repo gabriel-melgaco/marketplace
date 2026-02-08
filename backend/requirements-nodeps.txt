@@ -1,0 +1,6 @@
+# Pacotes com conflito de dependência conhecidos.
+# Instalar com: pip install --no-deps -r requirements-nodeps.txt
+#
+# drf-auth-kit 1.1.1 exige allauth>=65.5.0, mas o projeto usa 0.63.6.
+# Funciona corretamente pois as APIs utilizadas são estáveis entre versões.
+drf-auth-kit==1.1.1
