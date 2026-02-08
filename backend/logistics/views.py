@@ -6,26 +6,53 @@ from django.shortcuts import get_object_or_404
 from django.db import transaction
 from django.db.models import Q
 from rest_framework.exceptions import ValidationError
+from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiParameter, OpenApiResponse, OpenApiTypes
+from rest_framework import serializers as rf_serializers
 
 
 
-from .models import ShippingQuote, Shipment, ShipmentTracking, Address
+from .models import (
+    ShippingQuote, Shipment, ShipmentTracking, Address,
+    OrderDelivery, InPersonDelivery, DeliveryMethod
+)
 from .serializers import (
     AddressSerializer, AddressCreateSerializer,
     ShippingQuoteRequestSerializer, ShippingQuoteSerializer,
     ShipmentSerializer, ShipmentCreateSerializer,
-    CEPLookupSerializer, ShippingQuoteResponseSerializer
+    CEPLookupSerializer, ShippingQuoteResponseSerializer,
+    OrderDeliverySerializer, OrderDeliveryCreateSerializer,
+    InPersonDeliverySerializer, InPersonDeliveryCreateSerializer,
+    InPersonDeliveryUpdateSerializer, DeliveryMethodChoiceSerializer
 )
-from .services import MelhorEnvioService
+from .services import (
+    MelhorEnvioService,
+    InPersonDeliveryService,
+    DeliveryOrchestrationService,
+    ShipmentCreationService,
+    ShipmentCreationError,
+)
 from orders.models import Order, Cart
 from products.models import MarketplaceListing
 
 
 # =================== Address Views ===================
+@extend_schema(
+    tags=['Logistics - Addresses'],
+    summary='List and create user addresses',
+    description="""
+    List all active addresses for the authenticated user (GET) or create a new address (POST).
+
+    Address Types:
+    - 'home': Residential
+    - 'work': Commercial
+    - 'shipping': Seller shipping address
+    - 'other': Other
+    """
+)
 class AddressListView(generics.ListCreateAPIView):
     """
     Listar[GET] e criar[POST] endereços do usuário
-    
+
     Address Types:
     - 'home': Residencial
     - 'work': Comercial
@@ -49,6 +76,11 @@ class AddressListView(generics.ListCreateAPIView):
         serializer.save(user=self.request.user)
 
 
+@extend_schema(
+    tags=['Logistics - Addresses'],
+    summary='Retrieve, update, or delete an address',
+    description='Get details, update, or soft-delete a specific address. Cannot delete shipping address if active listings exist.'
+)
 class AddressDetailView(generics.RetrieveUpdateDestroyAPIView):
     """Detalhes, atualizar e deletar endereço"""
     permission_classes = [IsAuthenticated]
@@ -86,6 +118,13 @@ class AddressDetailView(generics.RetrieveUpdateDestroyAPIView):
         instance.save(update_fields=['is_active'])
 
 
+@extend_schema(
+    tags=['Logistics - Addresses'],
+    summary='Set address as default',
+    description='Set a specific address as the default for its address type.',
+    request=None,
+    responses={200: AddressSerializer}
+)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def set_default_address(request, pk):
@@ -112,6 +151,15 @@ def set_default_address(request, pk):
     return Response(serializer.data)
 
 
+@extend_schema(
+    tags=['Logistics - Addresses'],
+    summary='Get seller shipping addresses',
+    description='List all active shipping addresses for the authenticated seller.',
+    responses={
+        200: AddressSerializer(many=True),
+        404: OpenApiResponse(description='No shipping addresses found')
+    }
+)
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_shipping_addresses(request):
@@ -133,17 +181,42 @@ def get_shipping_addresses(request):
 
 
 # =================== Shipping Quote Views ===================
+@extend_schema(
+    tags=['Logistics - Shipping'],
+    summary='Calculate shipping quotes',
+    description='Calculate shipping costs grouped by seller using Melhor Envio API. Requires items in cart.',
+    request=inline_serializer(
+        name='CalculateShippingRequest',
+        fields={
+            'shipping_address_id': rf_serializers.IntegerField(help_text='ID of the saved shipping address')
+        }
+    ),
+    responses={
+        200: inline_serializer(
+            name='CalculateShippingResponse',
+            fields={
+                'quotes_by_seller': rf_serializers.DictField(help_text='Shipping quotes grouped by seller ID'),
+                'shipping_address': AddressSerializer(),
+                'shipping_address_id': rf_serializers.IntegerField(),
+                'total_items': rf_serializers.IntegerField(),
+                'total_value': rf_serializers.FloatField()
+            }
+        ),
+        400: OpenApiResponse(description='Invalid request or empty cart'),
+        404: OpenApiResponse(description='Cart or address not found')
+    }
+)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def calculate_shipping(request):
     """
     Calcular frete agrupado por vendedor usando endereço salvo
-    
+
     Body:
     {
         "shipping_address_id": 5
     }
-    
+
     Response:
     {
         "quotes_by_seller": {
@@ -225,6 +298,12 @@ def calculate_shipping(request):
 
 
 
+@extend_schema(
+    tags=['Logistics - Shipping'],
+    summary='Get saved shipping quotes',
+    description='List the last 10 saved shipping quotes for the authenticated user.',
+    responses={200: ShippingQuoteSerializer(many=True)}
+)
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_shipping_quotes(request):
@@ -238,10 +317,15 @@ def get_shipping_quotes(request):
 
 
 # =================== Shipment Views ===================
+@extend_schema(
+    tags=['Logistics - Shipping'],
+    summary='List shipments',
+    description='List all shipments. Sellers see shipments they created; buyers see shipments for their orders.'
+)
 class ShipmentListView(generics.ListAPIView):
     """
     Listar envios
-    
+
     - Vendedores veem envios que criaram
     - Compradores veem envios de seus pedidos
     """
@@ -259,6 +343,11 @@ class ShipmentListView(generics.ListAPIView):
         ).order_by('-created_at')
 
 
+@extend_schema(
+    tags=['Logistics - Shipping'],
+    summary='Get shipment details',
+    description='Get detailed information about a specific shipment.'
+)
 class ShipmentDetailView(generics.RetrieveAPIView):
     """Detalhes de um envio"""
     serializer_class = ShipmentSerializer
@@ -275,32 +364,54 @@ class ShipmentDetailView(generics.RetrieveAPIView):
         )
 
 
+@extend_schema(
+    tags=['Logistics - Shipping'],
+    summary='Create shipments for order',
+    description='Create shipments for all sellers in an order. Shipping services are taken from the order unless overridden.',
+    request=inline_serializer(
+        name='CreateShipmentsRequest',
+        fields={
+            'order_id': rf_serializers.UUIDField(help_text='Order ID'),
+            'shipping_services': rf_serializers.DictField(required=False, help_text='Optional override: seller_id -> service_id mapping')
+        }
+    ),
+    responses={
+        201: inline_serializer(
+            name='CreateShipmentsResponse',
+            fields={
+                'shipments': ShipmentSerializer(many=True),
+                'created_count': rf_serializers.IntegerField(),
+                'order_status': rf_serializers.CharField()
+            }
+        ),
+        400: OpenApiResponse(description='Invalid request or order'),
+        403: OpenApiResponse(description='No permission to create shipments for this order')
+    }
+)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-@transaction.atomic
 def create_shipments_for_order(request):
     """
-    Criar envios para todos os vendedores de um pedido
-    
+    Criar envios para todos os vendedores de um pedido.
+
     Body SIMPLIFICADO (shipping_services vem do pedido):
     {
         "order_id": "uuid-do-pedido"
     }
-    
+
     O shipping_services é pego automaticamente do pedido salvo.
     Caso queira sobrescrever, pode enviar shipping_services no body.
     """
     order_id = request.data.get('order_id')
-    
+
     if not order_id:
         return Response(
             {'error': 'order_id é obrigatório'},
             status=status.HTTP_400_BAD_REQUEST
         )
-    
-    # Buscar pedido
+
     order = get_object_or_404(Order, id=order_id)
-    
+
     # Verificar permissão (admin, comprador ou vendedor do pedido)
     user = request.user
     if not user.is_staff and user != order.buyer:
@@ -309,111 +420,55 @@ def create_shipments_for_order(request):
                 {'error': 'Sem permissão para criar envios deste pedido'},
                 status=status.HTTP_403_FORBIDDEN
             )
-    
-    # Verificar se pagamento foi confirmado
-    if order.status != 'payment_confirmed':
+
+    # Override opcional via body
+    shipping_services_override = request.data.get('shipping_services')
+
+    try:
+        created_shipments = ShipmentCreationService.create_shipments_for_order(
+            order=order,
+            shipping_services_override=shipping_services_override,
+        )
+    except ShipmentCreationError as e:
         return Response(
-            {'error': 'Pedido precisa ter pagamento confirmado'},
+            {'error': str(e)},
             status=status.HTTP_400_BAD_REQUEST
         )
-    
-    # CORRIGIDO: Pegar shipping_services do pedido (salvo no checkout)
-    # Permite sobrescrever se enviar no body
-    shipping_services = request.data.get('shipping_services', order.shipping_services)
-    
-    if not shipping_services:
-        return Response(
-            {
-                'error': 'shipping_services não encontrado',
-                'detail': 'O pedido não possui informações de frete salvas. '
-                         'Isso pode ocorrer se o pedido foi criado antes da atualização do sistema.'
-            },
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    
-    # Agrupar itens por vendedor
-    sellers = order.items.values_list('seller', flat=True).distinct()
-    
-    created_shipments = []
-    errors = []
-    melhor_envio = MelhorEnvioService()
-    
-    for seller_id in sellers:
-        seller_items = order.items.filter(seller_id=seller_id)
-        seller = seller_items.first().seller
-        
-        # Verificar se já existe envio para este vendedor
-        existing = Shipment.objects.filter(order=order, seller=seller).first()
-        if existing:
-            created_shipments.append(existing)
-            continue
-        
-        # Pegar serviço de frete escolhido do shipping_services salvo
-        seller_shipping = shipping_services.get(str(seller_id))
-        
-        if not seller_shipping:
-            errors.append({
-                'seller_id': seller_id,
-                'seller_name': seller.get_full_name() or seller.email,
-                'error': f'Serviço de frete não encontrado para vendedor {seller_id}'
-            })
-            continue
-        
-        # Extrair service_id (pode ser int ou dict)
-        if isinstance(seller_shipping, dict):
-            service_id = seller_shipping.get('service_id')
-        else:
-            service_id = seller_shipping
-        
-        if not service_id:
-            errors.append({
-                'seller_id': seller_id,
-                'seller_name': seller.get_full_name() or seller.email,
-                'error': f'service_id não encontrado para vendedor {seller_id}'
-            })
-            continue
-        
-        try:
-            # Criar envio via Melhor Envio
-            shipment = melhor_envio.create_shipment(
-                order=order,
-                seller=seller,
-                shipping_service_id=service_id
-            )
-            created_shipments.append(shipment)
-            
-        except Exception as e:
-            errors.append({
-                'seller_id': seller_id,
-                'seller_name': seller.get_full_name() or seller.email,
-                'error': str(e)
-            })
-    
-    # Atualizar status do pedido se criou algum envio
-    if created_shipments and not errors:
-        order.status = 'processing'
-        order.save()
-    
+
     serializer = ShipmentSerializer(created_shipments, many=True)
-    
-    response_data = {
+
+    return Response({
         'shipments': serializer.data,
         'created_count': len(created_shipments),
-        'errors': errors,
-        'order_status': order.status
+        'order_status': order.status,
+    }, status=status.HTTP_201_CREATED)
+
+
+
+@extend_schema(
+    tags=['Logistics - Shipping'],
+    summary='Generate shipping label',
+    description='Generate a shipping label for a shipment using Melhor Envio. Only the seller can generate their shipment label.',
+    request=None,
+    responses={
+        200: inline_serializer(
+            name='GenerateLabelResponse',
+            fields={
+                'label_url': rf_serializers.URLField(),
+                'shipment_id': rf_serializers.IntegerField(),
+                'message': rf_serializers.CharField()
+            }
+        ),
+        400: OpenApiResponse(description='Error generating label'),
+        404: OpenApiResponse(description='Shipment not found')
     }
-    
-    response_status = status.HTTP_201_CREATED if created_shipments else status.HTTP_400_BAD_REQUEST
-    return Response(response_data, status=response_status)
-
-
-
+)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def generate_shipping_label(request, pk):
     """
     Gerar etiqueta de envio
-    
+
     Apenas o vendedor pode gerar a etiqueta do seu envio
     """
     shipment = get_object_or_404(
@@ -450,12 +505,31 @@ def generate_shipping_label(request, pk):
         )
 
 
+@extend_schema(
+    tags=['Logistics - Shipping'],
+    summary='Track shipment',
+    description='Update shipment tracking information from Melhor Envio. Seller, buyer, or admin can track.',
+    request=None,
+    responses={
+        200: inline_serializer(
+            name='TrackShipmentResponse',
+            fields={
+                'shipment': ShipmentSerializer(),
+                'tracking_data': rf_serializers.DictField(),
+                'message': rf_serializers.CharField()
+            }
+        ),
+        400: OpenApiResponse(description='Error tracking shipment'),
+        403: OpenApiResponse(description='No permission to track this shipment'),
+        404: OpenApiResponse(description='Shipment not found')
+    }
+)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def track_shipment(request, pk):
     """
     Atualizar rastreamento do envio
-    
+
     Vendedor, comprador ou admin podem rastrear
     """
     # Buscar envio
@@ -493,12 +567,38 @@ def track_shipment(request, pk):
         )
 
 
+@extend_schema(
+    tags=['Logistics - Shipping'],
+    summary='Get order shipments',
+    description='List all shipments for a specific order. Useful for multi-seller orders.',
+    parameters=[
+        OpenApiParameter(
+            name='order_id',
+            type=OpenApiTypes.UUID,
+            location=OpenApiParameter.PATH,
+            description='Order UUID'
+        )
+    ],
+    responses={
+        200: inline_serializer(
+            name='OrderShipmentsResponse',
+            fields={
+                'order_id': rf_serializers.UUIDField(),
+                'order_number': rf_serializers.CharField(),
+                'shipments': ShipmentSerializer(many=True),
+                'shipments_count': rf_serializers.IntegerField()
+            }
+        ),
+        403: OpenApiResponse(description='No permission to view shipments for this order'),
+        404: OpenApiResponse(description='Order not found')
+    }
+)
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_order_shipments(request, order_id):
     """
     Listar todos os envios de um pedido
-    
+
     Útil para pedidos com múltiplos vendedores
     """
     order = get_object_or_404(Order, id=order_id)
@@ -530,17 +630,36 @@ def get_order_shipments(request, order_id):
 
 
 # =================== Utility Views ===================
+@extend_schema(
+    tags=['Logistics - Utilities'],
+    summary='Lookup zipcode (CEP)',
+    description='Fetch address information from a Brazilian zipcode (CEP) using ViaCEP API.',
+    request=CEPLookupSerializer,
+    responses={
+        200: inline_serializer(
+            name='CEPLookupResponse',
+            fields={
+                'zipcode': rf_serializers.CharField(),
+                'street': rf_serializers.CharField(),
+                'neighborhood': rf_serializers.CharField(),
+                'city': rf_serializers.CharField(),
+                'state': rf_serializers.CharField()
+            }
+        ),
+        400: OpenApiResponse(description='Invalid zipcode or error fetching data')
+    }
+)
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def lookup_zipcode(request):
     """
     Buscar informações de um CEP via ViaCEP
-    
+
     Body:
     {
         "zipcode": "01310100"
     }
-    
+
     Response:
     {
         "zipcode": "01310-100",
@@ -551,20 +670,20 @@ def lookup_zipcode(request):
     }
     """
     serializer = CEPLookupSerializer(data=request.data)
-    
+
     if not serializer.is_valid():
         return Response(
-            serializer.errors, 
+            serializer.errors,
             status=status.HTTP_400_BAD_REQUEST
         )
-    
+
     zipcode = serializer.validated_data['zipcode']
-    
+
     try:
         melhor_envio = MelhorEnvioService()
         address_data = melhor_envio.lookup_zipcode(zipcode)
         return Response(address_data)
-        
+
     except Exception as e:
         return Response(
             {
@@ -573,3 +692,583 @@ def lookup_zipcode(request):
             },
             status=status.HTTP_400_BAD_REQUEST
         )
+
+
+# =================== Order Delivery Views (Dual Delivery) ===================
+@extend_schema(
+    tags=['Logistics - Deliveries'],
+    summary='Create order deliveries',
+    description='Create deliveries for an order using dual delivery system (shipping + in-person). Only the buyer can create deliveries.',
+    request=inline_serializer(
+        name='CreateOrderDeliveriesRequest',
+        fields={
+            'order_id': rf_serializers.UUIDField(help_text='Order UUID'),
+            'deliveries': rf_serializers.ListField(
+                child=rf_serializers.DictField(),
+                help_text='List of delivery configurations per seller'
+            )
+        }
+    ),
+    responses={
+        201: inline_serializer(
+            name='CreateOrderDeliveriesResponse',
+            fields={
+                'order_id': rf_serializers.UUIDField(),
+                'order_number': rf_serializers.CharField(),
+                'deliveries': OrderDeliverySerializer(many=True),
+                'count': rf_serializers.IntegerField()
+            }
+        ),
+        400: OpenApiResponse(description='Invalid request'),
+        403: OpenApiResponse(description='Only the buyer can configure deliveries'),
+        404: OpenApiResponse(description='Order not found')
+    }
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def create_order_deliveries(request):
+    """
+    Criar entregas para um pedido (dual delivery).
+
+    Body:
+    {
+        "order_id": "uuid-do-pedido",
+        "deliveries": [
+            {
+                "seller_id": 1,
+                "delivery_method": "shipping",
+                "shipping_service_id": 3,
+                "delivery_cost": 25.90
+            },
+            {
+                "seller_id": 2,
+                "delivery_method": "in_person",
+                "meeting_location_name": "Shopping X",
+                "meeting_address": {
+                    "street": "Rua X",
+                    "number": "123",
+                    "city": "São Paulo",
+                    "state": "SP"
+                },
+                "seller_contact_phone": "11999999999",
+                "buyer_contact_phone": "11888888888",
+                "scheduled_date": "2026-02-10",
+                "scheduled_time": "14:00"
+            }
+        ]
+    }
+    """
+    order_id = request.data.get('order_id')
+    delivery_choices = request.data.get('deliveries', [])
+
+    if not order_id:
+        return Response(
+            {'error': 'order_id é obrigatório'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    if not delivery_choices:
+        return Response(
+            {'error': 'deliveries é obrigatório'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Buscar pedido
+    order = get_object_or_404(Order, id=order_id)
+
+    # Verificar permissão (apenas o comprador)
+    if request.user != order.buyer:
+        return Response(
+            {'error': 'Apenas o comprador pode configurar entregas'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    try:
+        # Criar entregas usando o serviço de orquestração
+        created_deliveries = DeliveryOrchestrationService.create_order_deliveries(
+            order=order,
+            delivery_choices=delivery_choices
+        )
+
+        serializer = OrderDeliverySerializer(created_deliveries, many=True)
+
+        return Response({
+            'order_id': str(order.id),
+            'order_number': order.order_number,
+            'deliveries': serializer.data,
+            'count': len(created_deliveries)
+        }, status=status.HTTP_201_CREATED)
+
+    except ValueError as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    except Exception as e:
+        return Response(
+            {
+                'error': 'Erro ao criar entregas',
+                'detail': str(e)
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@extend_schema(
+    tags=['Logistics - Deliveries'],
+    summary='Get order deliveries details',
+    description='Get consolidated details of all deliveries for an order (shipping + in-person).',
+    parameters=[
+        OpenApiParameter(
+            name='order_id',
+            type=OpenApiTypes.UUID,
+            location=OpenApiParameter.PATH,
+            description='Order UUID'
+        )
+    ],
+    responses={
+        200: inline_serializer(
+            name='OrderDeliveriesDetailsResponse',
+            fields={
+                'order_id': rf_serializers.UUIDField(),
+                'order_number': rf_serializers.CharField(),
+                'total_delivery_cost': rf_serializers.FloatField(),
+                'deliveries_by_seller': rf_serializers.DictField()
+            }
+        ),
+        403: OpenApiResponse(description='No permission to view deliveries for this order'),
+        404: OpenApiResponse(description='Order not found')
+    }
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_order_deliveries_details(request, order_id):
+    """
+    Obter detalhes de todas as entregas de um pedido.
+
+    Retorna informações consolidadas de entregas (shipping + in-person).
+    """
+    order = get_object_or_404(Order, id=order_id)
+
+    # Verificar permissão
+    user = request.user
+    if user != order.buyer and not order.items.filter(seller=user).exists() and not user.is_staff:
+        return Response(
+            {'error': 'Sem permissão para ver entregas deste pedido'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    # Obter resumo das entregas
+    summary = DeliveryOrchestrationService.get_delivery_options_summary(order)
+
+    return Response(summary)
+
+
+@extend_schema(
+    tags=['Logistics - Deliveries'],
+    summary='List user deliveries',
+    description='List all deliveries for the authenticated user (as buyer or seller).',
+    responses={
+        200: inline_serializer(
+            name='ListUserDeliveriesResponse',
+            fields={
+                'deliveries': OrderDeliverySerializer(many=True),
+                'count': rf_serializers.IntegerField()
+            }
+        )
+    }
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_user_deliveries(request):
+    """
+    Listar todas as entregas do usuário (como comprador ou vendedor).
+    """
+    user = request.user
+
+    # Como comprador ou vendedor
+    deliveries = OrderDelivery.objects.filter(
+        Q(order__buyer=user) | Q(seller=user)
+    ).select_related(
+        'order', 'seller', 'shipment', 'in_person_delivery'
+    ).order_by('-created_at')
+
+    serializer = OrderDeliverySerializer(deliveries, many=True)
+
+    return Response({
+        'deliveries': serializer.data,
+        'count': deliveries.count()
+    })
+
+
+# =================== In-Person Delivery Views ===================
+@extend_schema(
+    tags=['Logistics - In-Person'],
+    summary='Get in-person delivery details',
+    description='Get detailed information about a specific in-person delivery.',
+    responses={
+        200: InPersonDeliverySerializer,
+        403: OpenApiResponse(description='No permission to view this delivery'),
+        404: OpenApiResponse(description='In-person delivery not found')
+    }
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_in_person_delivery_detail(request, pk):
+    """
+    Obter detalhes de uma entrega presencial.
+    """
+    in_person_delivery = get_object_or_404(InPersonDelivery, id=pk)
+
+    # Verificar permissão
+    user = request.user
+    if user not in [in_person_delivery.seller, in_person_delivery.buyer] and not user.is_staff:
+        return Response(
+            {'error': 'Sem permissão para ver esta entrega'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    serializer = InPersonDeliverySerializer(in_person_delivery)
+    return Response(serializer.data)
+
+
+@extend_schema(
+    tags=['Logistics - In-Person'],
+    summary='Confirm in-person meeting',
+    description='Confirm in-person meeting. Both seller and buyer must confirm for status to update.',
+    request=None,
+    responses={
+        200: inline_serializer(
+            name='ConfirmMeetingResponse',
+            fields={
+                'message': rf_serializers.CharField(),
+                'delivery': InPersonDeliverySerializer()
+            }
+        ),
+        400: OpenApiResponse(description='Invalid operation'),
+        403: OpenApiResponse(description='Not part of this meeting'),
+        404: OpenApiResponse(description='In-person delivery not found')
+    }
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def confirm_meeting(request, pk):
+    """
+    Confirmar encontro presencial (seller ou buyer).
+
+    Ambas as partes precisam confirmar para que o status seja atualizado.
+    """
+    in_person_delivery = get_object_or_404(InPersonDelivery, id=pk)
+
+    # Verificar permissão
+    user = request.user
+    if user not in [in_person_delivery.seller, in_person_delivery.buyer]:
+        return Response(
+            {'error': 'Você não faz parte deste encontro'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    try:
+        # Confirmar encontro
+        updated_delivery = InPersonDeliveryService.confirm_meeting(
+            in_person_delivery=in_person_delivery,
+            user=user
+        )
+
+        serializer = InPersonDeliverySerializer(updated_delivery)
+
+        return Response({
+            'message': 'Encontro confirmado com sucesso',
+            'delivery': serializer.data
+        })
+
+    except ValueError as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+
+@extend_schema(
+    tags=['Logistics - In-Person'],
+    summary='Update meeting details',
+    description='Update in-person meeting details (location, date, time, notes).',
+    request=InPersonDeliveryUpdateSerializer,
+    responses={
+        200: inline_serializer(
+            name='UpdateMeetingResponse',
+            fields={
+                'message': rf_serializers.CharField(),
+                'delivery': InPersonDeliverySerializer()
+            }
+        ),
+        400: OpenApiResponse(description='Invalid data'),
+        403: OpenApiResponse(description='No permission to update this meeting'),
+        404: OpenApiResponse(description='In-person delivery not found')
+    }
+)
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def update_meeting_details(request, pk):
+    """
+    Atualizar detalhes do encontro (local, data, horário).
+
+    Body:
+    {
+        "meeting_location_name": "Novo local",
+        "scheduled_date": "2026-02-15",
+        "scheduled_time": "15:00",
+        "meeting_notes": "Nova observação"
+    }
+    """
+    in_person_delivery = get_object_or_404(InPersonDelivery, id=pk)
+
+    # Verificar permissão
+    user = request.user
+    if user not in [in_person_delivery.seller, in_person_delivery.buyer]:
+        return Response(
+            {'error': 'Você não tem permissão para atualizar este encontro'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    serializer = InPersonDeliveryUpdateSerializer(
+        in_person_delivery,
+        data=request.data,
+        partial=True
+    )
+
+    if not serializer.is_valid():
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        # Atualizar usando o serviço
+        updated_delivery = InPersonDeliveryService.update_meeting_details(
+            in_person_delivery=in_person_delivery,
+            user=user,
+            **serializer.validated_data
+        )
+
+        response_serializer = InPersonDeliverySerializer(updated_delivery)
+
+        return Response({
+            'message': 'Detalhes do encontro atualizados',
+            'delivery': response_serializer.data
+        })
+
+    except ValueError as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+
+@extend_schema(
+    tags=['Logistics - In-Person'],
+    summary='Complete in-person delivery',
+    description='Mark in-person delivery as completed.',
+    request=inline_serializer(
+        name='CompleteInPersonDeliveryRequest',
+        fields={
+            'completion_notes': rf_serializers.CharField(required=False, help_text='Optional completion notes')
+        }
+    ),
+    responses={
+        200: inline_serializer(
+            name='CompleteInPersonDeliveryResponse',
+            fields={
+                'message': rf_serializers.CharField(),
+                'delivery': InPersonDeliverySerializer()
+            }
+        ),
+        400: OpenApiResponse(description='Invalid operation'),
+        403: OpenApiResponse(description='No permission to complete this delivery'),
+        404: OpenApiResponse(description='In-person delivery not found')
+    }
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def complete_in_person_delivery(request, pk):
+    """
+    Marcar entrega presencial como concluída.
+
+    Body:
+    {
+        "completion_notes": "Produto entregue com sucesso"
+    }
+    """
+    in_person_delivery = get_object_or_404(InPersonDelivery, id=pk)
+
+    # Verificar permissão
+    user = request.user
+    if user not in [in_person_delivery.seller, in_person_delivery.buyer]:
+        return Response(
+            {'error': 'Você não tem permissão para concluir esta entrega'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    completion_notes = request.data.get('completion_notes', '')
+
+    try:
+        # Concluir entrega
+        completed_delivery = InPersonDeliveryService.complete_delivery(
+            in_person_delivery=in_person_delivery,
+            user=user,
+            completion_notes=completion_notes
+        )
+
+        serializer = InPersonDeliverySerializer(completed_delivery)
+
+        return Response({
+            'message': 'Entrega presencial concluída',
+            'delivery': serializer.data
+        })
+
+    except ValueError as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+
+@extend_schema(
+    tags=['Logistics - In-Person'],
+    summary='Cancel in-person delivery',
+    description='Cancel an in-person delivery.',
+    request=inline_serializer(
+        name='CancelInPersonDeliveryRequest',
+        fields={
+            'cancellation_reason': rf_serializers.CharField(required=False, help_text='Optional cancellation reason')
+        }
+    ),
+    responses={
+        200: inline_serializer(
+            name='CancelInPersonDeliveryResponse',
+            fields={
+                'message': rf_serializers.CharField(),
+                'delivery': InPersonDeliverySerializer()
+            }
+        ),
+        400: OpenApiResponse(description='Invalid operation'),
+        403: OpenApiResponse(description='No permission to cancel this delivery'),
+        404: OpenApiResponse(description='In-person delivery not found')
+    }
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def cancel_in_person_delivery(request, pk):
+    """
+    Cancelar entrega presencial.
+
+    Body:
+    {
+        "cancellation_reason": "Motivo do cancelamento"
+    }
+    """
+    in_person_delivery = get_object_or_404(InPersonDelivery, id=pk)
+
+    # Verificar permissão
+    user = request.user
+    if user not in [in_person_delivery.seller, in_person_delivery.buyer]:
+        return Response(
+            {'error': 'Você não tem permissão para cancelar esta entrega'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    cancellation_reason = request.data.get('cancellation_reason', '')
+
+    try:
+        # Cancelar entrega
+        cancelled_delivery = InPersonDeliveryService.cancel_delivery(
+            in_person_delivery=in_person_delivery,
+            user=user,
+            cancellation_reason=cancellation_reason
+        )
+
+        serializer = InPersonDeliverySerializer(cancelled_delivery)
+
+        return Response({
+            'message': 'Entrega presencial cancelada',
+            'delivery': serializer.data
+        })
+
+    except ValueError as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+
+@extend_schema(
+    tags=['Logistics - In-Person'],
+    summary='List in-person deliveries',
+    description='List in-person deliveries for the authenticated user (as buyer or seller).',
+    operation_id='logistics_in_person_list',
+    parameters=[
+        OpenApiParameter(
+            name='status',
+            type=OpenApiTypes.STR,
+            location=OpenApiParameter.QUERY,
+            description='Filter by meeting status',
+            required=False
+        ),
+        OpenApiParameter(
+            name='role',
+            type=OpenApiTypes.STR,
+            location=OpenApiParameter.QUERY,
+            description='Filter by role (seller or buyer)',
+            required=False,
+            enum=['seller', 'buyer']
+        )
+    ],
+    responses={
+        200: inline_serializer(
+            name='ListInPersonDeliveriesResponse',
+            fields={
+                'deliveries': InPersonDeliverySerializer(many=True),
+                'count': rf_serializers.IntegerField()
+            }
+        )
+    }
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_in_person_deliveries(request):
+    """
+    Listar entregas presenciais do usuário (como comprador ou vendedor).
+
+    Query params:
+    - status: filtrar por status (pending_schedule, scheduled, confirmed, etc)
+    - role: filtrar por papel (seller, buyer)
+    """
+    user = request.user
+    status_filter = request.query_params.get('status')
+    role_filter = request.query_params.get('role')
+
+    # Query base
+    queryset = InPersonDelivery.objects.filter(
+        Q(seller=user) | Q(buyer=user)
+    ).select_related('seller', 'buyer').order_by('-created_at')
+
+    # Aplicar filtros
+    if status_filter:
+        queryset = queryset.filter(meeting_status=status_filter)
+
+    if role_filter == 'seller':
+        queryset = queryset.filter(seller=user)
+    elif role_filter == 'buyer':
+        queryset = queryset.filter(buyer=user)
+
+    serializer = InPersonDeliverySerializer(queryset, many=True)
+
+    return Response({
+        'deliveries': serializer.data,
+        'count': queryset.count()
+    })

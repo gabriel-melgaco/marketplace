@@ -74,10 +74,33 @@ REST_FRAMEWORK = {
 
 
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'MARKETPLACE API Documentation',
-    'DESCRIPTION': 'API documentation with authentication',
+    'TITLE': 'Gym Equipment Marketplace API',
+    'DESCRIPTION': 'Complete REST API for a gym equipment marketplace platform with multi-vendor support, payment processing, shipping integration, and dual delivery options (shipping + in-person).',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
+    'TAGS': [
+        {'name': 'Authentication', 'description': 'User registration, login, profile management, and social authentication'},
+        {'name': 'Products', 'description': 'Product catalog, categories, brands, marketplace listings, and search'},
+        {'name': 'Cart', 'description': 'Shopping cart management'},
+        {'name': 'Orders', 'description': 'Order creation, management, and buyer operations'},
+        {'name': 'Seller Orders', 'description': 'Seller order management and status updates'},
+        {'name': 'Payments', 'description': 'Payment intent creation, confirmation, refunds, and seller payouts'},
+        {'name': 'Stripe Connect', 'description': 'Seller onboarding and connected account management'},
+        {'name': 'Logistics - Addresses', 'description': 'Address management for buyers and sellers'},
+        {'name': 'Logistics - Shipping', 'description': 'Shipping quotes, shipments, tracking, and label generation'},
+        {'name': 'Logistics - Deliveries', 'description': 'Order delivery orchestration (dual delivery: shipping + in-person)'},
+        {'name': 'Logistics - In-Person', 'description': 'In-person delivery management, meeting scheduling, and confirmation'},
+        {'name': 'Logistics - Utilities', 'description': 'CEP/zipcode lookup and other utilities'},
+    ],
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SCHEMA_PATH_PREFIX': '/api/',
+    'ENUM_NAME_OVERRIDES': {
+        'OrderStatusEnum': 'orders.models.Order.STATUS_CHOICES',
+        'ShipmentStatusEnum': 'logistics.models.Shipment.STATUS_CHOICES',
+        'DeliveryStatusEnum': 'logistics.models.OrderDelivery.DELIVERY_STATUS_CHOICES',
+        'MeetingStatusEnum': 'logistics.models.InPersonDelivery.MEETING_STATUS_CHOICES',
+        'PaymentMethodEnum': 'payments.models.Payment.PAYMENT_METHOD_CHOICES',
+    },
 }
 
 MIDDLEWARE = [
@@ -269,3 +292,8 @@ PLATFORM_FEE_PERCENTAGE = 10  # 10% de taxa
 
 # Dias para liberar pagamento ao vendedor
 PAYOUT_DAYS = 7  # Após 7 dias da confirmação da entrega
+
+STOCK_STRATEGY = 'on_payment'
+# =================== LOGISTICS CONFIGURATION ===================
+# Auto-create shipments when payment is confirmed
+AUTO_CREATE_SHIPMENTS = True

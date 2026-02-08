@@ -10,13 +10,13 @@ class Order(models.Model):
     """Modelo principal de pedido"""
     
     STATUS_CHOICES = [
-        ('pending', 'Pendente'),
-        ('payment_pending', 'Aguardando Pagamento'),
-        ('payment_confirmed', 'Pagamento Confirmado'),
+        ('pending_payment', 'Aguardando Pagamento'),
+        ('paid', 'Pagamento Confirmado'),
         ('processing', 'Em Processamento'),
         ('shipped', 'Enviado'),
         ('delivered', 'Entregue'),
         ('cancelled', 'Cancelado'),
+        ('failed', 'Falha no Pagamento'),
         ('refunded', 'Reembolsado'),
     ]
     
@@ -32,7 +32,7 @@ class Order(models.Model):
     )
     
     # Status e valores
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending_payment')
     subtotal = models.DecimalField(max_digits=10, decimal_places=2)
     shipping_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     total = models.DecimalField(max_digits=10, decimal_places=2)

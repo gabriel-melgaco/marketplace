@@ -1,6 +1,7 @@
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
 from .models import (
-    Category, Series, Products, Brand, 
+    Category, Series, Products, Brand,
     Condition, MarketplaceListing, MarketplaceListingImages
 )
 from logistics.models import Address
@@ -124,6 +125,7 @@ class MarketplaceListingSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['seller', 'views_count', 'created_at', 'updated_at', 'sold_at']
     
+    @extend_schema_field(serializers.URLField(allow_null=True))
     def get_primary_image(self, obj):
         primary = obj.images.filter(is_primary=True).first()
         if primary:

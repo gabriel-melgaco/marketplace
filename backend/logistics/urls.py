@@ -24,4 +24,17 @@ urlpatterns = [
     
     # =================== Utilities ===================
     path('cep/lookup/', views.lookup_zipcode, name='cep-lookup'),
+
+    # =================== Order Deliveries (Dual Delivery) ===================
+    path('deliveries/create/', views.create_order_deliveries, name='create-order-deliveries'),
+    path('deliveries/order/<uuid:order_id>/', views.get_order_deliveries_details, name='order-deliveries-details'),
+    path('deliveries/user/', views.list_user_deliveries, name='list-user-deliveries'),
+
+    # =================== In-Person Deliveries ===================
+    path('in-person/<int:pk>/', views.get_in_person_delivery_detail, name='in-person-detail'),
+    path('in-person/<int:pk>/confirm/', views.confirm_meeting, name='confirm-meeting'),
+    path('in-person/<int:pk>/update/', views.update_meeting_details, name='update-meeting'),
+    path('in-person/<int:pk>/complete/', views.complete_in_person_delivery, name='complete-in-person-delivery'),
+    path('in-person/<int:pk>/cancel/', views.cancel_in_person_delivery, name='cancel-in-person-delivery'),
+    path('in-person/', views.list_in_person_deliveries, name='list-in-person-deliveries'),
 ]

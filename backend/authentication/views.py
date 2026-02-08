@@ -12,6 +12,11 @@ from .serializers import LoginResponseSerializer
 
 User = get_user_model()
 
+@extend_schema(
+    tags=['Authentication'],
+    summary='Get or update user profile',
+    description='Retrieve or update the authenticated user\'s profile information.'
+)
 class CustomUserView(RetrieveUpdateAPIView):
     """View de User customizada que retorna os dados completos modificados do usuário"""
 
@@ -20,13 +25,13 @@ class CustomUserView(RetrieveUpdateAPIView):
 
     def get_object(self):
         return self.request.user
-    
-@extend_schema(
-    responses={200: LoginResponseSerializer},
-)
-   
 
-    
+@extend_schema(
+    tags=['Authentication'],
+    summary='User login',
+    responses={200: LoginResponseSerializer},
+    description='Authenticate user with email and password. Returns JWT tokens and user data.'
+)
 class CustomLoginView(BaseLoginView):
     """View de login customizada que retorna os dados completos do usuário"""
     
