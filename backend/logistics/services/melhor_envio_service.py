@@ -2,7 +2,7 @@ import requests
 from django.conf import settings
 from django.utils import timezone
 from datetime import timedelta
-from .models import ShippingQuote, Shipment, ShipmentTracking, Address
+from ..models import ShippingQuote, Shipment, ShipmentTracking, Address
 
 
 class MelhorEnvioService:

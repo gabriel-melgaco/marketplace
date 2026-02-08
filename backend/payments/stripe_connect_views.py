@@ -10,7 +10,8 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.shortcuts import get_object_or_404, render
 from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpResponse
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiResponse
+from rest_framework import serializers as rf_serializers
 import json
 
 from .stripe_connect_service import StripeConnectService, stripe_client
@@ -21,14 +22,21 @@ from django.conf import settings
 # =================== Connected Account Management ===================
 
 @extend_schema(
-    responses={201: {
-        'type': 'object',
-        'properties': {
-            'account_id': {'type': 'string'},
-            'message': {'type': 'string'}
-        }
-    }},
-    description="Create Stripe connected account for seller"
+    tags=['Stripe Connect'],
+    summary='Create connected account',
+    request=None,
+    responses={
+        201: inline_serializer(
+            name='CreateConnectedAccountResponse',
+            fields={
+                'account_id': rf_serializers.CharField(),
+                'message': rf_serializers.CharField()
+            }
+        ),
+        400: OpenApiResponse(description='Account already exists or error'),
+        403: OpenApiResponse(description='Only sellers can create connected accounts')
+    },
+    description="Create a Stripe Connect Express account for the seller. Platform controls pricing and collects fees."
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -78,14 +86,20 @@ def create_connected_account(request):
 
 
 @extend_schema(
-    responses={200: {
-        'type': 'object',
-        'properties': {
-            'url': {'type': 'string'},
-            'expires_at': {'type': 'string'}
-        }
-    }},
-    description="Get onboarding link for seller"
+    tags=['Stripe Connect'],
+    summary='Get onboarding link',
+    request=None,
+    responses={
+        200: inline_serializer(
+            name='OnboardingLinkResponse',
+            fields={
+                'url': rf_serializers.URLField(),
+                'expires_at': rf_serializers.IntegerField()
+            }
+        ),
+        400: OpenApiResponse(description='No connected account found or error')
+    },
+    description="Generate an Account Link for seller onboarding. Redirects to Stripe's hosted flow to verify identity, add bank account, and accept terms."
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -134,15 +148,21 @@ def get_onboarding_link(request):
 
 
 @extend_schema(
-    responses={200: {
-        'type': 'object',
-        'properties': {
-            'ready_to_receive_payments': {'type': 'boolean'},
-            'onboarding_complete': {'type': 'boolean'},
-            'requirements_status': {'type': 'string'}
-        }
-    }},
-    description="Get seller account status"
+    tags=['Stripe Connect'],
+    summary='Get account status',
+    responses={
+        200: inline_serializer(
+            name='AccountStatusResponse',
+            fields={
+                'has_account': rf_serializers.BooleanField(),
+                'ready_to_receive_payments': rf_serializers.BooleanField(),
+                'onboarding_complete': rf_serializers.BooleanField(),
+                'requirements_status': rf_serializers.CharField(allow_null=True, required=False)
+            }
+        ),
+        400: OpenApiResponse(description='Error checking account status')
+    },
+    description="Get the current status of the seller's connected account. Returns onboarding completion status and payment readiness."
 )
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -188,17 +208,26 @@ def get_account_status(request):
 # =================== Checkout with Destination Charges ===================
 
 @extend_schema(
-    request={
-        'order_id': 'uuid'
-    },
-    responses={200: {
-        'type': 'object',
-        'properties': {
-            'checkout_url': {'type': 'string'},
-            'session_id': {'type': 'string'}
+    tags=['Stripe Connect'],
+    summary='Create checkout with destination charge',
+    request=inline_serializer(
+        name='CreateCheckoutWithConnectRequest',
+        fields={
+            'order_id': rf_serializers.UUIDField(help_text='Order UUID')
         }
-    }},
-    description="Create checkout session with destination charge"
+    ),
+    responses={
+        200: inline_serializer(
+            name='CreateCheckoutWithConnectResponse',
+            fields={
+                'checkout_url': rf_serializers.URLField(),
+                'session_id': rf_serializers.CharField(),
+                'platform_fee': rf_serializers.FloatField()
+            }
+        ),
+        400: OpenApiResponse(description='Seller not connected or error')
+    },
+    description="Create a Stripe Checkout session with destination charge. Customer pays platform, which keeps fee and transfers rest to seller."
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])

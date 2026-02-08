@@ -39,12 +39,16 @@ class Payment(models.Model):
     stripe_payment_intent_id = models.CharField(max_length=255, unique=True)
     stripe_charge_id = models.CharField(max_length=255, blank=True)
     stripe_customer_id = models.CharField(max_length=255, blank=True)
-    
+
     # Informações do pagamento
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     currency = models.CharField(max_length=3, default='BRL')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES)
+
+    # Idempotency and metadata
+    idempotency_key = models.CharField(max_length=255, blank=True, db_index=True)
+    metadata = models.JSONField(default=dict, blank=True)
     
     # Dados adicionais
     description = models.TextField(blank=True)

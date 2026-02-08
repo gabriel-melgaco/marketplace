@@ -1,5 +1,10 @@
 from rest_framework import serializers
-from .models import ShippingQuote, Shipment, ShipmentTracking, Address
+from drf_spectacular.utils import extend_schema_field
+from .models import (
+    ShippingQuote, Shipment, ShipmentTracking, Address,
+    OrderDelivery, InPersonDelivery, DeliveryStatusLog, DeliveryMethod
+)
+from django.utils import timezone
 
 
 # =================== Address Serializers ===================
@@ -153,6 +158,7 @@ class ShippingQuoteSerializer(serializers.ModelSerializer):
             'services', 'created_at', 'expires_at'
         ]
     
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_services(self, obj):
         """Retorna lista de serviços de frete disponíveis formatados"""
         services = []
@@ -237,10 +243,255 @@ class ShipmentLabelSerializer(serializers.Serializer):
 class CEPLookupSerializer(serializers.Serializer):
     """Serializer para buscar endereço por CEP"""
     zipcode = serializers.CharField(max_length=9)
-    
+
     def validate_zipcode(self, value):
         """Remove caracteres não numéricos do CEP"""
         cleaned = ''.join(filter(str.isdigit, value))
         if len(cleaned) != 8:
             raise serializers.ValidationError("CEP deve conter 8 dígitos.")
         return cleaned
+
+
+# =================== In-Person Delivery Serializers ===================
+class InPersonDeliverySerializer(serializers.ModelSerializer):
+    """Serializer completo para entrega presencial"""
+
+    seller_name = serializers.CharField(source='seller.get_full_name', read_only=True)
+    buyer_name = serializers.CharField(source='buyer.get_full_name', read_only=True)
+    is_fully_confirmed = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = InPersonDelivery
+        fields = [
+            'id', 'seller', 'seller_name', 'buyer', 'buyer_name',
+            'meeting_status', 'meeting_location_name', 'meeting_address',
+            'meeting_notes', 'scheduled_date', 'scheduled_time',
+            'seller_contact_phone', 'buyer_contact_phone',
+            'seller_confirmed', 'buyer_confirmed',
+            'seller_confirmed_at', 'buyer_confirmed_at',
+            'is_fully_confirmed', 'completed_by', 'completion_notes',
+            'created_at', 'updated_at', 'completed_at'
+        ]
+        read_only_fields = [
+            'seller', 'buyer', 'seller_confirmed_at', 'buyer_confirmed_at',
+            'completed_at', 'created_at', 'updated_at'
+        ]
+
+
+class InPersonDeliveryCreateSerializer(serializers.ModelSerializer):
+    """Serializer para criar entrega presencial"""
+
+    class Meta:
+        model = InPersonDelivery
+        fields = [
+            'meeting_location_name', 'meeting_address', 'meeting_notes',
+            'scheduled_date', 'scheduled_time',
+            'seller_contact_phone', 'buyer_contact_phone'
+        ]
+
+    def validate(self, data):
+        """Valida data e horário do encontro"""
+        scheduled_date = data.get('scheduled_date')
+        scheduled_time = data.get('scheduled_time')
+
+        # Se data e hora foram fornecidos, validar que é no futuro
+        if scheduled_date and scheduled_time:
+            from datetime import datetime, time
+            now = timezone.now()
+            scheduled_datetime = timezone.make_aware(
+                datetime.combine(scheduled_date, scheduled_time)
+            )
+
+            if scheduled_datetime <= now:
+                raise serializers.ValidationError(
+                    "Data e horário do encontro devem ser no futuro"
+                )
+
+        return data
+
+
+class InPersonDeliveryUpdateSerializer(serializers.ModelSerializer):
+    """Serializer para atualizar entrega presencial"""
+
+    class Meta:
+        model = InPersonDelivery
+        fields = [
+            'meeting_status', 'meeting_location_name', 'meeting_address',
+            'meeting_notes', 'scheduled_date', 'scheduled_time',
+            'completion_notes'
+        ]
+
+    def validate_meeting_status(self, value):
+        """Valida transições de status"""
+        instance = self.instance
+        if not instance:
+            return value
+
+        # Define transições válidas
+        valid_transitions = {
+            'pending_schedule': ['scheduled', 'cancelled'],
+            'scheduled': ['confirmed', 'cancelled', 'no_show'],
+            'confirmed': ['in_progress', 'cancelled', 'no_show'],
+            'in_progress': ['completed', 'cancelled'],
+            'completed': [],  # Final state
+            'cancelled': [],  # Final state
+            'no_show': ['scheduled'],  # Pode reagendar
+        }
+
+        current_status = instance.meeting_status
+        if value != current_status:
+            if value not in valid_transitions.get(current_status, []):
+                raise serializers.ValidationError(
+                    f"Transição inválida de '{current_status}' para '{value}'"
+                )
+
+        return value
+
+
+# =================== Order Delivery Serializers ===================
+class OrderDeliverySerializer(serializers.ModelSerializer):
+    """Serializer completo para entrega do pedido"""
+
+    seller_name = serializers.CharField(source='seller.get_full_name', read_only=True)
+    delivery_info = serializers.SerializerMethodField()
+    shipment_details = ShipmentSerializer(source='shipment', read_only=True)
+    in_person_details = InPersonDeliverySerializer(source='in_person_delivery', read_only=True)
+
+    class Meta:
+        model = OrderDelivery
+        fields = [
+            'id', 'order', 'seller', 'seller_name',
+            'delivery_method', 'status', 'delivery_cost',
+            'shipment', 'shipment_details',
+            'in_person_delivery', 'in_person_details',
+            'delivery_info',
+            'created_at', 'updated_at', 'confirmed_at', 'completed_at'
+        ]
+        read_only_fields = ['created_at', 'updated_at']
+
+    @extend_schema_field(serializers.DictField())
+    def get_delivery_info(self, obj):
+        """Retorna informações consolidadas da entrega"""
+        return obj.get_delivery_info()
+
+
+class OrderDeliveryCreateSerializer(serializers.Serializer):
+    """Serializer para criar opção de entrega no checkout"""
+
+    order_id = serializers.UUIDField()
+    seller_id = serializers.IntegerField()
+    delivery_method = serializers.ChoiceField(choices=DeliveryMethod.choices)
+
+    # Para SHIPPING
+    shipping_service_id = serializers.IntegerField(required=False, allow_null=True)
+
+    # Para IN_PERSON
+    meeting_location_name = serializers.CharField(required=False, allow_blank=True, max_length=200)
+    meeting_address = serializers.JSONField(required=False)
+    meeting_notes = serializers.CharField(required=False, allow_blank=True)
+    scheduled_date = serializers.DateField(required=False, allow_null=True)
+    scheduled_time = serializers.TimeField(required=False, allow_null=True)
+    seller_contact_phone = serializers.CharField(required=False, allow_blank=True, max_length=20)
+    buyer_contact_phone = serializers.CharField(required=False, allow_blank=True, max_length=20)
+
+    def validate(self, data):
+        """Valida que os campos corretos estão preenchidos conforme o tipo de entrega"""
+        delivery_method = data.get('delivery_method')
+
+        if delivery_method == DeliveryMethod.SHIPPING:
+            if not data.get('shipping_service_id'):
+                raise serializers.ValidationError({
+                    'shipping_service_id': 'Campo obrigatório para envio via transportadora'
+                })
+
+        elif delivery_method == DeliveryMethod.IN_PERSON:
+            required_fields = [
+                'meeting_location_name',
+                'meeting_address',
+                'seller_contact_phone',
+                'buyer_contact_phone'
+            ]
+
+            missing_fields = [
+                field for field in required_fields
+                if not data.get(field)
+            ]
+
+            if missing_fields:
+                raise serializers.ValidationError({
+                    field: 'Campo obrigatório para entrega presencial'
+                    for field in missing_fields
+                })
+
+            # Validar data/hora no futuro se fornecidos
+            scheduled_date = data.get('scheduled_date')
+            scheduled_time = data.get('scheduled_time')
+
+            if scheduled_date and scheduled_time:
+                from datetime import datetime
+                now = timezone.now()
+                scheduled_datetime = timezone.make_aware(
+                    datetime.combine(scheduled_date, scheduled_time)
+                )
+
+                if scheduled_datetime <= now:
+                    raise serializers.ValidationError(
+                        "Data e horário do encontro devem ser no futuro"
+                    )
+
+        return data
+
+
+class DeliveryMethodChoiceSerializer(serializers.Serializer):
+    """Serializer para escolher método de entrega no checkout"""
+
+    seller_id = serializers.IntegerField()
+    delivery_method = serializers.ChoiceField(choices=DeliveryMethod.choices)
+
+    # Para shipping: ID do serviço escolhido na cotação
+    shipping_service_id = serializers.IntegerField(required=False, allow_null=True)
+
+    # Para in-person: dados do encontro
+    meeting_data = serializers.JSONField(required=False)
+
+    def validate(self, data):
+        """Valida campos conforme método escolhido"""
+        delivery_method = data['delivery_method']
+
+        if delivery_method == DeliveryMethod.SHIPPING:
+            if not data.get('shipping_service_id'):
+                raise serializers.ValidationError(
+                    'shipping_service_id é obrigatório para envio via transportadora'
+                )
+
+        elif delivery_method == DeliveryMethod.IN_PERSON:
+            meeting_data = data.get('meeting_data', {})
+
+            required_fields = [
+                'meeting_location_name',
+                'seller_contact_phone',
+                'buyer_contact_phone'
+            ]
+
+            missing = [f for f in required_fields if not meeting_data.get(f)]
+            if missing:
+                raise serializers.ValidationError({
+                    'meeting_data': f'Campos obrigatórios ausentes: {", ".join(missing)}'
+                })
+
+        return data
+
+
+class DeliveryStatusLogSerializer(serializers.ModelSerializer):
+    """Serializer para log de status de entrega"""
+
+    changed_by_name = serializers.CharField(source='changed_by.get_full_name', read_only=True)
+
+    class Meta:
+        model = DeliveryStatusLog
+        fields = [
+            'id', 'order_delivery', 'from_status', 'to_status',
+            'changed_by', 'changed_by_name', 'notes', 'metadata',
+            'created_at'
+        ]
+        read_only_fields = ['created_at']
