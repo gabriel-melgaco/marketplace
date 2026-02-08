@@ -5,7 +5,7 @@ import { ProductDetail } from "@/pages/public/ProductDetail";
 import { ProductList } from "@/pages/public/ProductList";
 import LoginPage from "@/pages/auth/Login";
 import { ForgotPassword } from "@/pages/auth/ForgotPassword";
-import { ResetPassword } from "@/pages/auth/ResetPassword";
+import ResetPassword from "@/pages/auth/ResetPassword";
 import { Register } from "@/pages/auth/Register";
 import { Checkout } from "@/pages/Checkout/ClientcheCkout";
 import { Payment } from "@/pages/Checkout/ClientPayment";
@@ -35,7 +35,7 @@ const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
   { path: "/register", element: <Register /> },
   { path: "/forgotpassword", element: <ForgotPassword /> },
-  { path: "/resetpassword", element: <ResetPassword /> },
+  { path: "/reset-password", element: <ResetPassword /> },
   { path: "/email-sent", element: <EmailSent /> },
   { path: "/confirm-email", element: <ConfirmEmail /> },
 

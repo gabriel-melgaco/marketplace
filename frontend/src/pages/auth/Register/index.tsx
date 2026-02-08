@@ -13,6 +13,7 @@ import {
   Calendar,
 } from "lucide-react";
 import { authService } from "@/services/authService";
+import { AuthLogo } from "@/components/ui/AuthLogo";
 import {
   validateCPF,
   formatCPF,
@@ -199,16 +200,9 @@ export function Register() {
 
   return (
     <div className="min-h-screen bg-linear-to-br from-black via-gray-900 to-blue-600 flex items-center justify-center p-4 py-8">
-      {/* Logo */}
-      <div className="absolute top-4 left-4 md:top-8 md:left-8 flex items-center gap-2 text-white">
-        <div className="w-8 h-8 md:w-10 md:h-10 bg-secundary rounded-full flex items-center justify-center">
-          <span className="text-xs md:text-sm font-bold">CS</span>
-        </div>
-        <span className="font-bold text-lg md:text-2xl">MARKETPLACE</span>
-      </div>
-
+      <AuthLogo />
       {/* Card de Cadastro */}
-      <div className="w-full max-w-md lg:max-w-2xl my-12 md:my-8">
+      <div className="w-full max-w-md lg:max-w-2xl my-10 md:my-15">
         <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
           {/* Header */}
           <div className="bg-linear-to-r from-blue-900 to-gray-900 p-6 md:p-8 text-white text-center">
