@@ -80,7 +80,7 @@ class Brand(models.Model):
     name = models.CharField(max_length=150, unique=True)
     slug = models.SlugField(unique=True)
 
-    logo = models.CharField()
+    logo = models.CharField(max_length=255, blank=True, null=True)
 
     website = models.URLField(blank=True)
 
@@ -114,7 +114,7 @@ class MarketplaceListing(models.Model):
     )
     quantity = models.PositiveIntegerField(default=1)
     is_active = models.BooleanField(default=True)
-    description = models.TextField()
+    description = models.TextField(max_length=255)
     condition = models.ForeignKey(
         Condition,
         on_delete=models.PROTECT,

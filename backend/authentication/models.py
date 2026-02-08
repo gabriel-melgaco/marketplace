@@ -35,7 +35,7 @@ class CustomUser(AbstractUser):
     email = models.EmailField(unique=True)
     full_name = models.CharField(max_length=50)
     birthday = models.DateField(null=True, blank=True)
-    picture = models.CharField(null=True, blank=True)
+    picture = models.CharField(max_length=255, null=True, blank=True)
     cpf = models.CharField(max_length=14, unique=True, null=True, blank=True)
 
     USERNAME_FIELD = 'email'
