@@ -5,6 +5,7 @@ from .models import (
     Condition, MarketplaceListing, MarketplaceListingImages
 )
 from logistics.models import Address
+from logistics.serializers import AddressSerializer
 from authentication.models import CustomUser
 
 # =================== Category Serializers ===================
@@ -113,18 +114,19 @@ class MarketplaceListingSerializer(serializers.ModelSerializer):
     images = MarketplaceListingImageSerializer(many=True, read_only=True)
     seller_name = serializers.CharField(source='seller.get_full_name', read_only=True)
     primary_image = serializers.SerializerMethodField()
-    
+    seller_shipping_address = serializers.SerializerMethodField()
+
     class Meta:
         model = MarketplaceListing
         fields = [
-            'id', 'product', 'seller', 'seller_name', 'price', 'brand', 
-            'quantity', 'is_active', 'description', 'condition', 
-            'views_count', 'weight_kg', 'height_cm', 'width_cm', 
-            'length_cm', 'created_at', 'updated_at', 'sold_at', 
-            'images', 'primary_image'
+            'id', 'product', 'seller', 'seller_name', 'price', 'brand',
+            'quantity', 'is_active', 'description', 'condition',
+            'views_count', 'weight_kg', 'height_cm', 'width_cm',
+            'length_cm', 'created_at', 'updated_at', 'sold_at',
+            'images', 'primary_image', 'seller_shipping_address'
         ]
         read_only_fields = ['seller', 'views_count', 'created_at', 'updated_at', 'sold_at']
-    
+
     @extend_schema_field(serializers.URLField(allow_null=True))
     def get_primary_image(self, obj):
         primary = obj.images.filter(is_primary=True).first()
@@ -132,6 +134,17 @@ class MarketplaceListingSerializer(serializers.ModelSerializer):
             return primary.image_url
         first_image = obj.images.first()
         return first_image.image_url if first_image else None
+
+    @extend_schema_field(AddressSerializer(allow_null=True))
+    def get_seller_shipping_address(self, obj):
+        address = Address.objects.filter(
+            user=obj.seller,
+            is_shipping_address=True,
+            is_active=True
+        ).first()
+        if address:
+            return AddressSerializer(address).data
+        return None
 
 
 class MarketplaceListingCreateSerializer(serializers.ModelSerializer):
@@ -401,7 +414,19 @@ class MarketplaceListingDetailSerializer(serializers.ModelSerializer):
     images = MarketplaceListingImageSerializer(many=True, read_only=True)
     seller_name = serializers.CharField(source='seller.get_full_name', read_only=True)
     seller_email = serializers.EmailField(source='seller.email', read_only=True)
-    
+    seller_shipping_address = serializers.SerializerMethodField()
+
     class Meta:
         model = MarketplaceListing
         fields = '__all__'
+
+    @extend_schema_field(AddressSerializer(allow_null=True))
+    def get_seller_shipping_address(self, obj):
+        address = Address.objects.filter(
+            user=obj.seller,
+            is_shipping_address=True,
+            is_active=True
+        ).first()
+        if address:
+            return AddressSerializer(address).data
+        return None

@@ -1,3 +1,4 @@
+# =================== Core ===================
 Django==5.1.6
 djangorestframework==3.15.2
 django-filter==25.1
@@ -5,13 +6,29 @@ django-cors-headers==4.4.0
 django-allauth==0.63.6
 djangorestframework-simplejwt==5.4.0
 
+# =================== Auth Kit ===================
+# NOTA: drf-auth-kit>=1.0 declara dependência em django-allauth>=65.5.0,
+# porém o projeto utiliza allauth==0.63.6 e funciona corretamente.
+# Instalar separadamente com: pip install --no-deps drf-auth-kit==1.1.1
+# Não incluir aqui para evitar ResolutionImpossible no pip install.
+
+# =================== Payments & Storage ===================
 stripe==14.2.0
 minio==7.2.20
 
+# =================== Database & Config ===================
 psycopg2-binary==2.9.11
 python-dotenv==1.0.1
 
+# =================== API Documentation ===================
 drf-spectacular==0.28.0
+
+# =================== Observability ===================
 structlog==25.2.0
 
+# =================== Security ===================
 argon2-cffi==23.1.0
+
+# =================== Testing ===================
+pytest==9.0.2
+pytest-django==4.11.1
