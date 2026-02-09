@@ -20,7 +20,7 @@ class Migration(migrations.Migration):
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('name', models.CharField(max_length=150, unique=True)),
                 ('slug', models.SlugField(unique=True)),
-                ('logo', models.CharField()),
+                ('logo', models.CharField(max_length=255, blank=True, null=True)),
                 ('website', models.URLField(blank=True)),
                 ('is_active', models.BooleanField(default=True)),
             ],
@@ -98,7 +98,7 @@ class Migration(migrations.Migration):
             name='MarketplaceListingImages',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('image', models.CharField()),
+                ('image', models.CharField(max_length=500)),
                 ('is_primary', models.BooleanField(default=False)),
                 ('order', models.PositiveSmallIntegerField(default=0)),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
