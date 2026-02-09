@@ -107,24 +107,53 @@ class OrderSerializer(serializers.ModelSerializer):
 
 class OrderCreateSerializer(serializers.Serializer):
     """
-    Serializer para criar pedido
-    
-    Exemplo de payload:
+    Serializer para criar pedido com suporte a múltiplos métodos de entrega.
+
+    Formato novo (recomendado):
     {
         "shipping_address_id": 5,
         "shipping_services": {
-            "1": 2,  // seller_id: service_id
-            "3": 1
+            "1": {
+                "delivery_method": "shipping",
+                "service_id": 2,
+                "cost": 25.90
+            },
+            "2": {
+                "delivery_method": "in_person",
+                "meeting_location_name": "Shopping Iguatemi",
+                "meeting_address": {
+                    "street": "Av. Brigadeiro Faria Lima",
+                    "number": "2232",
+                    "city": "São Paulo",
+                    "state": "SP",
+                    "zipcode": "01451-000"
+                },
+                "seller_contact_phone": "11999999999",
+                "buyer_contact_phone": "11888888888",
+                "scheduled_date": "2026-02-15",
+                "scheduled_time": "14:00",
+                "meeting_notes": "Próximo à entrada principal"
+            }
         },
-        "payment_method": "credit_card",
+        "payment_method": "pix",
         "buyer_notes": "Entregar após 18h"
+    }
+
+    Formato legado (retrocompatível):
+    {
+        "shipping_services": {
+            "1": 2,
+            "3": 1
+        }
     }
     """
     shipping_address_id = serializers.IntegerField(required=True)
     shipping_services = serializers.DictField(
-        child=serializers.IntegerField(),
         required=True,
-        help_text="Mapa de seller_id para service_id escolhido na cotação"
+        help_text=(
+            "Mapa de seller_id para configuração de entrega. "
+            "Aceita formato novo (dict com delivery_method) ou legado (service_id inteiro)."
+        )
     )
     payment_method = serializers.ChoiceField(
         choices=[
@@ -136,36 +165,142 @@ class OrderCreateSerializer(serializers.Serializer):
         required=True
     )
     buyer_notes = serializers.CharField(required=False, allow_blank=True)
-    
+
     def validate_shipping_address_id(self, value):
         """Valida se o endereço existe e pertence ao usuário"""
         from logistics.models import Address
         user = self.context['request'].user
-        
+
         if not Address.objects.filter(id=value, user=user, is_active=True).exists():
             raise serializers.ValidationError("Endereço inválido ou não encontrado.")
-        
+
         return value
-    
+
     def validate_shipping_services(self, value):
-        """Valida se shipping_services foi fornecido corretamente"""
+        """
+        Valida e normaliza shipping_services.
+        Aceita formato legado (seller_id: service_id) e novo (seller_id: {delivery_method, ...}).
+        Converte formato legado para o novo formato automaticamente.
+        """
         if not value or not isinstance(value, dict):
             raise serializers.ValidationError(
-                "shipping_services deve ser um objeto com seller_id: service_id"
+                "shipping_services deve ser um objeto com seller_id como chave"
             )
-        
-        # Converter chaves para inteiros se vieram como strings
-        try:
-            return {int(k): int(v) for k, v in value.items()}
-        except (ValueError, TypeError):
+
+        normalized = {}
+
+        for seller_key, service_config in value.items():
+            # Converter chave para inteiro
+            try:
+                seller_id = int(seller_key)
+            except (ValueError, TypeError):
+                raise serializers.ValidationError(
+                    f"seller_id inválido: {seller_key}. Deve ser numérico."
+                )
+
+            # Formato legado: seller_id: service_id (inteiro)
+            if isinstance(service_config, (int, float)):
+                normalized[seller_id] = {
+                    'delivery_method': 'shipping',
+                    'service_id': int(service_config),
+                }
+                continue
+
+            # Formato legado via string numérica
+            if isinstance(service_config, str):
+                try:
+                    normalized[seller_id] = {
+                        'delivery_method': 'shipping',
+                        'service_id': int(service_config),
+                    }
+                    continue
+                except ValueError:
+                    raise serializers.ValidationError(
+                        f"Valor inválido para seller {seller_id}: {service_config}"
+                    )
+
+            # Formato novo: seller_id: {delivery_method: ..., ...}
+            if isinstance(service_config, dict):
+                delivery_method = service_config.get('delivery_method', 'shipping')
+
+                if delivery_method not in ('shipping', 'in_person'):
+                    raise serializers.ValidationError(
+                        f"delivery_method inválido para seller {seller_id}: '{delivery_method}'. "
+                        f"Deve ser 'shipping' ou 'in_person'."
+                    )
+
+                if delivery_method == 'shipping':
+                    service_id = service_config.get('service_id')
+                    if service_id is None:
+                        raise serializers.ValidationError(
+                            f"service_id é obrigatório para entrega shipping do seller {seller_id}."
+                        )
+                    try:
+                        normalized[seller_id] = {
+                            'delivery_method': 'shipping',
+                            'service_id': int(service_id),
+                            'cost': service_config.get('cost'),
+                        }
+                    except (ValueError, TypeError):
+                        raise serializers.ValidationError(
+                            f"service_id inválido para seller {seller_id}."
+                        )
+
+                elif delivery_method == 'in_person':
+                    # Validar campos obrigatórios para in-person
+                    required_fields = [
+                        'meeting_location_name',
+                        'meeting_address',
+                        'seller_contact_phone',
+                        'buyer_contact_phone',
+                    ]
+                    missing = [f for f in required_fields if not service_config.get(f)]
+                    if missing:
+                        raise serializers.ValidationError(
+                            f"Campos obrigatórios ausentes para entrega presencial do seller "
+                            f"{seller_id}: {', '.join(missing)}"
+                        )
+
+                    # Validar meeting_address tem campos mínimos
+                    address = service_config.get('meeting_address', {})
+                    if not isinstance(address, dict):
+                        raise serializers.ValidationError(
+                            f"meeting_address deve ser um objeto para seller {seller_id}."
+                        )
+
+                    address_required = ['street', 'city', 'state']
+                    missing_addr = [f for f in address_required if not address.get(f)]
+                    if missing_addr:
+                        raise serializers.ValidationError(
+                            f"Campos obrigatórios ausentes em meeting_address do seller "
+                            f"{seller_id}: {', '.join(missing_addr)}"
+                        )
+
+                    normalized[seller_id] = {
+                        'delivery_method': 'in_person',
+                        'cost': 0,
+                        'meeting_location_name': service_config['meeting_location_name'],
+                        'meeting_address': address,
+                        'seller_contact_phone': service_config['seller_contact_phone'],
+                        'buyer_contact_phone': service_config['buyer_contact_phone'],
+                        'scheduled_date': service_config.get('scheduled_date'),
+                        'scheduled_time': service_config.get('scheduled_time'),
+                        'meeting_notes': service_config.get('meeting_notes', ''),
+                    }
+
+                continue
+
             raise serializers.ValidationError(
-                "shipping_services deve conter apenas IDs numéricos"
+                f"Formato inválido para seller {seller_id}. "
+                f"Deve ser um inteiro (service_id) ou objeto com delivery_method."
             )
-    
+
+        return normalized
+
     def validate(self, data):
-        """Valida se o carrinho não está vazio e se todos os vendedores têm frete"""
+        """Valida se o carrinho não está vazio e se todos os vendedores têm entrega configurada"""
         user = self.context['request'].user
-        
+
         # Verificar carrinho
         try:
             cart = user.cart
@@ -173,23 +308,23 @@ class OrderCreateSerializer(serializers.Serializer):
                 raise serializers.ValidationError("Carrinho está vazio.")
         except Cart.DoesNotExist:
             raise serializers.ValidationError("Carrinho não encontrado.")
-        
-        # Verificar se todos os vendedores do carrinho têm frete especificado
+
+        # Verificar se todos os vendedores do carrinho têm entrega especificada
         sellers_in_cart = set(cart.get_sellers().values_list('id', flat=True))
         sellers_in_shipping = set(data['shipping_services'].keys())
-        
+
         missing_sellers = sellers_in_cart - sellers_in_shipping
         if missing_sellers:
             raise serializers.ValidationError({
-                'shipping_services': f"Frete não especificado para vendedores: {missing_sellers}"
+                'shipping_services': f"Entrega não especificada para vendedores: {missing_sellers}"
             })
-        
+
         extra_sellers = sellers_in_shipping - sellers_in_cart
         if extra_sellers:
             raise serializers.ValidationError({
                 'shipping_services': f"Vendedores não estão no carrinho: {extra_sellers}"
             })
-        
+
         return data
 
 

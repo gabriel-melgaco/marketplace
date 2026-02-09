@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiParameter, OpenApiResponse
+from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiParameter, OpenApiResponse, OpenApiExample
 from rest_framework import serializers as rf_serializers
 from collections import defaultdict
 import datetime
@@ -207,25 +207,173 @@ class OrderDetailView(generics.RetrieveAPIView):
 @extend_schema(
     tags=['Orders'],
     summary='Create order',
-    request=OrderCreateSerializer,
+    request=inline_serializer(
+        name='OrderCreateRequest',
+        fields={
+            'shipping_address_id': rf_serializers.IntegerField(
+                help_text='ID do endereço de entrega do comprador'
+            ),
+            'shipping_services': rf_serializers.DictField(
+                child=rf_serializers.DictField(),
+                help_text=(
+                    'Mapa de seller_id para configuração de entrega. '
+                    'Cada valor pode ser: '
+                    '(1) Shipping: {"delivery_method": "shipping", "service_id": int, "cost": float} '
+                    '(2) In-person: {"delivery_method": "in_person", "meeting_location_name": str, '
+                    '"meeting_address": {"street": str, "number": str, "city": str, "state": str, "zipcode": str}, '
+                    '"seller_contact_phone": str, "buyer_contact_phone": str, '
+                    '"scheduled_date": str (opcional), "scheduled_time": str (opcional), '
+                    '"meeting_notes": str (opcional)} '
+                    '(3) Legado: integer (service_id direto)'
+                )
+            ),
+            'payment_method': rf_serializers.ChoiceField(
+                choices=['credit_card', 'debit_card', 'pix', 'boleto'],
+                help_text='Método de pagamento'
+            ),
+            'buyer_notes': rf_serializers.CharField(
+                required=False,
+                allow_blank=True,
+                help_text='Observações do comprador (opcional)'
+            ),
+        }
+    ),
     responses={201: OrderSerializer},
-    description="Create an order from the cart. Validates stock and reserves items."
+    description=(
+        "Create an order from the cart with support for multiple delivery methods.\n\n"
+        "Each seller in the cart must have a delivery configuration in `shipping_services`.\n\n"
+        "## Delivery Methods\n\n"
+        "**Shipping** (via carrier):\n"
+        "- Requires prior freight quote via `POST /api/logistics/shipping/calculate/`\n"
+        "- Fields: `delivery_method`, `service_id`, `cost`\n\n"
+        "**In-person** (pickup with seller):\n"
+        "- No freight quote needed\n"
+        "- Required fields: `delivery_method`, `meeting_location_name`, `meeting_address`, "
+        "`seller_contact_phone`, `buyer_contact_phone`\n"
+        "- Optional fields: `scheduled_date`, `scheduled_time`, `meeting_notes`\n\n"
+        "**Legacy format** (backward compatible): `{seller_id: service_id}` as integer"
+    ),
+    examples=[
+        OpenApiExample(
+            name='Mixed delivery (shipping + in-person)',
+            description='Order with shipping for one seller and in-person pickup for another',
+            value={
+                'shipping_address_id': 5,
+                'shipping_services': {
+                    '1': {
+                        'delivery_method': 'shipping',
+                        'service_id': 2,
+                        'cost': 25.90
+                    },
+                    '2': {
+                        'delivery_method': 'in_person',
+                        'meeting_location_name': 'Shopping Iguatemi',
+                        'meeting_address': {
+                            'street': 'Av. Brigadeiro Faria Lima',
+                            'number': '2232',
+                            'city': 'São Paulo',
+                            'state': 'SP',
+                            'zipcode': '01451-000'
+                        },
+                        'seller_contact_phone': '11999999999',
+                        'buyer_contact_phone': '11888888888',
+                        'scheduled_date': '2026-02-15',
+                        'scheduled_time': '14:00',
+                        'meeting_notes': 'Próximo à entrada principal'
+                    }
+                },
+                'payment_method': 'pix',
+                'buyer_notes': 'Entregar após 18h'
+            },
+            request_only=True,
+        ),
+        OpenApiExample(
+            name='Shipping only',
+            description='Order with shipping delivery for all sellers',
+            value={
+                'shipping_address_id': 5,
+                'shipping_services': {
+                    '1': {
+                        'delivery_method': 'shipping',
+                        'service_id': 2,
+                        'cost': 25.90
+                    }
+                },
+                'payment_method': 'credit_card',
+                'buyer_notes': ''
+            },
+            request_only=True,
+        ),
+        OpenApiExample(
+            name='In-person only',
+            description='Order with in-person pickup for all sellers',
+            value={
+                'shipping_address_id': 5,
+                'shipping_services': {
+                    '1': {
+                        'delivery_method': 'in_person',
+                        'meeting_location_name': 'Loja Física Centro',
+                        'meeting_address': {
+                            'street': 'Rua Augusta',
+                            'number': '100',
+                            'city': 'São Paulo',
+                            'state': 'SP',
+                            'zipcode': '01304-000'
+                        },
+                        'seller_contact_phone': '11999999999',
+                        'buyer_contact_phone': '11888888888'
+                    }
+                },
+                'payment_method': 'pix'
+            },
+            request_only=True,
+        ),
+        OpenApiExample(
+            name='Legacy format (backward compatible)',
+            description='Old format using seller_id: service_id mapping',
+            value={
+                'shipping_address_id': 5,
+                'shipping_services': {
+                    '1': 2,
+                    '3': 1
+                },
+                'payment_method': 'credit_card'
+            },
+            request_only=True,
+        ),
+    ],
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_order(request):
     """
     Criar pedido a partir do carrinho usando service layer.
+    Suporta múltiplos métodos de entrega (shipping e in-person).
 
-    Payload esperado:
+    Formato novo:
     {
         "shipping_address_id": 5,
         "shipping_services": {
-            "1": 2,  // seller_id: service_id (da cotação)
-            "3": 1
+            "1": {
+                "delivery_method": "shipping",
+                "service_id": 2,
+                "cost": 25.90
+            },
+            "2": {
+                "delivery_method": "in_person",
+                "meeting_location_name": "Shopping Iguatemi",
+                "meeting_address": {"street": "...", "city": "...", "state": "SP"},
+                "seller_contact_phone": "11999999999",
+                "buyer_contact_phone": "11888888888"
+            }
         },
-        "payment_method": "credit_card",
+        "payment_method": "pix",
         "buyer_notes": "Opcional"
+    }
+
+    Formato legado (retrocompatível):
+    {
+        "shipping_services": {"1": 2, "3": 1}
     }
     """
     # Validate request data

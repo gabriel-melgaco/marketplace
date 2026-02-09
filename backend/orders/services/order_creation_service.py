@@ -49,7 +49,7 @@ class OrderCreationService:
         user,
         cart,
         shipping_address,
-        shipping_services_input: Dict[int, int],
+        shipping_services_input: Dict,
         payment_method: str,
         buyer_notes: str = ''
     ):
@@ -60,7 +60,8 @@ class OrderCreationService:
             user: User creating the order
             cart: Cart instance
             shipping_address: Address instance for shipping
-            shipping_services_input: Dict mapping seller_id to service_id
+            shipping_services_input: Dict mapping seller_id to delivery config
+                (normalized by serializer to {seller_id: {delivery_method, ...}})
             payment_method: Payment method chosen
             buyer_notes: Optional notes from buyer
 
@@ -138,10 +139,12 @@ class OrderCreationService:
             cls._reserve_stock_immediate(validated_items)
         # If 'on_payment', stock will be decremented after payment confirmation
 
-        # Step 9: Create initial status history
-        OrderStateMachine.transition_to(
+        # Step 9: Create initial status history (order already created as pending_payment)
+        from orders.models import OrderStatusHistory
+        OrderStatusHistory.objects.create(
             order=order,
-            new_status=OrderStateMachine.PENDING_PAYMENT,
+            old_status='',
+            new_status='pending_payment',
             changed_by=user,
             notes='Order created from cart'
         )
@@ -164,15 +167,18 @@ class OrderCreationService:
     def _validate_and_calculate_shipping(
         user,
         validated_items: list,
-        shipping_services_input: Dict[int, int]
+        shipping_services_input: Dict
     ) -> Dict:
         """
-        Validate shipping quotes and calculate total shipping cost.
+        Validate shipping/delivery options and calculate total shipping cost.
+
+        Supports both shipping (via carrier) and in-person delivery methods.
 
         Args:
             user: User instance
             validated_items: List of validated cart items
-            shipping_services_input: Dict mapping seller_id to service_id
+            shipping_services_input: Dict mapping seller_id to delivery config
+                (normalized format: {seller_id: {delivery_method, ...}})
 
         Returns:
             Dict with shipping data
@@ -192,59 +198,98 @@ class OrderCreationService:
         shipping_services_data = {}
         shipping_by_seller = {}
 
-        for seller_id, service_id in shipping_services_input.items():
+        for seller_id, delivery_config in shipping_services_input.items():
             # Validate seller has items in cart
             if seller_id not in items_by_seller:
                 raise OrderCreationError(
                     f"Seller {seller_id} not found in cart items"
                 )
 
-            # Find valid shipping quote
-            quote = ShippingQuote.objects.filter(
-                user=user,
-                seller_id=seller_id,
-                expires_at__gt=timezone.now()
-            ).order_by('-created_at').first()
+            delivery_method = delivery_config.get('delivery_method', 'shipping')
 
-            if not quote:
-                raise OrderCreationError(
-                    f"Shipping quote for seller {seller_id} expired or not found. "
-                    f"Please recalculate shipping."
+            if delivery_method == 'shipping':
+                # --- Shipping via carrier ---
+                service_id = delivery_config.get('service_id')
+                if not service_id:
+                    raise OrderCreationError(
+                        f"service_id is required for shipping delivery of seller {seller_id}"
+                    )
+
+                # Find valid shipping quote
+                quote = ShippingQuote.objects.filter(
+                    user=user,
+                    seller_id=seller_id,
+                    expires_at__gt=timezone.now()
+                ).order_by('-created_at').first()
+
+                if not quote:
+                    raise OrderCreationError(
+                        f"Shipping quote for seller {seller_id} expired or not found. "
+                        f"Please recalculate shipping."
+                    )
+
+                # Find selected service in quote
+                quotes_list = quote.quotes_data
+                if isinstance(quotes_list, dict):
+                    quotes_list = quotes_list.get('services', [])
+
+                service_found = None
+                for service in quotes_list:
+                    if isinstance(service, dict) and service.get('id') == service_id:
+                        service_found = service
+                        break
+
+                if not service_found:
+                    raise OrderCreationError(
+                        f"Shipping service {service_id} not found for seller {seller_id}"
+                    )
+
+                # Extract shipping cost from quote (server-side, trusted)
+                shipping_cost = Decimal(str(
+                    service_found.get('custom_price', service_found.get('price', 0))
+                ))
+
+                total_shipping += shipping_cost
+
+                # Store service data
+                shipping_services_data[str(seller_id)] = {
+                    'delivery_method': 'shipping',
+                    'service_id': service_id,
+                    'service_name': service_found.get('name', ''),
+                    'company': service_found.get('company', ''),
+                    'cost': float(shipping_cost),
+                    'delivery_time': service_found.get('delivery_time', 0)
+                }
+
+                shipping_by_seller[seller_id] = shipping_cost
+
+            elif delivery_method == 'in_person':
+                # --- In-person delivery ---
+                logger.info(
+                    f"In-person delivery configured for seller {seller_id}",
+                    extra={'seller_id': seller_id, 'order_user': user.email}
                 )
 
-            # Find selected service in quote
-            quotes_list = quote.quotes_data
-            if isinstance(quotes_list, dict):
-                quotes_list = quotes_list.get('services', [])
+                # In-person delivery has zero shipping cost
+                shipping_by_seller[seller_id] = Decimal('0.00')
 
-            service_found = None
-            for service in quotes_list:
-                if isinstance(service, dict) and service.get('id') == service_id:
-                    service_found = service
-                    break
+                # Store in-person delivery data for signal to process
+                shipping_services_data[str(seller_id)] = {
+                    'delivery_method': 'in_person',
+                    'cost': 0,
+                    'meeting_location_name': delivery_config.get('meeting_location_name', ''),
+                    'meeting_address': delivery_config.get('meeting_address', {}),
+                    'seller_contact_phone': delivery_config.get('seller_contact_phone', ''),
+                    'buyer_contact_phone': delivery_config.get('buyer_contact_phone', ''),
+                    'scheduled_date': delivery_config.get('scheduled_date'),
+                    'scheduled_time': delivery_config.get('scheduled_time'),
+                    'meeting_notes': delivery_config.get('meeting_notes', ''),
+                }
 
-            if not service_found:
+            else:
                 raise OrderCreationError(
-                    f"Shipping service {service_id} not found for seller {seller_id}"
+                    f"Invalid delivery method '{delivery_method}' for seller {seller_id}"
                 )
-
-            # Extract shipping cost
-            shipping_cost = Decimal(str(
-                service_found.get('custom_price', service_found.get('price', 0))
-            ))
-
-            total_shipping += shipping_cost
-
-            # Store service data
-            shipping_services_data[str(seller_id)] = {
-                'service_id': service_id,
-                'service_name': service_found.get('name', ''),
-                'company': service_found.get('company', ''),
-                'cost': float(shipping_cost),
-                'delivery_time': service_found.get('delivery_time', 0)
-            }
-
-            shipping_by_seller[seller_id] = shipping_cost
 
         return {
             'total_shipping': total_shipping,
@@ -283,7 +328,7 @@ class OrderCreationService:
 
         order = Order.objects.create(
             buyer=user,
-            status='pending',  # Will be updated to pending_payment by state machine
+            status='pending_payment',
             subtotal=subtotal,
             shipping_cost=shipping_cost,
             total=total,
