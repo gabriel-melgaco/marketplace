@@ -64,7 +64,14 @@ def add_to_cart(request):
         is_active=True,
         quantity__gte=quantity
     )
-    
+
+    # Verificar se o usuário não é o vendedor do produto
+    if listing.seller == request.user:
+        return Response(
+            {'error': 'Você não pode adicionar ao carrinho um produto que você mesmo está vendendo'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
     # Criar ou pegar carrinho
     cart, created = Cart.objects.get_or_create(user=request.user)
     

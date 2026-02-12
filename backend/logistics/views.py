@@ -1,10 +1,17 @@
+import hmac
+import hashlib
+import json
+import logging
+
 from rest_framework import generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.shortcuts import get_object_or_404
+from django.conf import settings as django_settings
 from django.db import transaction
 from django.db.models import Q
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework.exceptions import ValidationError
 from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiParameter, OpenApiResponse, OpenApiTypes
 from rest_framework import serializers as rf_serializers
@@ -32,7 +39,10 @@ from .services import (
     ShipmentCreationError,
 )
 from orders.models import Order, Cart
+from orders.services.order_state_machine import OrderStateMachine, OrderStatusTransitionError
 from products.models import MarketplaceListing
+
+logger = logging.getLogger(__name__)
 
 
 # =================== Address Views ===================
@@ -1272,3 +1282,197 @@ def list_in_person_deliveries(request):
         'deliveries': serializer.data,
         'count': queryset.count()
     })
+
+
+# =================== Melhor Envio Webhook ===================
+@extend_schema(
+    tags=['Logistics - Webhooks'],
+    summary='Melhor Envio webhook receiver',
+    description='Receives webhook events from Melhor Envio API. Verifies HMAC-SHA256 signature and updates shipment/order status.',
+    request=inline_serializer(
+        name='MelhorEnvioWebhookPayload',
+        fields={
+            'event': rf_serializers.CharField(),
+            'data': rf_serializers.DictField()
+        }
+    ),
+    responses={
+        200: inline_serializer(
+            name='WebhookResponse',
+            fields={'message': rf_serializers.CharField()}
+        ),
+        400: OpenApiResponse(description='Invalid payload'),
+        401: OpenApiResponse(description='Invalid signature'),
+    }
+)
+@csrf_exempt
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def melhor_envio_webhook(request):
+    """
+    Recebe notificações de eventos do Melhor Envio.
+
+    Eventos tratados:
+    - order.posted: Encomenda postada → Shipment status 'posted', Order status 'shipped'
+    - order.delivered: Encomenda entregue → Shipment status 'delivered', Order status 'delivered'
+    """
+    # Verificar assinatura HMAC-SHA256
+    webhook_secret = django_settings.MELHOR_ENVIO_WEBHOOK_SECRET
+    if webhook_secret:
+        signature = request.headers.get('X-ME-Signature', '')
+        body = request.body
+        expected_signature = hmac.new(
+            webhook_secret.encode('utf-8'),
+            body,
+            hashlib.sha256
+        ).hexdigest()
+
+        if not hmac.compare_digest(signature, expected_signature):
+            logger.warning('Webhook Melhor Envio: assinatura inválida')
+            return Response(
+                {'error': 'Assinatura inválida'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+    event = request.data.get('event')
+    data = request.data.get('data', {})
+    melhorenvio_order_id = data.get('id')
+
+    if not event or not melhorenvio_order_id:
+        return Response(
+            {'error': 'Payload inválido: event e data.id são obrigatórios'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    logger.info(f'Webhook Melhor Envio recebido: event={event}, melhorenvio_id={melhorenvio_order_id}')
+
+    # Buscar shipment pelo ID do Melhor Envio
+    try:
+        shipment = Shipment.objects.select_related('order').get(
+            melhorenvio_order_id=melhorenvio_order_id
+        )
+    except Shipment.DoesNotExist:
+        logger.warning(f'Webhook Melhor Envio: shipment não encontrado para id={melhorenvio_order_id}')
+        return Response(
+            {'error': f'Shipment não encontrado para melhorenvio_order_id={melhorenvio_order_id}'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Mapear evento para status
+    EVENT_STATUS_MAP = {
+        'order.posted': 'posted',
+        'order.delivered': 'delivered',
+        'order.cancelled': 'cancelled',
+        'order.in_transit': 'in_transit',
+    }
+
+    new_shipment_status = EVENT_STATUS_MAP.get(event)
+    if not new_shipment_status:
+        logger.info(f'Webhook Melhor Envio: evento {event} ignorado (não mapeado)')
+        return Response({'message': f'Evento {event} recebido mas não processado'})
+
+    # Atualizar status do shipment
+    old_shipment_status = shipment.status
+    shipment.status = new_shipment_status
+
+    # Atualizar tracking code se disponível
+    if data.get('tracking'):
+        shipment.melhorenvio_tracking_code = data['tracking']
+
+    # Atualizar timestamps
+    if new_shipment_status == 'posted' and data.get('posted_at'):
+        shipment.posted_at = data['posted_at']
+    elif new_shipment_status == 'delivered':
+        from django.utils import timezone
+        shipment.delivered_at = data.get('delivered_at') or timezone.now()
+
+    shipment.save()
+
+    logger.info(
+        f'Shipment {shipment.id} atualizado: {old_shipment_status} → {new_shipment_status}'
+    )
+
+    # Propagar status para o Order
+    order = shipment.order
+    order_transitioned = False
+
+    try:
+        if event == 'order.posted':
+            # Verificar se TODOS os shipments do pedido foram postados
+            all_shipments = Shipment.objects.filter(order=order)
+            all_posted = all_shipments.exclude(
+                status__in=['posted', 'in_transit', 'delivered']
+            ).count() == 0
+
+            if all_posted and OrderStateMachine.can_transition(order.status, OrderStateMachine.SHIPPED):
+                OrderStateMachine.transition_to(
+                    order=order,
+                    new_status=OrderStateMachine.SHIPPED,
+                    notes='Todos os envios foram postados (webhook Melhor Envio)',
+                )
+                order_transitioned = True
+
+        elif event == 'order.delivered':
+            # Verificar se TODOS os shipments do pedido foram entregues
+            all_shipments = Shipment.objects.filter(order=order)
+            all_delivered = all_shipments.exclude(status='delivered').count() == 0
+
+            if all_delivered and OrderStateMachine.can_transition(order.status, OrderStateMachine.DELIVERED):
+                OrderStateMachine.transition_to(
+                    order=order,
+                    new_status=OrderStateMachine.DELIVERED,
+                    notes='Todos os envios foram entregues (webhook Melhor Envio)',
+                )
+                order_transitioned = True
+
+    except OrderStatusTransitionError as e:
+        logger.warning(
+            f'Webhook: não foi possível transicionar order {order.order_number}: {str(e)}'
+        )
+
+    return Response({
+        'message': f'Evento {event} processado com sucesso',
+        'shipment_id': shipment.id,
+        'shipment_status': new_shipment_status,
+        'order_status': order.status,
+        'order_transitioned': order_transitioned,
+    })
+
+
+@extend_schema(
+    tags=['Logistics - Webhooks'],
+    summary='Melhor Envio OAuth callback',
+    description='Callback endpoint for Melhor Envio OAuth2 authorization redirect.',
+    responses={
+        200: inline_serializer(
+            name='OAuthCallbackResponse',
+            fields={
+                'message': rf_serializers.CharField(),
+                'code': rf_serializers.CharField(allow_null=True),
+            }
+        ),
+    }
+)
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def melhor_envio_oauth_callback(request):
+    """
+    Callback OAuth2 do Melhor Envio.
+
+    Recebe o código de autorização após o usuário autorizar o aplicativo.
+    """
+    code = request.query_params.get('code')
+
+    if code:
+        logger.info(f'Melhor Envio OAuth callback recebido com code={code[:10]}...')
+        return Response({
+            'message': 'Autorização recebida com sucesso',
+            'code': code,
+        })
+
+    error = request.query_params.get('error', 'Nenhum código recebido')
+    logger.warning(f'Melhor Envio OAuth callback sem código: {error}')
+    return Response({
+        'message': f'Erro na autorização: {error}',
+        'code': None,
+    }, status=status.HTTP_400_BAD_REQUEST)
