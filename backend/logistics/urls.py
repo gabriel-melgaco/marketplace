@@ -25,6 +25,10 @@ urlpatterns = [
     # =================== Utilities ===================
     path('cep/lookup/', views.lookup_zipcode, name='cep-lookup'),
 
+    # =================== Webhooks ===================
+    path('webhooks/melhor-envio/', views.melhor_envio_webhook, name='melhor-envio-webhook'),
+    path('webhooks/melhor-envio/callback/', views.melhor_envio_oauth_callback, name='melhor-envio-oauth-callback'),
+
     # =================== Order Deliveries (Dual Delivery) ===================
     path('deliveries/create/', views.create_order_deliveries, name='create-order-deliveries'),
     path('deliveries/order/<uuid:order_id>/', views.get_order_deliveries_details, name='order-deliveries-details'),

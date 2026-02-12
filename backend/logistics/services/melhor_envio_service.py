@@ -1,8 +1,17 @@
 import requests
+import logging
 from django.conf import settings
 from django.utils import timezone
 from datetime import timedelta
 from ..models import ShippingQuote, Shipment, ShipmentTracking, Address
+from authentication.validators import is_valid_cpf, is_valid_cnpj, only_digits
+
+logger = logging.getLogger(__name__)
+
+
+class ShippingValidationError(Exception):
+    """Erro de validação ao calcular ou criar frete"""
+    pass
 
 
 class MelhorEnvioService:
@@ -32,15 +41,76 @@ class MelhorEnvioService:
             'Accept': 'application/json',
             'User-Agent': 'Marketplace App (contato@seuapp.com)'  # OBRIGATÓRIO
         }
+
+    def _validate_document(self, document, document_type='CPF'):
+        """
+        Valida CPF ou CNPJ
+
+        Args:
+            document: CPF ou CNPJ (pode conter formatação)
+            document_type: 'CPF' ou 'CNPJ' (usado apenas para mensagem de erro)
+
+        Returns:
+            str: Documento validado (apenas dígitos)
+
+        Raises:
+            ShippingValidationError: Se documento for inválido
+        """
+        if not document:
+            raise ShippingValidationError(f'{document_type} não fornecido')
+
+        # Remove formatação
+        clean_doc = only_digits(document)
+
+        # Valida CPF (11 dígitos)
+        if len(clean_doc) == 11:
+            if not is_valid_cpf(clean_doc):
+                raise ShippingValidationError(f'{document_type} inválido: {document}')
+            return clean_doc
+
+        # Valida CNPJ (14 dígitos)
+        if len(clean_doc) == 14:
+            if not is_valid_cnpj(clean_doc):
+                raise ShippingValidationError(f'{document_type} inválido: {document}')
+            return clean_doc
+
+        raise ShippingValidationError(
+            f'{document_type} deve conter 11 (CPF) ou 14 (CNPJ) dígitos. Recebido: {document}'
+        )
+
+    def _validate_zipcodes(self, from_zipcode, to_zipcode):
+        """
+        Valida CEPs de origem e destino
+
+        Args:
+            from_zipcode: CEP de origem
+            to_zipcode: CEP de destino
+
+        Raises:
+            ShippingValidationError: Se CEPs forem iguais ou inválidos
+        """
+        # Remove formatação
+        clean_from = from_zipcode.replace('-', '').strip()
+        clean_to = to_zipcode.replace('-', '').strip()
+
+        if not clean_from or not clean_to:
+            raise ShippingValidationError('CEP de origem e destino são obrigatórios')
+
+        # Verifica se são iguais
+        if clean_from == clean_to:
+            raise ShippingValidationError(
+                f'CEP de origem e destino não podem ser iguais ({from_zipcode}). '
+                'Para entregas no mesmo CEP, utilize a opção de entrega presencial.'
+            )
     
     def calculate_shipping(self, from_zipcode, to_zipcode, products=None, package=None, options=None):
         """
         Calcula frete usando API v2 do Melhor Envio
-        
+
         Existem 2 formas de calcular:
         1. Enviando PRODUTOS (recomendado) - API calcula empacotamento automaticamente
         2. Enviando PACOTE pronto - quando você já tem as dimensões finais
-        
+
         Args:
             from_zipcode: CEP de origem (apenas números)
             to_zipcode: CEP de destino (apenas números)
@@ -70,18 +140,25 @@ class MelhorEnvioService:
                     "own_hand": false,     # Mão própria
                     "collect": false       # Coleta
                 }
-        
+
         Returns:
             list: Lista de cotações das transportadoras
+
+        Raises:
+            ShippingValidationError: Se validação falhar
+            Exception: Se chamada à API falhar
         """
+        # VALIDAÇÃO 1: Verificar se CEPs de origem e destino são diferentes
+        self._validate_zipcodes(from_zipcode, to_zipcode)
+
         url = f'{self.base_url}/me/shipment/calculate'
-        
+
         # Monta payload base
         payload = {
             'from': {'postal_code': from_zipcode.replace('-', '')},
             'to': {'postal_code': to_zipcode.replace('-', '')}
         }
-        
+
         # Adiciona produtos OU pacote (nunca os dois)
         if products:
             payload['products'] = products
@@ -89,19 +166,35 @@ class MelhorEnvioService:
             payload['package'] = package
         else:
             raise ValueError('Deve fornecer products ou package')
-        
+
         # Adiciona opções se fornecidas
         if options:
             payload['options'] = options
-        
+
         try:
+            logger.info(f'Calculando frete: {from_zipcode} → {to_zipcode}')
             response = requests.post(url, json=payload, headers=self.headers, timeout=30)
             response.raise_for_status()
+            logger.info(f'Frete calculado com sucesso: {from_zipcode} → {to_zipcode}')
             return response.json()
         except requests.exceptions.HTTPError as e:
-            error_detail = e.response.text if e.response else str(e)
+            # MELHORIA: Capturar corpo completo da resposta para debug
+            error_detail = 'Resposta não disponível'
+            if e.response is not None:
+                try:
+                    error_detail = e.response.json()
+                except:
+                    error_detail = e.response.text
+
+            logger.error(
+                f'Erro HTTP ao calcular frete: {e.response.status_code if e.response else "N/A"}\n'
+                f'URL: {url}\n'
+                f'Payload: {payload}\n'
+                f'Resposta: {error_detail}'
+            )
             raise Exception(f'Erro HTTP ao calcular frete: {e.response.status_code} - {error_detail}')
         except requests.exceptions.RequestException as e:
+            logger.error(f'Erro de conexão ao calcular frete: {str(e)}')
             raise Exception(f'Erro de conexão ao calcular frete: {str(e)}')
     
     def create_shipping_quote_by_seller(self, user, cart, destination_zipcode):
@@ -272,37 +365,61 @@ class MelhorEnvioService:
     def create_shipment_in_cart(self, order, seller, shipping_service_id):
         """
         PASSO 1: Adiciona envio ao carrinho do Melhor Envio
-        
+
         Fluxo completo:
         1. Adicionar ao carrinho (este método)
         2. Fazer checkout/pagamento
         3. Gerar etiqueta
-        
+
         Args:
             order: Pedido
             seller: Vendedor
             shipping_service_id: ID do serviço escolhido na cotação
-            
+
         Returns:
             dict: Dados do envio criado no carrinho
+
+        Raises:
+            ShippingValidationError: Se validação falhar
+            Exception: Se chamada à API falhar
         """
         url = f'{self.base_url}/me/cart'
-        
+
         # Buscar endereço do vendedor
         seller_address = Address.objects.filter(
             user=seller,
             is_shipping_address=True,
             is_active=True
         ).first()
-        
+
         if not seller_address:
             raise Exception(f'Vendedor não possui endereço de envio cadastrado')
-        
+
         # Filtrar itens do vendedor
         seller_items = order.items.filter(seller=seller)
         if not seller_items.exists():
             raise Exception(f'Nenhum item do vendedor encontrado neste pedido')
-        
+
+        # VALIDAÇÃO 1: CEPs origem e destino
+        origin_zipcode = seller_address.zipcode
+        destination_zipcode = order.shipping_address['zipcode']
+        self._validate_zipcodes(origin_zipcode, destination_zipcode)
+
+        # VALIDAÇÃO 2: Documentos (CPF/CNPJ)
+        # Validar documento do vendedor
+        seller_document = getattr(seller, 'cpf', '') or getattr(seller, 'cnpj', '')
+        if seller_document:
+            validated_seller_doc = self._validate_document(seller_document, 'CPF/CNPJ do vendedor')
+        else:
+            raise ShippingValidationError('Vendedor não possui CPF ou CNPJ cadastrado')
+
+        # Validar documento do comprador (buscar do modelo de usuário)
+        buyer_document = getattr(order.buyer, 'cpf', '') or getattr(order.buyer, 'cnpj', '')
+        if buyer_document:
+            validated_buyer_doc = self._validate_document(buyer_document, 'CPF/CNPJ do comprador')
+        else:
+            raise ShippingValidationError('Comprador não possui CPF ou CNPJ cadastrado')
+
         # Preparar produtos
         products = []
         for item in seller_items:
@@ -311,7 +428,7 @@ class MelhorEnvioService:
                 'quantity': item.quantity,
                 'unitary_value': float(item.unit_price)
             })
-        
+
         # Preparar volumes (dimensões dos produtos)
         volumes = []
         for item in seller_items:
@@ -321,17 +438,17 @@ class MelhorEnvioService:
                 'length': float(item.length_cm),
                 'weight': float(item.weight_kg)
             })
-        
-        # Montar payload
+
+        # Montar payload com documentos validados
         payload = {
             'service': shipping_service_id,
             'from': {
                 'name': seller.get_full_name() or seller.email,
                 'phone': seller_address.recipient_phone,
                 'email': seller.email,
-                'document': getattr(seller, 'cpf', ''),
-                'company_document': getattr(seller, 'cnpj', ''),
-                'postal_code': seller_address.zipcode.replace('-', ''),
+                'document': validated_seller_doc,
+                'company_document': '',  # Deixar vazio, usar apenas 'document'
+                'postal_code': origin_zipcode.replace('-', ''),
                 'address': seller_address.street,
                 'number': seller_address.number,
                 'complement': seller_address.complement or '',
@@ -343,8 +460,8 @@ class MelhorEnvioService:
                 'name': order.shipping_address.get('recipient_name', ''),
                 'phone': order.shipping_address.get('recipient_phone', ''),
                 'email': order.buyer.email,
-                'document': order.shipping_address.get('document', ''),
-                'postal_code': order.shipping_address['zipcode'].replace('-', ''),
+                'document': validated_buyer_doc,
+                'postal_code': destination_zipcode.replace('-', ''),
                 'address': order.shipping_address['street'],
                 'number': order.shipping_address['number'],
                 'complement': order.shipping_address.get('complement', ''),
@@ -361,38 +478,76 @@ class MelhorEnvioService:
                 'collect': False
             }
         }
-        
+
         try:
+            logger.info(
+                f'Adicionando envio ao carrinho: pedido {order.order_number}, '
+                f'vendedor {seller.email}, serviço {shipping_service_id}'
+            )
             response = requests.post(url, json=payload, headers=self.headers, timeout=30)
             response.raise_for_status()
+            logger.info(f'Envio adicionado ao carrinho com sucesso: pedido {order.order_number}')
             return response.json()
-        except requests.exceptions.RequestException as e:
-            error_detail = e.response.text if hasattr(e, 'response') and e.response else str(e)
+        except requests.exceptions.HTTPError as e:
+            # MELHORIA: Capturar corpo completo da resposta para debug
+            error_detail = 'Resposta não disponível'
+            if e.response is not None:
+                try:
+                    error_detail = e.response.json()
+                except:
+                    error_detail = e.response.text
+
+            logger.error(
+                f'Erro HTTP ao adicionar envio ao carrinho: {e.response.status_code if e.response else "N/A"}\n'
+                f'URL: {url}\n'
+                f'Payload: {payload}\n'
+                f'Resposta: {error_detail}'
+            )
             raise Exception(f'Erro ao adicionar envio ao carrinho: {error_detail}')
+        except requests.exceptions.RequestException as e:
+            logger.error(f'Erro de conexão ao adicionar envio ao carrinho: {str(e)}')
+            raise Exception(f'Erro ao adicionar envio ao carrinho: {str(e)}')
     
     def checkout_cart(self, order_ids):
         """
         PASSO 2: Compra/Checkout dos envios do carrinho
-        
+
         Args:
             order_ids: Lista de IDs dos pedidos no Melhor Envio (não confundir com Order do Django)
-            
+
         Returns:
             dict: Resultado do checkout
         """
         url = f'{self.base_url}/me/shipment/checkout'
-        
+
         payload = {
             'orders': order_ids  # IDs retornados ao adicionar no carrinho
         }
-        
+
         try:
+            logger.info(f'Fazendo checkout dos envios: {order_ids}')
             response = requests.post(url, json=payload, headers=self.headers, timeout=30)
             response.raise_for_status()
+            logger.info(f'Checkout realizado com sucesso: {order_ids}')
             return response.json()
-        except requests.exceptions.RequestException as e:
-            error_detail = e.response.text if hasattr(e, 'response') and e.response else str(e)
+        except requests.exceptions.HTTPError as e:
+            error_detail = 'Resposta não disponível'
+            if e.response is not None:
+                try:
+                    error_detail = e.response.json()
+                except:
+                    error_detail = e.response.text
+
+            logger.error(
+                f'Erro HTTP no checkout: {e.response.status_code if e.response else "N/A"}\n'
+                f'URL: {url}\n'
+                f'Payload: {payload}\n'
+                f'Resposta: {error_detail}'
+            )
             raise Exception(f'Erro no checkout: {error_detail}')
+        except requests.exceptions.RequestException as e:
+            logger.error(f'Erro de conexão no checkout: {str(e)}')
+            raise Exception(f'Erro no checkout: {str(e)}')
     
     def create_shipment(self, order, seller, shipping_service_id):
         """
@@ -423,6 +578,13 @@ class MelhorEnvioService:
             # Em produção, depende do método de pagamento
             pass
         
+        # Calcular dimensões a partir dos itens do vendedor
+        seller_items = order.items.filter(seller=seller)
+        total_weight = sum(float(item.weight_kg) for item in seller_items)
+        max_height = max(float(item.height_cm) for item in seller_items)
+        max_width = max(float(item.width_cm) for item in seller_items)
+        total_length = sum(float(item.length_cm) for item in seller_items)
+
         # Criar registro de Shipment
         shipment = Shipment.objects.create(
             order=order,
@@ -430,15 +592,15 @@ class MelhorEnvioService:
             melhorenvio_order_id=melhorenvio_order_id,
             carrier_name=cart_data.get('service', {}).get('company', {}).get('name', ''),
             carrier_service=cart_data.get('service', {}).get('name', ''),
-            shipping_cost=cart_data.get('price', 0),
-            insurance_value=cart_data.get('insurance_value', 0),
-            weight=cart_data.get('weight', 0),
-            height=cart_data.get('height', 0),
-            width=cart_data.get('width', 0),
-            length=cart_data.get('length', 0),
+            shipping_cost=cart_data.get('price', 0) or 0,
+            insurance_value=cart_data.get('insurance_value', 0) or 0,
+            weight=total_weight,
+            height=max_height,
+            width=max_width,
+            length=total_length,
             origin_address=cart_data.get('from', {}),
             destination_address=cart_data.get('to', {}),
-            status='pending'  # Aguardando pagamento
+            status='pending'
         )
         
         return shipment
@@ -446,37 +608,55 @@ class MelhorEnvioService:
     def generate_label(self, shipment):
         """
         PASSO 3: Gera etiqueta de envio (após pagamento confirmado)
-        
+
         Args:
             shipment: Instância do Shipment
-            
+
         Returns:
             str: URL da etiqueta
         """
         # Gerar etiqueta
         generate_url = f'{self.base_url}/me/shipment/generate'
         generate_payload = {'orders': [shipment.melhorenvio_order_id]}
-        
+
         try:
+            logger.info(f'Gerando etiqueta para envio {shipment.melhorenvio_order_id}')
             response = requests.post(
-                generate_url, 
-                json=generate_payload, 
-                headers=self.headers, 
+                generate_url,
+                json=generate_payload,
+                headers=self.headers,
                 timeout=30
             )
             response.raise_for_status()
-        except requests.exceptions.RequestException as e:
-            error_detail = e.response.text if hasattr(e, 'response') and e.response else str(e)
+            logger.info(f'Etiqueta gerada com sucesso: {shipment.melhorenvio_order_id}')
+        except requests.exceptions.HTTPError as e:
+            error_detail = 'Resposta não disponível'
+            if e.response is not None:
+                try:
+                    error_detail = e.response.json()
+                except:
+                    error_detail = e.response.text
+
+            logger.error(
+                f'Erro HTTP ao gerar etiqueta: {e.response.status_code if e.response else "N/A"}\n'
+                f'URL: {generate_url}\n'
+                f'Payload: {generate_payload}\n'
+                f'Resposta: {error_detail}'
+            )
             raise Exception(f'Erro ao gerar etiqueta: {error_detail}')
-        
+        except requests.exceptions.RequestException as e:
+            logger.error(f'Erro de conexão ao gerar etiqueta: {str(e)}')
+            raise Exception(f'Erro ao gerar etiqueta: {str(e)}')
+
         # Obter URL para impressão
         print_url = f'{self.base_url}/me/shipment/print'
         print_payload = {
             'mode': 'private',
             'orders': [shipment.melhorenvio_order_id]
         }
-        
+
         try:
+            logger.info(f'Obtendo URL de impressão da etiqueta: {shipment.melhorenvio_order_id}')
             print_response = requests.post(
                 print_url,
                 json=print_payload,
@@ -485,45 +665,62 @@ class MelhorEnvioService:
             )
             print_response.raise_for_status()
             label_url = print_response.json().get('url')
-            
+
             # Atualizar shipment
             shipment.label_url = label_url
             shipment.label_generated_at = timezone.now()
             shipment.status = 'label_generated'
             shipment.save()
-            
+
+            logger.info(f'URL da etiqueta obtida com sucesso: {shipment.melhorenvio_order_id}')
             return label_url
-            
-        except requests.exceptions.RequestException as e:
-            error_detail = e.response.text if hasattr(e, 'response') and e.response else str(e)
+
+        except requests.exceptions.HTTPError as e:
+            error_detail = 'Resposta não disponível'
+            if e.response is not None:
+                try:
+                    error_detail = e.response.json()
+                except:
+                    error_detail = e.response.text
+
+            logger.error(
+                f'Erro HTTP ao obter URL da etiqueta: {e.response.status_code if e.response else "N/A"}\n'
+                f'URL: {print_url}\n'
+                f'Payload: {print_payload}\n'
+                f'Resposta: {error_detail}'
+            )
             raise Exception(f'Erro ao obter URL da etiqueta: {error_detail}')
+        except requests.exceptions.RequestException as e:
+            logger.error(f'Erro de conexão ao obter URL da etiqueta: {str(e)}')
+            raise Exception(f'Erro ao obter URL da etiqueta: {str(e)}')
     
     def track_shipment(self, shipment):
         """
         Rastreia envio e atualiza histórico
-        
+
         Args:
             shipment: Instância do Shipment
-            
+
         Returns:
             dict: Dados de rastreamento
         """
         url = f'{self.base_url}/me/shipment/tracking'
         params = {'orders': shipment.melhorenvio_order_id}
-        
+
         try:
+            logger.info(f'Rastreando envio: {shipment.melhorenvio_order_id}')
             response = requests.get(url, params=params, headers=self.headers, timeout=30)
             response.raise_for_status()
             data = response.json()
-            
+
             # Processar dados de rastreamento
             if data and isinstance(data, dict):
                 tracking_data = data.get(shipment.melhorenvio_order_id, {})
-                
+
                 # Atualizar código de rastreamento
                 if tracking_data.get('tracking'):
                     shipment.melhorenvio_tracking_code = tracking_data['tracking']
-                
+
                 # Criar eventos de rastreamento
                 events = tracking_data.get('events', [])
                 for event in events:
@@ -536,23 +733,39 @@ class MelhorEnvioService:
                             'location': event.get('location', '')
                         }
                     )
-                
+
                 # Atualizar status do envio
                 last_status = tracking_data.get('status')
                 if last_status:
                     shipment.status = self._map_status(last_status)
-                    
+
                     # Atualizar data de entrega se foi entregue
                     if last_status == 'delivered' and not shipment.delivered_at:
                         shipment.delivered_at = timezone.now()
-                
+
                 shipment.save()
-            
+
+            logger.info(f'Rastreamento atualizado com sucesso: {shipment.melhorenvio_order_id}')
             return data
-            
-        except requests.exceptions.RequestException as e:
-            error_detail = e.response.text if hasattr(e, 'response') and e.response else str(e)
+
+        except requests.exceptions.HTTPError as e:
+            error_detail = 'Resposta não disponível'
+            if e.response is not None:
+                try:
+                    error_detail = e.response.json()
+                except:
+                    error_detail = e.response.text
+
+            logger.error(
+                f'Erro HTTP ao rastrear envio: {e.response.status_code if e.response else "N/A"}\n'
+                f'URL: {url}\n'
+                f'Params: {params}\n'
+                f'Resposta: {error_detail}'
+            )
             raise Exception(f'Erro ao rastrear envio: {error_detail}')
+        except requests.exceptions.RequestException as e:
+            logger.error(f'Erro de conexão ao rastrear envio: {str(e)}')
+            raise Exception(f'Erro ao rastrear envio: {str(e)}')
     
     def _map_status(self, melhorenvio_status):
         """Mapeia status do Melhor Envio para o sistema"""

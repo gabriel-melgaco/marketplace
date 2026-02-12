@@ -289,6 +289,7 @@ STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', 'whsec_...')
 # =================== MELHOR ENVIO CONFIGURATION ===================
 MELHOR_ENVIO_TOKEN = os.getenv('MELHOR_ENVIO_TOKEN', '')
 MELHOR_ENVIO_SANDBOX = os.getenv('MELHOR_ENVIO_SANDBOX', True)
+MELHOR_ENVIO_WEBHOOK_SECRET = os.getenv('MELHOR_ENVIO_WEBHOOK_SECRET', '')
 # =================== PAYMENT CONFIGURATION ===================
 # Taxa da plataforma (%)
 PLATFORM_FEE_PERCENTAGE = 10  # 10% de taxa
