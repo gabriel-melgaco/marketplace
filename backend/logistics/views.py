@@ -1405,9 +1405,41 @@ def melhor_envio_webhook(request):
     elif not signature:
         logger.info('Webhook Melhor Envio: requisição sem header X-ME-Signature')
 
-    event = request.data.get('event')
-    data = request.data.get('data', {})
-    melhorenvio_order_id = data.get('id')
+    # Parsing do payload - tentar múltiplos formatos
+    payload = request.data
+    event = None
+    data = {}
+    melhorenvio_order_id = None
+
+    if isinstance(payload, dict):
+        event = payload.get('event')
+        data = payload.get('data', {})
+        if isinstance(data, dict):
+            melhorenvio_order_id = data.get('id')
+        # Fallback: talvez o id esteja no nível raiz
+        if not melhorenvio_order_id:
+            melhorenvio_order_id = payload.get('id')
+        if not event:
+            event = payload.get('status')
+    elif isinstance(payload, list) and len(payload) > 0:
+        # Alguns webhooks enviam array
+        first = payload[0]
+        if isinstance(first, dict):
+            event = first.get('event')
+            data = first.get('data', {})
+            melhorenvio_order_id = data.get('id') if isinstance(data, dict) else None
+
+    logger.info(
+        f'Webhook Melhor Envio: parsing resultado',
+        extra={
+            'event': event,
+            'melhorenvio_order_id': melhorenvio_order_id,
+            'payload_type': type(payload).__name__,
+            'payload_keys': list(payload.keys()) if isinstance(payload, dict) else str(type(payload)),
+            'data_keys': list(data.keys()) if isinstance(data, dict) else str(type(data)),
+            'raw_payload': str(payload)[:1000],
+        }
+    )
 
     # Log de segurança (não bloqueia - shipments inexistentes são ignorados)
     if webhook_secret and signature and not signature_valid:
