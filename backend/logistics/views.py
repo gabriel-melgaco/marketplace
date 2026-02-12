@@ -1,5 +1,6 @@
 import hmac
 import hashlib
+import base64
 import json
 import logging
 
@@ -1392,16 +1393,30 @@ def melhor_envio_webhook(request):
 
     if webhook_secret and signature:
         body = request.body
-        expected_signature = hmac.new(
+        digest = hmac.new(
+            webhook_secret.encode('utf-8'),
+            body,
+            hashlib.sha256
+        ).digest()
+        expected_signature_b64 = base64.b64encode(digest).decode('utf-8')
+        expected_signature_hex = hmac.new(
             webhook_secret.encode('utf-8'),
             body,
             hashlib.sha256
         ).hexdigest()
 
-        if hmac.compare_digest(signature, expected_signature):
+        # Melhor Envio usa base64, mas verificar ambos por segurança
+        if hmac.compare_digest(signature, expected_signature_b64) or hmac.compare_digest(signature, expected_signature_hex):
             signature_valid = True
         else:
-            logger.warning('Webhook Melhor Envio: assinatura inválida (ignorando para não bloquear)')
+            logger.warning(
+                'Webhook Melhor Envio: assinatura inválida',
+                extra={
+                    'received_signature': signature,
+                    'expected_b64': expected_signature_b64,
+                    'expected_hex': expected_signature_hex,
+                }
+            )
     elif not signature:
         logger.info('Webhook Melhor Envio: requisição sem header X-ME-Signature')
 
@@ -1449,6 +1464,11 @@ def melhor_envio_webhook(request):
         )
 
     logger.info(f'Webhook Melhor Envio recebido: event={event}, melhorenvio_id={melhorenvio_order_id}')
+
+    # Teste de conexão ou payload vazio
+    if not event and not melhorenvio_order_id:
+        logger.info('Webhook Melhor Envio: requisição de teste/conexão (sem event nem id)')
+        return Response({'message': 'Webhook ativo. Nenhum evento para processar.'})
 
     # Buscar shipment pelo ID do Melhor Envio
     try:
