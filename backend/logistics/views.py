@@ -1318,8 +1318,9 @@ def melhor_envio_webhook(request):
     """
     # Verificar assinatura HMAC-SHA256
     webhook_secret = django_settings.MELHOR_ENVIO_WEBHOOK_SECRET
-    if webhook_secret:
-        signature = request.headers.get('X-ME-Signature', '')
+    signature = request.headers.get('X-ME-Signature', '')
+
+    if webhook_secret and signature:
         body = request.body
         expected_signature = hmac.new(
             webhook_secret.encode('utf-8'),
@@ -1333,16 +1334,17 @@ def melhor_envio_webhook(request):
                 {'error': 'Assinatura inválida'},
                 status=status.HTTP_401_UNAUTHORIZED
             )
+    elif webhook_secret and not signature:
+        logger.info('Webhook Melhor Envio: requisição sem header X-ME-Signature (possível teste de conexão)')
 
     event = request.data.get('event')
     data = request.data.get('data', {})
     melhorenvio_order_id = data.get('id')
 
-    if not event or not melhorenvio_order_id:
-        return Response(
-            {'error': 'Payload inválido: event e data.id são obrigatórios'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+    # Requisição de teste de conexão (sem event/data)
+    if not event and not melhorenvio_order_id:
+        logger.info('Webhook Melhor Envio: teste de conexão recebido com sucesso')
+        return Response({'message': 'Webhook configurado com sucesso'})
 
     logger.info(f'Webhook Melhor Envio recebido: event={event}, melhorenvio_id={melhorenvio_order_id}')
 
