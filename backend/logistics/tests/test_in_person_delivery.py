@@ -12,6 +12,7 @@ from django.test import TestCase
 from django.utils import timezone
 from datetime import timedelta, time
 from decimal import Decimal
+from unittest.mock import patch
 
 from rest_framework.test import APIClient
 
@@ -605,7 +606,7 @@ class InPersonDeliveryServiceTest(InPersonDeliveryTestMixin, TestCase):
 
         with self.assertRaises(ValueError) as ctx:
             InPersonDeliveryService.complete_delivery(delivery, self.seller)
-        self.assertIn('cancelado', str(ctx.exception).lower().replace('ã', 'a'))
+        self.assertIn('cancelled', str(ctx.exception).lower())
 
     def test_complete_delivery_with_notes(self):
         """Notas de conclusao sao salvas no InPersonDelivery."""
@@ -907,30 +908,45 @@ class InPersonDeliveryAPITest(InPersonDeliveryTestMixin, TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn('pagamento', response.data['error'].lower())
 
-    def test_create_deliveries_works_with_order_shipping_services(self):
+    @patch('orders.signals.auto_create_shipments_on_payment')
+    def test_create_deliveries_works_with_order_shipping_services(self, mock_signal):
         """POST /api/logistics/deliveries/create/ - funciona so com order_id usando shipping_services."""
-        self.order.status = 'paid'
-        self.order.shipping_services = {
-            str(self.seller.id): {
-                'delivery_method': 'in_person',
-                'meeting_location_name': 'Shopping via Services',
-                'meeting_address': {'city': 'Sao Paulo', 'state': 'SP'},
-                'seller_contact_phone': '11999999999',
-                'buyer_contact_phone': '11888888888',
+        order = Order.objects.create(
+            buyer=self.buyer,
+            subtotal=Decimal('100.00'),
+            shipping_cost=Decimal('0.00'),
+            total=Decimal('100.00'),
+            status='paid',
+            shipping_address={'street': 'Rua X', 'city': 'SP', 'state': 'SP', 'zipcode': '01234-567'},
+            shipping_services={
+                str(self.seller.id): {
+                    'delivery_method': 'in_person',
+                    'meeting_location_name': 'Shopping via Services',
+                    'meeting_address': {'city': 'Sao Paulo', 'state': 'SP'},
+                    'seller_contact_phone': '11999999999',
+                    'buyer_contact_phone': '11888888888',
+                }
             }
-        }
-        self.order.save()
+        )
+        OrderItem.objects.create(
+            order=order, listing=self.listing, seller=self.seller,
+            product_name=self.product.name, brand_name=self.brand.name,
+            condition_name=self.condition.name, quantity=1,
+            unit_price=Decimal('100.00'), subtotal=Decimal('100.00'),
+            weight_kg=Decimal('1.5'), height_cm=Decimal('10'),
+            width_cm=Decimal('10'), length_cm=Decimal('10')
+        )
 
         self.client.force_authenticate(user=self.buyer)
         response = self.client.post(
             '/api/logistics/deliveries/create/',
-            {'order_id': str(self.order.id)},
+            {'order_id': str(order.id)},
             format='json'
         )
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data['count'], 1)
-        self.assertEqual(str(response.data['order_id']), str(self.order.id))
+        self.assertEqual(str(response.data['order_id']), str(order.id))
 
     def test_create_deliveries_with_explicit_delivery_data(self):
         """POST /api/logistics/deliveries/create/ - funciona com deliveries explicitas."""

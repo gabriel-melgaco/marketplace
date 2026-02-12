@@ -1371,6 +1371,20 @@ def melhor_envio_webhook(request):
     - order.posted: Encomenda postada → Shipment status 'posted', Order status 'shipped'
     - order.delivered: Encomenda entregue → Shipment status 'delivered', Order status 'delivered'
     """
+    # Log completo da requisição recebida
+    logger.info(
+        'Webhook Melhor Envio: requisição recebida',
+        extra={
+            'method': request.method,
+            'path': request.get_full_path(),
+            'content_type': request.content_type,
+            'headers': {k: v for k, v in request.headers.items() if k.lower() not in ('cookie',)},
+            'body_raw': request.body.decode('utf-8', errors='replace')[:2000],
+            'body_parsed': request.data,
+            'remote_ip': request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR')),
+        }
+    )
+
     # Verificar assinatura HMAC-SHA256
     webhook_secret = django_settings.MELHOR_ENVIO_WEBHOOK_SECRET
     signature = request.headers.get('X-ME-Signature', '')
