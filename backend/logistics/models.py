@@ -448,15 +448,11 @@ class InPersonDelivery(models.Model):
     seller_confirmed_at = models.DateTimeField(null=True, blank=True)
     buyer_confirmed_at = models.DateTimeField(null=True, blank=True)
 
-    # Conclusão da entrega
-    completed_by = models.ForeignKey(
-        CustomUser,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='completed_deliveries',
-        help_text='Quem confirmou a conclusão da entrega'
-    )
+    # Confirmações de conclusão (ambas as partes devem confirmar)
+    seller_completed = models.BooleanField(default=False)
+    buyer_completed = models.BooleanField(default=False)
+    seller_completed_at = models.DateTimeField(null=True, blank=True)
+    buyer_completed_at = models.DateTimeField(null=True, blank=True)
 
     completion_notes = models.TextField(
         blank=True,
@@ -485,14 +481,23 @@ class InPersonDelivery(models.Model):
         """Verifica se ambas as partes confirmaram o encontro"""
         return self.seller_confirmed and self.buyer_confirmed
 
+    def is_fully_completed(self):
+        """Verifica se ambas as partes confirmaram a conclusão"""
+        return self.seller_completed and self.buyer_completed
+
     def can_be_completed(self):
         """Verifica se a entrega pode ser marcada como concluída"""
-        return self.meeting_status in ['scheduled', 'confirmed', 'in_progress']
+        return self.meeting_status in ['pending_schedule', 'scheduled', 'confirmed', 'in_progress']
 
     def save(self, *args, **kwargs):
-        # Se ambas as partes confirmaram, atualizar status automaticamente
-        if self.is_fully_confirmed() and self.meeting_status == 'scheduled':
+        if self.is_fully_confirmed() and self.meeting_status in ('pending_schedule', 'scheduled'):
             self.meeting_status = 'confirmed'
+
+        if self.is_fully_completed() and self.meeting_status in ('pending_schedule', 'scheduled', 'confirmed', 'in_progress'):
+            self.meeting_status = 'completed'
+            if not self.completed_at:
+                from django.utils import timezone
+                self.completed_at = timezone.now()
 
         super().save(*args, **kwargs)
 
@@ -528,3 +533,113 @@ class DeliveryStatusLog(models.Model):
 
     def __str__(self):
         return f'{self.order_delivery} - {self.from_status} → {self.to_status}'
+
+
+class CarrierRule(models.Model):
+    """
+    Regras de dimensões e peso por transportadora/modalidade.
+
+    Armazena as restrições de cada transportadora para validar pacotes
+    ANTES de chamar a API do Melhor Envio ou filtrar resultados retornados.
+
+    Cada registro representa uma modalidade de uma transportadora.
+    Ex: Correios SEDEX/PAC, Correios Mini Envios, Jadlog Pegaki, etc.
+    """
+
+    # Identificação da transportadora e modalidade
+    carrier_name = models.CharField(
+        max_length=100,
+        help_text='Nome da transportadora como retornado pelo Melhor Envio (ex: Correios, Jadlog)'
+    )
+    modality = models.CharField(
+        max_length=200,
+        help_text='Nome da modalidade/serviço (ex: SEDEX/PAC, Mini Envios, Jadlog Pegaki)'
+    )
+
+    # Dimensões mínimas (cm) - nullable para transportadoras sem mínimo
+    min_height = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True,
+        help_text='Altura mínima em cm'
+    )
+    min_width = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True,
+        help_text='Largura mínima em cm'
+    )
+    min_length = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True,
+        help_text='Comprimento mínimo em cm'
+    )
+
+    # Dimensões máximas (cm)
+    max_height = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True,
+        help_text='Altura máxima em cm'
+    )
+    max_width = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True,
+        help_text='Largura máxima em cm'
+    )
+    max_length = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True,
+        help_text='Comprimento máximo em cm'
+    )
+
+    # Peso (kg)
+    min_weight = models.DecimalField(
+        max_digits=6, decimal_places=3, null=True, blank=True,
+        help_text='Peso mínimo em kg'
+    )
+    max_weight = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True,
+        help_text='Peso máximo em kg'
+    )
+
+    # Soma das dimensões (cm) - algumas transportadoras limitam L+A+C
+    min_sum_dimensions = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True,
+        help_text='Soma mínima das dimensões (L+A+C) em cm'
+    )
+    max_sum_dimensions = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True,
+        help_text='Soma máxima das dimensões (L+A+C) em cm'
+    )
+
+    # Maior lado individual (cm) - J&T Express limita o maior lado a 120cm
+    max_single_side = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True,
+        help_text='Tamanho máximo de qualquer lado individual em cm'
+    )
+
+    # Limite para taxa de não mecanizável (cm)
+    non_mechanizable_threshold = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True,
+        help_text='Limite em cm acima do qual incide taxa de não mecanizável (ex: 70cm para Correios)'
+    )
+
+    # Controle
+    is_active = models.BooleanField(
+        default=True,
+        help_text='Se a regra está ativa. Regras inativas são ignoradas na validação.'
+    )
+    notes = models.TextField(
+        blank=True,
+        help_text='Observações sobre a regra (ex: taxa extra para >70cm)'
+    )
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Regra de Transportadora'
+        verbose_name_plural = 'Regras de Transportadoras'
+        ordering = ['carrier_name', 'modality']
+        unique_together = ['carrier_name', 'modality']
+        indexes = [
+            models.Index(fields=['carrier_name']),
+            models.Index(fields=['is_active']),
+        ]
+
+    def __str__(self):
+        status = 'ativa' if self.is_active else 'inativa'
+        return f'{self.carrier_name} - {self.modality} ({status})'

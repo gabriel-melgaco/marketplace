@@ -220,13 +220,22 @@ class MelhorEnvioService:
         
         # Calcular frete para cada vendedor
         for seller, items in items_by_seller.items():
+            # VALIDAÇÃO: Verificar se comprador é o próprio vendedor
+            if seller == user:
+                quotes_by_seller[seller.id] = {
+                    'error': 'Você não pode calcular frete para seus próprios produtos',
+                    'seller_name': seller.get_full_name() or seller.email,
+                    'seller_id': seller.id
+                }
+                continue
+
             # Buscar endereço de envio do vendedor
             seller_address = Address.objects.filter(
                 user=seller,
                 is_shipping_address=True,
                 is_active=True
             ).first()
-            
+
             if not seller_address:
                 quotes_by_seller[seller.id] = {
                     'error': 'Vendedor não possui endereço de envio cadastrado',
@@ -234,11 +243,27 @@ class MelhorEnvioService:
                     'seller_id': seller.id
                 }
                 continue
-            
+
+            # VALIDAÇÃO: CEPs iguais
+            origin_zip = seller_address.zipcode.replace('-', '').strip()
+            destination_zip = destination_zipcode.replace('-', '').strip()
+            if origin_zip == destination_zip:
+                quotes_by_seller[seller.id] = {
+                    'error': (
+                        f'CEP de origem e destino são iguais ({origin_zip}). '
+                        'Frete via transportadora não disponível. '
+                        'Utilize a opção de entrega presencial.'
+                    ),
+                    'seller_name': seller.get_full_name() or seller.email,
+                    'seller_id': seller.id,
+                    'same_zipcode': True
+                }
+                continue
+
             # Preparar produtos para API (OPÇÃO 1 - Recomendada)
             products = []
             total_value = 0
-            
+
             for item in items:
                 listing = item.listing
                 product_data = {
@@ -252,7 +277,7 @@ class MelhorEnvioService:
                 }
                 products.append(product_data)
                 total_value += float(listing.price) * item.quantity
-            
+
             # Opções adicionais
             options = {
                 'insurance_value': total_value,
@@ -260,7 +285,7 @@ class MelhorEnvioService:
                 'own_hand': False,
                 'collect': False
             }
-            
+
             try:
                 # Calcular frete usando API
                 quotes_data = self.calculate_shipping(
@@ -269,8 +294,35 @@ class MelhorEnvioService:
                     products=products,
                     options=options
                 )
-                
-                # Salvar cotação no banco
+
+                # Calcular dimensoes consolidadas do pacote para validacao
+                package_weight = sum(p['weight'] * p['quantity'] for p in products)
+                package_height = max(p['height'] for p in products)
+                package_width = max(p['width'] for p in products)
+                package_length = sum(p['length'] * p['quantity'] for p in products)
+
+                # Filtrar cotacoes usando regras de transportadoras
+                from .carrier_rule_service import CarrierRuleService
+                filter_result = CarrierRuleService.filter_melhor_envio_quotes(
+                    quotes_data=quotes_data,
+                    height=package_height,
+                    width=package_width,
+                    length=package_length,
+                    weight=package_weight,
+                )
+
+                filtered_quotes = filter_result['filtered_quotes']
+                removed_quotes = filter_result['removed_quotes']
+                carrier_warnings = filter_result['warnings']
+
+                if removed_quotes:
+                    logger.info(
+                        f'Vendedor {seller.id}: {len(removed_quotes)} servico(s) removido(s) '
+                        f'por regras de transportadora: '
+                        f'{[q["company_name"] + " " + q["service_name"] for q in removed_quotes]}'
+                    )
+
+                # Salvar cotação no banco (com dados originais completos)
                 quote = ShippingQuote.objects.create(
                     user=user,
                     seller=seller,
@@ -278,27 +330,56 @@ class MelhorEnvioService:
                     origin_address=seller_address.to_dict(),
                     destination_zipcode=destination_zipcode,
                     destination_address={},
-                    weight=sum(p['weight'] * p['quantity'] for p in products),
-                    height=max(p['height'] for p in products),
-                    width=max(p['width'] for p in products),
-                    length=sum(p['length'] * p['quantity'] for p in products),
+                    weight=package_weight,
+                    height=package_height,
+                    width=package_width,
+                    length=package_length,
                     declared_value=total_value,
                     quotes_data=quotes_data,
                     expires_at=timezone.now() + timedelta(hours=24)
                 )
-                
-                quotes_by_seller[seller.id] = {
+
+                # Formatar servicos a partir das cotacoes FILTRADAS
+                formatted_services = self._format_services(filtered_quotes)
+
+                seller_result = {
                     'quote_id': quote.id,
                     'seller_name': seller.get_full_name() or seller.email,
                     'seller_id': seller.id,
                     'seller_city': seller_address.city,
                     'seller_state': seller_address.state,
-                    'services': self._format_services(quotes_data),
+                    'services': formatted_services,
                     'total_value': total_value,
-                    'items_count': len(items)
+                    'items_count': len(items),
                 }
-                
+
+                # Incluir informacoes de transportadoras removidas
+                if removed_quotes:
+                    seller_result['removed_carriers'] = removed_quotes
+
+                # Incluir avisos (ex: taxa de nao mecanizavel)
+                if carrier_warnings:
+                    seller_result['carrier_warnings'] = carrier_warnings
+
+                # Se nenhum servico restou apos filtragem, informar o motivo
+                if not formatted_services:
+                    seller_result['error'] = (
+                        'Nenhuma transportadora disponivel para as dimensoes/peso '
+                        'deste pacote. Verifique as restricoes de cada transportadora.'
+                    )
+                    seller_result['no_eligible_carriers'] = True
+
+                quotes_by_seller[seller.id] = seller_result
+
+            except ShippingValidationError as e:
+                quotes_by_seller[seller.id] = {
+                    'error': str(e),
+                    'seller_name': seller.get_full_name() or seller.email,
+                    'seller_id': seller.id,
+                    'validation_error': True
+                }
             except Exception as e:
+                logger.error(f'Erro ao calcular frete para vendedor {seller.id}: {str(e)}')
                 quotes_by_seller[seller.id] = {
                     'error': str(e),
                     'seller_name': seller.get_full_name() or seller.email,
