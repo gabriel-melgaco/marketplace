@@ -429,15 +429,18 @@ class MelhorEnvioService:
                 'unitary_value': float(item.unit_price)
             })
 
-        # Preparar volumes (dimensões dos produtos)
-        volumes = []
-        for item in seller_items:
-            volumes.append({
-                'height': float(item.height_cm),
-                'width': float(item.width_cm),
-                'length': float(item.length_cm),
-                'weight': float(item.weight_kg)
-            })
+        # Preparar volume único consolidado (transportadoras não aceitam múltiplos volumes)
+        total_weight = sum(float(item.weight_kg) * item.quantity for item in seller_items)
+        max_height = max(float(item.height_cm) for item in seller_items)
+        max_width = max(float(item.width_cm) for item in seller_items)
+        total_length = sum(float(item.length_cm) * item.quantity for item in seller_items)
+
+        volumes = [{
+            'height': max_height,
+            'width': max_width,
+            'length': total_length,
+            'weight': total_weight
+        }]
 
         # Montar payload com documentos validados
         payload = {
