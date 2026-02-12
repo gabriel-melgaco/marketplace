@@ -3,10 +3,10 @@ import hashlib
 import json
 import logging
 
-from rest_framework import generics, status
-from rest_framework.decorators import api_view, permission_classes, authentication_classes
+from rest_framework import generics, status, viewsets, filters
+from rest_framework.decorators import api_view, permission_classes, authentication_classes, action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 from django.shortcuts import get_object_or_404
 from django.conf import settings as django_settings
 from django.db import transaction
@@ -15,12 +15,14 @@ from django.views.decorators.csrf import csrf_exempt
 from rest_framework.exceptions import ValidationError
 from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiParameter, OpenApiResponse, OpenApiTypes
 from rest_framework import serializers as rf_serializers
+from django_filters.rest_framework import DjangoFilterBackend
 
 
 
 from .models import (
     ShippingQuote, Shipment, ShipmentTracking, Address,
-    OrderDelivery, InPersonDelivery, DeliveryMethod
+    OrderDelivery, InPersonDelivery, DeliveryMethod,
+    CarrierRule,
 )
 from .serializers import (
     AddressSerializer, AddressCreateSerializer,
@@ -29,7 +31,9 @@ from .serializers import (
     CEPLookupSerializer, ShippingQuoteResponseSerializer,
     OrderDeliverySerializer, OrderDeliveryCreateSerializer,
     InPersonDeliverySerializer, InPersonDeliveryCreateSerializer,
-    InPersonDeliveryUpdateSerializer, DeliveryMethodChoiceSerializer
+    InPersonDeliveryUpdateSerializer, DeliveryMethodChoiceSerializer,
+    CarrierRuleSerializer, CarrierRuleCreateUpdateSerializer,
+    PackageValidationRequestSerializer,
 )
 from .services import (
     MelhorEnvioService,
@@ -37,6 +41,7 @@ from .services import (
     DeliveryOrchestrationService,
     ShipmentCreationService,
     ShipmentCreationError,
+    CarrierRuleService,
 )
 from orders.models import Order, Cart
 from orders.services.order_state_machine import OrderStateMachine, OrderStatusTransitionError
@@ -741,7 +746,15 @@ def create_order_deliveries(request):
     """
     Criar entregas para um pedido (dual delivery).
 
-    Body:
+    Se 'deliveries' não for enviado, extrai automaticamente do
+    campo shipping_services da order.
+
+    Body mínimo:
+    {
+        "order_id": "uuid-do-pedido"
+    }
+
+    Body completo (override manual):
     {
         "order_id": "uuid-do-pedido",
         "deliveries": [
@@ -778,14 +791,50 @@ def create_order_deliveries(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    if not delivery_choices:
+    # Buscar pedido
+    order = get_object_or_404(Order, id=order_id)
+
+    # Verificar se o pagamento foi confirmado
+    if order.status == 'pending_payment':
         return Response(
-            {'error': 'deliveries é obrigatório'},
+            {'error': 'Não é possível criar entregas antes da confirmação do pagamento'},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    # Buscar pedido
-    order = get_object_or_404(Order, id=order_id)
+    # Se deliveries não foi enviado, extrair do shipping_services da order
+    if not delivery_choices:
+        if not order.shipping_services:
+            return Response(
+                {'error': 'deliveries é obrigatório ou a order deve ter shipping_services configurado'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        for seller_id, shipping_info in order.shipping_services.items():
+            if not isinstance(shipping_info, dict):
+                continue
+
+            delivery_method = shipping_info.get('delivery_method', 'shipping')
+            choice = {
+                'seller_id': int(seller_id),
+                'delivery_method': delivery_method,
+            }
+
+            if delivery_method == 'shipping':
+                choice['shipping_service_id'] = shipping_info.get('service_id')
+                choice['delivery_cost'] = shipping_info.get('cost', 0)
+            elif delivery_method == 'in_person':
+                choice.update({
+                    k: v for k, v in shipping_info.items()
+                    if k not in ('delivery_method', 'cost')
+                })
+
+            delivery_choices.append(choice)
+
+        if not delivery_choices:
+            return Response(
+                {'error': 'Nenhuma configuração de entrega válida encontrada na order'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
     # Verificar permissão (apenas o comprador)
     if request.user != order.buyer:
@@ -1135,8 +1184,13 @@ def complete_in_person_delivery(request, pk):
 
         serializer = InPersonDeliverySerializer(completed_delivery)
 
+        if completed_delivery.is_fully_completed():
+            message = 'Entrega presencial concluída por ambas as partes'
+        else:
+            message = 'Conclusão confirmada. Aguardando confirmação da outra parte'
+
         return Response({
-            'message': 'Entrega presencial concluída',
+            'message': message,
             'delivery': serializer.data
         })
 
@@ -1481,3 +1535,186 @@ def melhor_envio_oauth_callback(request):
         'message': 'Callback ativo',
         'code': None,
     })
+
+
+# =================== Carrier Rule Views ===================
+
+class IsAdminOrReadOnly(IsAuthenticated):
+    """
+    Permissao customizada:
+    - GET/HEAD/OPTIONS: qualquer usuario autenticado
+    - POST/PUT/PATCH/DELETE: apenas admin/staff
+    """
+
+    def has_permission(self, request, view):
+        is_authenticated = super().has_permission(request, view)
+        if not is_authenticated:
+            return False
+
+        if request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return True
+
+        return request.user and request.user.is_staff
+
+
+@extend_schema(tags=['Logistics - Carrier Rules'])
+class CarrierRuleViewSet(viewsets.ModelViewSet):
+    """
+    CRUD de regras de transportadoras.
+
+    - GET (list/retrieve): qualquer usuario autenticado pode consultar
+    - POST/PUT/PATCH/DELETE: apenas admin/staff
+
+    Filtros disponiveis via query params:
+    - ?carrier_name=Correios
+    - ?is_active=true
+    - ?search=Jadlog (busca em carrier_name e modality)
+    """
+    queryset = CarrierRule.objects.all()
+    permission_classes = [IsAdminOrReadOnly]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['carrier_name', 'is_active']
+    search_fields = ['carrier_name', 'modality', 'notes']
+    ordering_fields = ['carrier_name', 'modality', 'created_at', 'max_weight']
+    ordering = ['carrier_name', 'modality']
+
+    def get_serializer_class(self):
+        if self.action in ('create', 'update', 'partial_update'):
+            return CarrierRuleCreateUpdateSerializer
+        return CarrierRuleSerializer
+
+    @extend_schema(
+        summary='List carrier rules',
+        description=(
+            'List all carrier rules. Supports filtering by carrier_name and is_active. '
+            'Search by carrier_name, modality, or notes.'
+        ),
+        parameters=[
+            OpenApiParameter(
+                name='carrier_name',
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description='Filter by carrier name (exact match)',
+                required=False,
+            ),
+            OpenApiParameter(
+                name='is_active',
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                description='Filter by active status',
+                required=False,
+            ),
+            OpenApiParameter(
+                name='search',
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description='Search in carrier_name, modality, and notes',
+                required=False,
+            ),
+        ],
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    @extend_schema(
+        summary='Create carrier rule',
+        description='Create a new carrier rule. Admin only.',
+    )
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+
+    @extend_schema(
+        summary='Get carrier rule details',
+        description='Get details of a specific carrier rule.',
+    )
+    def retrieve(self, request, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
+
+    @extend_schema(
+        summary='Update carrier rule',
+        description='Fully update a carrier rule. Admin only.',
+    )
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
+
+    @extend_schema(
+        summary='Partially update carrier rule',
+        description='Partially update a carrier rule. Admin only.',
+    )
+    def partial_update(self, request, *args, **kwargs):
+        return super().partial_update(request, *args, **kwargs)
+
+    @extend_schema(
+        summary='Delete carrier rule',
+        description='Delete a carrier rule. Admin only.',
+    )
+    def destroy(self, request, *args, **kwargs):
+        return super().destroy(request, *args, **kwargs)
+
+
+@extend_schema(
+    tags=['Logistics - Carrier Rules'],
+    summary='Validate package against carrier rules',
+    description=(
+        'Validates package dimensions and weight against all active carrier rules. '
+        'Returns eligible and ineligible carriers with rejection reasons. '
+        'Does NOT call Melhor Envio API - uses locally configured rules only.'
+    ),
+    request=PackageValidationRequestSerializer,
+    responses={
+        200: inline_serializer(
+            name='PackageValidationResponse',
+            fields={
+                'eligible': rf_serializers.ListField(
+                    child=rf_serializers.DictField(),
+                    help_text='Carriers compatible with the package',
+                ),
+                'ineligible': rf_serializers.ListField(
+                    child=rf_serializers.DictField(),
+                    help_text='Carriers incompatible with reasons',
+                ),
+                'warnings': rf_serializers.ListField(
+                    child=rf_serializers.DictField(),
+                    help_text='Non-blocking warnings (e.g. extra fees)',
+                ),
+                'package_info': rf_serializers.DictField(
+                    help_text='Summary of the validated package',
+                ),
+            },
+        ),
+        400: OpenApiResponse(description='Invalid package data'),
+    },
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def validate_package_against_rules(request):
+    """
+    Valida dimensoes e peso de um pacote contra as regras de transportadoras.
+
+    Retorna quais transportadoras sao compativeis e quais nao sao,
+    com motivos detalhados de rejeicao.
+
+    Body:
+    {
+        "height": 30,
+        "width": 25,
+        "length": 40,
+        "weight": 5.5
+    }
+    """
+    serializer = PackageValidationRequestSerializer(data=request.data)
+
+    if not serializer.is_valid():
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    result = CarrierRuleService.validate_package(
+        height=serializer.validated_data['height'],
+        width=serializer.validated_data['width'],
+        length=serializer.validated_data['length'],
+        weight=serializer.validated_data['weight'],
+    )
+
+    return Response(result)

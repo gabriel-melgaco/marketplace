@@ -176,89 +176,36 @@ class MarketplaceListingCreateSerializer(serializers.ModelSerializer):
         return value
     
     def validate_weight_kg(self, value):
-        """
-        Valida peso do produto
-        
-        Limites da API Melhor Envio:
-        - Mínimo: 0.3kg (300g)
-        - Máximo: 30kg
-        """
-        if value < 0.3:
+        if value <= 0:
             raise serializers.ValidationError(
-                "Peso mínimo permitido é 0.3kg (300 gramas). "
-                "Este é o limite mínimo das transportadoras."
-            )
-        if value > 30:
-            raise serializers.ValidationError(
-                "Peso máximo permitido é 30kg. "
-                "Para produtos mais pesados, entre em contato com o suporte ou trate diretamente com o vendedor através do chat."
+                "O peso deve ser maior que zero."
             )
         return value
-    
+
     def validate_height_cm(self, value):
-        """
-        Valida altura do produto
-        
-        Limites da API Melhor Envio:
-        - Mínimo: 2cm
-        - Máximo: 100cm
-        """
-        if value < 2:
+        if value <= 0:
             raise serializers.ValidationError(
-                "Altura mínima permitida é 2cm. "
-                "Este é o limite mínimo das transportadoras."
-            )
-        if value > 100:
-            raise serializers.ValidationError(
-                "Altura máxima permitida é 100cm (1 metro). "
-                "Para produtos maiores, entre em contato com o suporte."
+                "A altura deve ser maior que zero."
             )
         return value
-    
+
     def validate_width_cm(self, value):
-        """
-        Valida largura do produto
-        
-        Limites da API Melhor Envio:
-        - Mínimo: 11cm
-        - Máximo: 100cm
-        """
-        if value < 11:
+        if value <= 0:
             raise serializers.ValidationError(
-                "Largura mínima permitida é 11cm. "
-                "Este é o limite mínimo das transportadoras."
-            )
-        if value > 100:
-            raise serializers.ValidationError(
-                "Largura máxima permitida é 100cm (1 metro). "
-                "Para produtos maiores, entre em contato com o suporte."
+                "A largura deve ser maior que zero."
             )
         return value
-    
+
     def validate_length_cm(self, value):
-        """
-        Valida comprimento do produto
-        
-        Limites da API Melhor Envio:
-        - Mínimo: 16cm
-        - Máximo: 100cm
-        """
-        if value < 16:
+        if value <= 0:
             raise serializers.ValidationError(
-                "Comprimento mínimo permitido é 16cm. "
-                "Este é o limite mínimo das transportadoras."
-            )
-        if value > 100:
-            raise serializers.ValidationError(
-                "Comprimento máximo permitido é 100cm (1 metro). "
-                "Para produtos maiores, entre em contato com o suporte."
+                "O comprimento deve ser maior que zero."
             )
         return value
-    
+
     def validate(self, data):
         request = self.context.get('request')
 
-        # Segurança extra (boas práticas)
         if not request or not request.user.is_authenticated:
             raise serializers.ValidationError(
                 'Usuário não autenticado.'
@@ -266,36 +213,12 @@ class MarketplaceListingCreateSerializer(serializers.ModelSerializer):
 
         user = request.user
 
-        # ===============================
-        # Validação de usuário com cpf
-        # ===============================
         cpf = getattr(user, 'cpf', None)
-
         if not cpf:
             raise serializers.ValidationError(
                 'Você precisa cadastrar um CPF válido antes de criar produtos.'
             )
 
-        # ===============================
-        # Validação soma das dimensões
-        # ===============================
-        height = data.get('height_cm', 0)
-        width = data.get('width_cm', 0)
-        length = data.get('length_cm', 0)
-
-        total_dimensions = height + width + length
-
-        if total_dimensions > 200:
-            raise serializers.ValidationError({
-                'non_field_errors': [
-                    f'A soma das dimensões é {total_dimensions}cm. '
-                    'O máximo permitido pelos Correios é 200cm.'
-                ]
-            })
-
-        # ===============================
-        # Validação endereço de envio
-        # ===============================
         has_shipping_address = Address.objects.filter(
             user=user,
             is_shipping_address=True,
@@ -324,86 +247,48 @@ class MarketplaceListingUpdateSerializer(serializers.ModelSerializer):
             'width_cm', 'length_cm', 'is_active'
         ]
     
-    # Mesmas validações do create
     def validate_price(self, value):
         if value < 15:
             raise serializers.ValidationError('O valor mínimo de venda é de R$15,00')
         return value
-    
+
     def validate_description(self, value):
         if len(value) < 30:
             raise serializers.ValidationError('Sua Descrição deve ter mais que 30 caracteres')
         return value
-    
+
     def validate_quantity(self, value):
         if value < 0:
             raise serializers.ValidationError('Quantidade não pode ser negativa')
         return value
-    
+
     def validate_weight_kg(self, value):
-        if value < 0.3:
+        if value <= 0:
             raise serializers.ValidationError(
-                "Peso mínimo permitido é 0.3kg (300 gramas)."
-            )
-        if value > 30:
-            raise serializers.ValidationError(
-                "Peso máximo permitido é 30kg."
+                "O peso deve ser maior que zero."
             )
         return value
-    
+
     def validate_height_cm(self, value):
-        if value < 2:
+        if value <= 0:
             raise serializers.ValidationError(
-                "Altura mínima permitida é 2cm."
-            )
-        if value > 100:
-            raise serializers.ValidationError(
-                "Altura máxima permitida é 100cm."
+                "A altura deve ser maior que zero."
             )
         return value
-    
+
     def validate_width_cm(self, value):
-        if value < 11:
+        if value <= 0:
             raise serializers.ValidationError(
-                "Largura mínima permitida é 11cm."
-            )
-        if value > 100:
-            raise serializers.ValidationError(
-                "Largura máxima permitida é 100cm."
+                "A largura deve ser maior que zero."
             )
         return value
-    
+
     def validate_length_cm(self, value):
-        if value < 16:
+        if value <= 0:
             raise serializers.ValidationError(
-                "Comprimento mínimo permitido é 16cm."
-            )
-        if value > 100:
-            raise serializers.ValidationError(
-                "Comprimento máximo permitido é 100cm."
+                "O comprimento deve ser maior que zero."
             )
         return value
-    
-    def validate(self, data):
-        """Validação da soma das dimensões"""
-        # Pegar valores atuais se não foram fornecidos
-        instance = self.instance
-        
-        height = data.get('height_cm', instance.height_cm if instance else 0)
-        width = data.get('width_cm', instance.width_cm if instance else 0)
-        length = data.get('length_cm', instance.length_cm if instance else 0)
-        
-        total_dimensions = height + width + length
-        
-        if total_dimensions > 200:
-            raise serializers.ValidationError({
-                'non_field_errors': [
-                    f'A soma das dimensões é {total_dimensions}cm, '
-                    f'mas o máximo permitido é 200cm.'
-                ]
-            })
-        
-        return data
 
 
 class MarketplaceListingDetailSerializer(serializers.ModelSerializer):

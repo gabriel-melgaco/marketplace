@@ -249,6 +249,17 @@ class MarketplaceListingCreateView(generics.CreateAPIView):
     def perform_create(self, serializer):
         serializer.save(seller=self.request.user, is_active=True)
 
+    def create(self, request, *args, **kwargs):
+        response = super().create(request, *args, **kwargs)
+        weight = request.data.get('weight_kg')
+        if weight is not None and float(weight) > 30:
+            response.data['warning'] = (
+                "Este produto pesa mais de 30kg. A maioria das transportadoras "
+                "não aceita encomendas acima desse peso. Recomendamos que a "
+                "entrega seja realizada presencialmente (in-person)."
+            )
+        return response
+
 
 @extend_schema(tags=['Products'], summary='List my listings', description='List all marketplace listings created by the authenticated seller.')
 class MyListingsView(generics.ListAPIView):
@@ -273,13 +284,20 @@ class MarketplaceListingUpdateView(generics.UpdateAPIView):
 
 
 @extend_schema(tags=['Products'], summary='Delete listing', description='Delete a marketplace listing. Only the seller who created it can delete.', request=None, responses={204: None})
-class MarketplaceListingDeleteView(generics.DestroyAPIView):
-    """Deletar listagem"""
+class MarketplaceListingDeleteView(generics.UpdateAPIView):
+    """Desativar listagem (soft delete)"""
     serializer_class = MarketplaceListingSerializer
     permission_classes = [IsAuthenticated]
+    http_method_names = ['delete']
 
     def get_queryset(self):
-        return MarketplaceListing.objects.filter(seller=self.request.user)
+        return MarketplaceListing.objects.filter(seller=self.request.user, is_active=True)
+
+    def delete(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.is_active = False
+        instance.save(update_fields=['is_active', 'updated_at'])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @extend_schema(

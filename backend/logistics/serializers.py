@@ -2,7 +2,8 @@ from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from .models import (
     ShippingQuote, Shipment, ShipmentTracking, Address,
-    OrderDelivery, InPersonDelivery, DeliveryStatusLog, DeliveryMethod
+    OrderDelivery, InPersonDelivery, DeliveryStatusLog, DeliveryMethod,
+    CarrierRule,
 )
 from django.utils import timezone
 
@@ -259,6 +260,7 @@ class InPersonDeliverySerializer(serializers.ModelSerializer):
     seller_name = serializers.CharField(source='seller.get_full_name', read_only=True)
     buyer_name = serializers.CharField(source='buyer.get_full_name', read_only=True)
     is_fully_confirmed = serializers.BooleanField(read_only=True)
+    is_fully_completed = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = InPersonDelivery
@@ -269,11 +271,15 @@ class InPersonDeliverySerializer(serializers.ModelSerializer):
             'seller_contact_phone', 'buyer_contact_phone',
             'seller_confirmed', 'buyer_confirmed',
             'seller_confirmed_at', 'buyer_confirmed_at',
-            'is_fully_confirmed', 'completed_by', 'completion_notes',
+            'is_fully_confirmed',
+            'seller_completed', 'buyer_completed',
+            'seller_completed_at', 'buyer_completed_at',
+            'is_fully_completed', 'completion_notes',
             'created_at', 'updated_at', 'completed_at'
         ]
         read_only_fields = [
             'seller', 'buyer', 'seller_confirmed_at', 'buyer_confirmed_at',
+            'seller_completed_at', 'buyer_completed_at',
             'completed_at', 'created_at', 'updated_at'
         ]
 
@@ -495,3 +501,108 @@ class DeliveryStatusLogSerializer(serializers.ModelSerializer):
             'created_at'
         ]
         read_only_fields = ['created_at']
+
+
+# =================== Carrier Rule Serializers ===================
+class CarrierRuleSerializer(serializers.ModelSerializer):
+    """Serializer completo para regras de transportadoras (leitura)."""
+
+    class Meta:
+        model = CarrierRule
+        fields = [
+            'id', 'carrier_name', 'modality',
+            'min_height', 'min_width', 'min_length',
+            'max_height', 'max_width', 'max_length',
+            'min_weight', 'max_weight',
+            'min_sum_dimensions', 'max_sum_dimensions',
+            'max_single_side', 'non_mechanizable_threshold',
+            'is_active', 'notes',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['created_at', 'updated_at']
+
+
+class CarrierRuleCreateUpdateSerializer(serializers.ModelSerializer):
+    """Serializer para criar/atualizar regras de transportadoras (escrita)."""
+
+    class Meta:
+        model = CarrierRule
+        fields = [
+            'carrier_name', 'modality',
+            'min_height', 'min_width', 'min_length',
+            'max_height', 'max_width', 'max_length',
+            'min_weight', 'max_weight',
+            'min_sum_dimensions', 'max_sum_dimensions',
+            'max_single_side', 'non_mechanizable_threshold',
+            'is_active', 'notes',
+        ]
+
+    def validate(self, data):
+        """Valida consistencia entre valores minimos e maximos."""
+        dimension_pairs = [
+            ('min_height', 'max_height', 'Altura'),
+            ('min_width', 'max_width', 'Largura'),
+            ('min_length', 'max_length', 'Comprimento'),
+            ('min_weight', 'max_weight', 'Peso'),
+            ('min_sum_dimensions', 'max_sum_dimensions', 'Soma das dimensoes'),
+        ]
+
+        for min_field, max_field, label in dimension_pairs:
+            min_val = data.get(min_field)
+            max_val = data.get(max_field)
+
+            # Em updates parciais, buscar do instance se nao veio no payload
+            if self.instance:
+                if min_val is None and min_field not in data:
+                    min_val = getattr(self.instance, min_field)
+                if max_val is None and max_field not in data:
+                    max_val = getattr(self.instance, max_field)
+
+            if min_val is not None and max_val is not None:
+                if min_val > max_val:
+                    raise serializers.ValidationError({
+                        min_field: f'{label} minimo ({min_val}) nao pode ser maior que o maximo ({max_val})'
+                    })
+
+        return data
+
+
+class PackageValidationRequestSerializer(serializers.Serializer):
+    """Serializer para requisicao de validacao de pacote."""
+
+    height = serializers.DecimalField(
+        max_digits=6, decimal_places=2,
+        help_text='Altura do pacote em cm'
+    )
+    width = serializers.DecimalField(
+        max_digits=6, decimal_places=2,
+        help_text='Largura do pacote em cm'
+    )
+    length = serializers.DecimalField(
+        max_digits=6, decimal_places=2,
+        help_text='Comprimento do pacote em cm'
+    )
+    weight = serializers.DecimalField(
+        max_digits=6, decimal_places=3,
+        help_text='Peso do pacote em kg'
+    )
+
+    def validate_height(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('Altura deve ser maior que zero')
+        return value
+
+    def validate_width(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('Largura deve ser maior que zero')
+        return value
+
+    def validate_length(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('Comprimento deve ser maior que zero')
+        return value
+
+    def validate_weight(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('Peso deve ser maior que zero')
+        return value

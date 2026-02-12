@@ -261,7 +261,7 @@ class InPersonDeliveryService:
                 updated = True
 
         if updated:
-            # Se data/hora foram atualizados, resetar confirmações
+            # Se data/hora foram atualizados, resetar confirmações e agendar
             if 'scheduled_date' in kwargs or 'scheduled_time' in kwargs:
                 if in_person_delivery.seller_confirmed or in_person_delivery.buyer_confirmed:
                     in_person_delivery.seller_confirmed = False
@@ -269,9 +269,8 @@ class InPersonDeliveryService:
                     in_person_delivery.seller_confirmed_at = None
                     in_person_delivery.buyer_confirmed_at = None
 
-                    # Atualizar status
-                    if in_person_delivery.meeting_status == 'confirmed':
-                        in_person_delivery.meeting_status = 'scheduled'
+                if in_person_delivery.scheduled_date and in_person_delivery.scheduled_time:
+                    in_person_delivery.meeting_status = 'scheduled'
 
             in_person_delivery.save()
 
@@ -285,7 +284,8 @@ class InPersonDeliveryService:
         completion_notes: str = ""
     ) -> InPersonDelivery:
         """
-        Marca a entrega como concluída.
+        Confirma a conclusão da entrega por uma das partes (seller ou buyer).
+        Ambas as partes precisam confirmar para que o status mude para 'completed'.
 
         Args:
             in_person_delivery: Entrega presencial
@@ -296,41 +296,50 @@ class InPersonDeliveryService:
             InPersonDelivery atualizado
         """
 
-        # Verificar permissão
         if user not in [in_person_delivery.seller, in_person_delivery.buyer]:
             raise ValueError('Usuário não tem permissão para concluir esta entrega')
 
-        # Verificar se pode ser concluída
         if not in_person_delivery.can_be_completed():
             raise ValueError(
                 f'Entrega com status {in_person_delivery.meeting_status} não pode ser concluída'
             )
 
-        # Atualizar status
-        in_person_delivery.meeting_status = 'completed'
-        in_person_delivery.completed_by = user
-        in_person_delivery.completed_at = timezone.now()
-        in_person_delivery.completion_notes = completion_notes
+        if user == in_person_delivery.seller:
+            if in_person_delivery.seller_completed:
+                raise ValueError('Vendedor já confirmou a conclusão desta entrega')
+            in_person_delivery.seller_completed = True
+            in_person_delivery.seller_completed_at = timezone.now()
+
+        elif user == in_person_delivery.buyer:
+            if in_person_delivery.buyer_completed:
+                raise ValueError('Comprador já confirmou a conclusão desta entrega')
+            in_person_delivery.buyer_completed = True
+            in_person_delivery.buyer_completed_at = timezone.now()
+
+        if completion_notes:
+            in_person_delivery.completion_notes = completion_notes
+
+        # save() do modelo muda meeting_status para 'completed' se ambos confirmaram
         in_person_delivery.save()
 
-        # Atualizar OrderDelivery
-        try:
-            order_delivery = in_person_delivery.order_delivery
-            old_status = order_delivery.status
-            order_delivery.status = 'delivered'
-            order_delivery.completed_at = timezone.now()
-            order_delivery.save()
+        # Se ambos confirmaram, atualizar OrderDelivery
+        if in_person_delivery.is_fully_completed():
+            try:
+                order_delivery = in_person_delivery.order_delivery
+                old_status = order_delivery.status
+                order_delivery.status = 'delivered'
+                order_delivery.completed_at = timezone.now()
+                order_delivery.save()
 
-            # Log
-            DeliveryStatusLog.objects.create(
-                order_delivery=order_delivery,
-                from_status=old_status,
-                to_status='delivered',
-                changed_by=user,
-                notes=f'Entrega presencial concluída. {completion_notes}'
-            )
-        except OrderDelivery.DoesNotExist:
-            pass
+                DeliveryStatusLog.objects.create(
+                    order_delivery=order_delivery,
+                    from_status=old_status,
+                    to_status='delivered',
+                    changed_by=user,
+                    notes=f'Ambas as partes confirmaram a conclusão. {completion_notes}'
+                )
+            except OrderDelivery.DoesNotExist:
+                pass
 
         return in_person_delivery
 
