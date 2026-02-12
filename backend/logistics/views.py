@@ -1474,9 +1474,8 @@ def melhor_envio_oauth_callback(request):
             'code': code,
         })
 
-    error = request.query_params.get('error', 'Nenhum código recebido')
-    logger.warning(f'Melhor Envio OAuth callback sem código: {error}')
+    # Retorna 200 mesmo sem code (teste de conexão do Melhor Envio)
     return Response({
-        'message': f'Erro na autorização: {error}',
+        'message': 'Callback ativo',
         'code': None,
-    }, status=status.HTTP_400_BAD_REQUEST)
+    })
