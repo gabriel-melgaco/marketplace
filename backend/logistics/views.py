@@ -4,7 +4,7 @@ import json
 import logging
 
 from rest_framework import generics, status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.shortcuts import get_object_or_404
@@ -1307,6 +1307,7 @@ def list_in_person_deliveries(request):
 )
 @csrf_exempt
 @api_view(['POST'])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def melhor_envio_webhook(request):
     """
@@ -1455,7 +1456,8 @@ def melhor_envio_webhook(request):
         ),
     }
 )
-@api_view(['GET'])
+@api_view(['GET', 'POST'])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def melhor_envio_oauth_callback(request):
     """
