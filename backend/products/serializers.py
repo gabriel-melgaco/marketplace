@@ -119,7 +119,7 @@ class MarketplaceListingSerializer(serializers.ModelSerializer):
     class Meta:
         model = MarketplaceListing
         fields = [
-            'id', 'product', 'seller', 'seller_name', 'price', 'brand',
+            'id', 'product', 'seller', 'seller_name', 'title', 'price', 'brand',
             'quantity', 'is_active', 'description', 'condition',
             'views_count', 'weight_kg', 'height_cm', 'width_cm',
             'length_cm', 'created_at', 'updated_at', 'sold_at',
@@ -152,17 +152,23 @@ class MarketplaceListingCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = MarketplaceListing
         fields = [
-            'product', 'price', 'brand', 'quantity', 
-            'description', 'condition', 'weight_kg', 
+            'product', 'title', 'price', 'brand', 'quantity',
+            'description', 'condition', 'weight_kg',
             'height_cm', 'width_cm', 'length_cm'
         ]
     
+    def validate_title(self, value):
+        """Valida título do anúncio"""
+        if len(value) < 5:
+            raise serializers.ValidationError('O título deve ter pelo menos 5 caracteres.')
+        return value
+
     def validate_price(self, value):
         """Valida valor mínimo de venda"""
         if value < 15:
             raise serializers.ValidationError('O valor mínimo de venda é de R$15,00')
         return value
-    
+
     def validate_description(self, value):
         """Valida descrição mínima"""
         if len(value) < 30:
@@ -242,11 +248,16 @@ class MarketplaceListingUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = MarketplaceListing
         fields = [
-            'price', 'quantity', 'description', 
-            'condition', 'weight_kg', 'height_cm', 
+            'title', 'price', 'quantity', 'description',
+            'condition', 'weight_kg', 'height_cm',
             'width_cm', 'length_cm', 'is_active'
         ]
-    
+
+    def validate_title(self, value):
+        if len(value) < 5:
+            raise serializers.ValidationError('O título deve ter pelo menos 5 caracteres.')
+        return value
+
     def validate_price(self, value):
         if value < 15:
             raise serializers.ValidationError('O valor mínimo de venda é de R$15,00')

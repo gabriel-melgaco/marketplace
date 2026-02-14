@@ -511,6 +511,7 @@ def search_products(request):
     listings = MarketplaceListing.objects.filter(
         Q(product__name__icontains=query) |
         Q(product__description__icontains=query) |
+        Q(title__icontains=query) |
         Q(description__icontains=query) |
         Q(brand__name__icontains=query),
         is_active=True, sold_at=None
