@@ -18,6 +18,8 @@ import { MyReviews } from "@/pages/Dashboard/MyReviews";
 import PivateRoutes from "@/routes/PrivateRoutes";
 import EmailSent from "@/pages/auth/EmailSent";
 import ConfirmEmail from "@/pages/auth/ConfirmEmail";
+import { Chat } from "@/pages/private/Chat";
+import { StateProductList } from "@/pages/public/StateProductList";
 
 const router = createBrowserRouter([
   // 🌍 PÚBLICAS COM LAYOUT
@@ -28,6 +30,7 @@ const router = createBrowserRouter([
       { index: true, element: <Home /> },
       { path: "productlist", element: <ProductList /> },
       { path: "productdetail/:id", element: <ProductDetail /> },
+      { path: "estado/:uf", element: <StateProductList /> },
     ],
   },
 
@@ -54,6 +57,7 @@ const router = createBrowserRouter([
           { path: "checkout", element: <Checkout /> },
           { path: "payment", element: <Payment /> },
           { path: "orderconfirmed", element: <OrderConfirmed /> },
+          { path: "chat/:listingId?", element: <Chat /> },
         ],
       },
     ],

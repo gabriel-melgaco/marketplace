@@ -10,6 +10,15 @@
   --color-text-secundary: #000000;
 }
 
+button:not(:disabled),
+a:not([aria-disabled="true"]),
+[role="button"]:not([aria-disabled="true"]),
+input[type="submit"]:not(:disabled),
+input[type="button"]:not(:disabled),
+select:not(:disabled) {
+  cursor: pointer;
+}
+
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }

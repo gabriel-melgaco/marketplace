@@ -1,24 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { productService } from "@/services/productService";
+import type { MarketplaceListing } from "@/types/product";
 
-type ListingProduct = {
-  id?: string | number;
-  title?: string;
-  name?: string;
-  price?: string | number;
-  image?: string;
-};
+const SEARCH_PARAM = "q";
 
 export function ProductList() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState("");
-  const [products, setProducts] = useState<ListingProduct[]>([]);
+  const [products, setProducts] = useState<MarketplaceListing[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const searchTerm = useMemo(
-    () => searchParams.get("search")?.trim() ?? "",
+    () => searchParams.get(SEARCH_PARAM)?.trim() ?? "",
     [searchParams]
   );
 
@@ -33,29 +28,30 @@ export function ProductList() {
       return;
     }
 
-    let isActive = true;
+    let cancelled = false;
 
     const fetchProducts = async () => {
       setIsLoading(true);
       setError(null);
       try {
-        const data = await productService.searchListing(searchTerm);
-        if (!isActive) return;
+        const data = await productService.searchListings(searchTerm);
+        if (cancelled) return;
 
-        setProducts(Array.isArray(data) ? data : data?.results ?? []);
+        setProducts(data.results);
       } catch (err) {
-        if (!isActive) return;
+        if (cancelled) return;
         setError("Não foi possível carregar os produtos.");
       } finally {
-        if (!isActive) return;
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     };
 
     fetchProducts();
 
     return () => {
-      isActive = false;
+      cancelled = true;
     };
   }, [searchTerm]);
 
@@ -67,7 +63,7 @@ export function ProductList() {
       return;
     }
 
-    setSearchParams({ search: normalized });
+    setSearchParams({ [SEARCH_PARAM]: normalized });
   };
 
   return (
@@ -108,24 +104,19 @@ export function ProductList() {
       )}
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {products.map((product, index) => {
-          const title = product.title ?? product.name ?? "Produto";
-          const key = product.id ?? `${title}-${index}`;
-
-          return (
-            <div
-              key={key}
-              className="rounded-lg bg-white p-4 shadow-md flex flex-col gap-2"
-            >
-              <div className="font-semibold text-gray-900">{title}</div>
-              {product.price !== undefined && (
-                <div className="text-blue-800 font-bold">
-                  R$ {product.price}
-                </div>
-              )}
+        {products.map((listing) => (
+          <div
+            key={listing.id}
+            className="rounded-lg bg-white p-4 shadow-md flex flex-col gap-2"
+          >
+            <div className="font-semibold text-gray-900">
+              {listing.product.name}
             </div>
-          );
-        })}
+            <div className="text-blue-800 font-bold">
+              R$ {listing.price}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
