@@ -22,7 +22,7 @@ export function BottomNav() {
     const normalizedTerm = term.trim();
     if (!normalizedTerm) return;
 
-    navigate(`/productlist?search=${encodeURIComponent(normalizedTerm)}`);
+    navigate(`/productlist?q=${encodeURIComponent(normalizedTerm)}`);
   };
 
   return (
@@ -90,7 +90,6 @@ export function BottomNav() {
           </button>
         </div>
       </nav>
-      ;
     </div>
   );
 }

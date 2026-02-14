@@ -1,4 +1,5 @@
 import api from "@/api/axios";
+import type { MarketplaceListing, MarketplaceListingDetail, SearchProductsResponse } from "@/types/product";
 
 export const productService = {
   async getAll() {
@@ -6,8 +7,27 @@ export const productService = {
     return response.data;
   },
 
+  async getListings() {
+    const response = await api.get<MarketplaceListing[]>(
+      "/products/listings/",
+    );
+    return response.data;
+  },
+
   async getById(id: string) {
     const response = await api.get(`/products/${id}/`);
+    return response.data;
+  },
+
+  async getListingById(id: number) {
+    const response = await api.get<MarketplaceListingDetail>(
+      `/products/listings/${id}/`,
+    );
+    return response.data;
+  },
+
+  async incrementListingView(id: number) {
+    const response = await api.post(`/products/listings/${id}/increment-view/`);
     return response.data;
   },
 
@@ -25,13 +45,16 @@ export const productService = {
     await api.delete(`/products/${id}/`);
   },
 
-  async searchListing(term: string) {
+  async searchListings(term: string) {
     const normalizedTerm = term.trim();
-    if (!normalizedTerm) return [];
+    if (!normalizedTerm) return { results: [] };
 
-    const response = await api.get("/product/listing", {
-      params: { search: normalizedTerm },
-    });
+    const response = await api.get<SearchProductsResponse>(
+      "/products/search/",
+      {
+        params: { q: normalizedTerm },
+      },
+    );
     return response.data;
   },
 };
