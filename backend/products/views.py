@@ -151,7 +151,7 @@ class ProductListingsView(generics.ListAPIView):
             product__slug=slug,
             is_active=True,
             quantity__gt=0
-        ).select_related('product', 'brand', 'condition', 'seller').prefetch_related('images')
+        ).select_related('product', 'brand', 'condition', 'seller', 'shipping_address').prefetch_related('images')
 
 
 # =================== Brand Views ===================
@@ -187,7 +187,7 @@ class BrandListingsView(generics.ListAPIView):
         return MarketplaceListing.objects.filter(
             brand__slug=slug,
             is_active=True
-        ).select_related('product', 'brand', 'condition', 'seller').prefetch_related('images')
+        ).select_related('product', 'brand', 'condition', 'seller', 'shipping_address').prefetch_related('images')
 
 
 # =================== Condition Views ===================
@@ -218,17 +218,17 @@ class MarketplaceListingListView(generics.ListAPIView):
         queryset = MarketplaceListing.objects.filter(
             is_active=True, sold_at=None,
             quantity__gt=0
-        ).select_related('product', 'brand', 'condition', 'seller').prefetch_related('images')
-        
+        ).select_related('product', 'brand', 'condition', 'seller', 'shipping_address').prefetch_related('images')
+
         # Filtros customizados
         price_min = self.request.query_params.get('price_min')
         price_max = self.request.query_params.get('price_max')
-        
+
         if price_min:
             queryset = queryset.filter(price__gte=price_min)
         if price_max:
             queryset = queryset.filter(price__lte=price_max)
-        
+
         return queryset
 
 
@@ -270,7 +270,7 @@ class MyListingsView(generics.ListAPIView):
     def get_queryset(self):
         return MarketplaceListing.objects.filter(
             seller=self.request.user
-        ).select_related('product', 'brand', 'condition').prefetch_related('images')
+        ).select_related('product', 'brand', 'condition', 'shipping_address').prefetch_related('images')
 
 
 @extend_schema(tags=['Products'], summary='Update listing', description='Update a marketplace listing. Only the seller who created it can update.')
@@ -515,7 +515,7 @@ def search_products(request):
         Q(description__icontains=query) |
         Q(brand__name__icontains=query),
         is_active=True, sold_at=None
-    ).select_related('product', 'brand', 'condition').prefetch_related('images')[:20]
+    ).select_related('product', 'brand', 'condition', 'shipping_address').prefetch_related('images')[:20]
 
     serializer = MarketplaceListingSerializer(listings, many=True)
     return Response({'results': serializer.data})
@@ -570,7 +570,7 @@ def featured_listings(request):
         is_active=True, sold_at=None,
         quantity__gt=0
     ).order_by('-views_count')[:10].select_related(
-        'product', 'brand', 'condition', 'seller'
+        'product', 'brand', 'condition', 'seller', 'shipping_address'
     ).prefetch_related('images')
 
     serializer = MarketplaceListingSerializer(listings, many=True)
@@ -591,7 +591,7 @@ def recent_listings(request):
         is_active=True,
         quantity__gt=0
     ).order_by('-created_at')[:20].select_related(
-        'product', 'brand', 'condition', 'seller'
+        'product', 'brand', 'condition', 'seller', 'shipping_address'
     ).prefetch_related('images')
 
     serializer = MarketplaceListingSerializer(listings, many=True)

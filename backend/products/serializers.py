@@ -114,7 +114,7 @@ class MarketplaceListingSerializer(serializers.ModelSerializer):
     images = MarketplaceListingImageSerializer(many=True, read_only=True)
     seller_name = serializers.CharField(source='seller.get_full_name', read_only=True)
     primary_image = serializers.SerializerMethodField()
-    seller_shipping_address = serializers.SerializerMethodField()
+    shipping_address = AddressSerializer(read_only=True)
 
     class Meta:
         model = MarketplaceListing
@@ -123,7 +123,7 @@ class MarketplaceListingSerializer(serializers.ModelSerializer):
             'quantity', 'is_active', 'description', 'condition',
             'views_count', 'weight_kg', 'height_cm', 'width_cm',
             'length_cm', 'created_at', 'updated_at', 'sold_at',
-            'images', 'primary_image', 'seller_shipping_address'
+            'images', 'primary_image', 'shipping_address'
         ]
         read_only_fields = ['seller', 'views_count', 'created_at', 'updated_at', 'sold_at']
 
@@ -135,17 +135,6 @@ class MarketplaceListingSerializer(serializers.ModelSerializer):
         first_image = obj.images.first()
         return first_image.image_url if first_image else None
 
-    @extend_schema_field(AddressSerializer(allow_null=True))
-    def get_seller_shipping_address(self, obj):
-        address = Address.objects.filter(
-            user=obj.seller,
-            is_shipping_address=True,
-            is_active=True
-        ).first()
-        if address:
-            return AddressSerializer(address).data
-        return None
-
 
 class MarketplaceListingCreateSerializer(serializers.ModelSerializer):
     """Serializer para criar listagem"""
@@ -154,7 +143,7 @@ class MarketplaceListingCreateSerializer(serializers.ModelSerializer):
         fields = [
             'product', 'title', 'price', 'brand', 'quantity',
             'description', 'condition', 'weight_kg',
-            'height_cm', 'width_cm', 'length_cm'
+            'height_cm', 'width_cm', 'length_cm', 'shipping_address'
         ]
     
     def validate_title(self, value):
@@ -225,16 +214,28 @@ class MarketplaceListingCreateSerializer(serializers.ModelSerializer):
                 'Você precisa cadastrar um CPF válido antes de criar produtos.'
             )
 
-        has_shipping_address = Address.objects.filter(
-            user=user,
-            is_shipping_address=True,
-            is_active=True
-        ).exists()
+        # Validate shipping_address
+        shipping_address = data.get('shipping_address')
+        if not shipping_address:
+            raise serializers.ValidationError({
+                'shipping_address': 'Endereço de envio é obrigatório.'
+            })
 
-        if not has_shipping_address:
-            raise serializers.ValidationError(
-                'Você precisa cadastrar um endereço de envio antes de criar produtos.'
-            )
+        # Validate address belongs to user and is a shipping address
+        if shipping_address.user != user:
+            raise serializers.ValidationError({
+                'shipping_address': 'Este endereço não pertence a você.'
+            })
+
+        if not shipping_address.is_shipping_address:
+            raise serializers.ValidationError({
+                'shipping_address': 'Este endereço não é um endereço de envio.'
+            })
+
+        if not shipping_address.is_active:
+            raise serializers.ValidationError({
+                'shipping_address': 'Este endereço está inativo.'
+            })
 
         return data
     
@@ -250,7 +251,7 @@ class MarketplaceListingUpdateSerializer(serializers.ModelSerializer):
         fields = [
             'title', 'price', 'quantity', 'description',
             'condition', 'weight_kg', 'height_cm',
-            'width_cm', 'length_cm', 'is_active'
+            'width_cm', 'length_cm', 'is_active', 'shipping_address'
         ]
 
     def validate_title(self, value):
@@ -301,6 +302,37 @@ class MarketplaceListingUpdateSerializer(serializers.ModelSerializer):
             )
         return value
 
+    def validate(self, data):
+        """Valida endereço de envio se fornecido"""
+        shipping_address = data.get('shipping_address')
+
+        if shipping_address:
+            request = self.context.get('request')
+            if not request or not request.user.is_authenticated:
+                raise serializers.ValidationError(
+                    'Usuário não autenticado.'
+                )
+
+            user = request.user
+
+            # Validate address belongs to user and is a shipping address
+            if shipping_address.user != user:
+                raise serializers.ValidationError({
+                    'shipping_address': 'Este endereço não pertence a você.'
+                })
+
+            if not shipping_address.is_shipping_address:
+                raise serializers.ValidationError({
+                    'shipping_address': 'Este endereço não é um endereço de envio.'
+                })
+
+            if not shipping_address.is_active:
+                raise serializers.ValidationError({
+                    'shipping_address': 'Este endereço está inativo.'
+                })
+
+        return data
+
 
 class MarketplaceListingDetailSerializer(serializers.ModelSerializer):
     """Serializer detalhado de listagem"""
@@ -310,19 +342,8 @@ class MarketplaceListingDetailSerializer(serializers.ModelSerializer):
     images = MarketplaceListingImageSerializer(many=True, read_only=True)
     seller_name = serializers.CharField(source='seller.get_full_name', read_only=True)
     seller_email = serializers.EmailField(source='seller.email', read_only=True)
-    seller_shipping_address = serializers.SerializerMethodField()
+    shipping_address = AddressSerializer(read_only=True)
 
     class Meta:
         model = MarketplaceListing
         fields = '__all__'
-
-    @extend_schema_field(AddressSerializer(allow_null=True))
-    def get_seller_shipping_address(self, obj):
-        address = Address.objects.filter(
-            user=obj.seller,
-            is_shipping_address=True,
-            is_active=True
-        ).first()
-        if address:
-            return AddressSerializer(address).data
-        return None

@@ -229,16 +229,14 @@ class MelhorEnvioService:
                 }
                 continue
 
-            # Buscar endereço de envio do vendedor
-            seller_address = Address.objects.filter(
-                user=seller,
-                is_shipping_address=True,
-                is_active=True
-            ).first()
+            # Buscar endereço de envio do listing (primeiro item do vendedor)
+            # Todos os itens do mesmo vendedor devem ter o mesmo shipping_address
+            first_listing = items[0].listing
+            seller_address = first_listing.shipping_address
 
             if not seller_address:
                 quotes_by_seller[seller.id] = {
-                    'error': 'Vendedor não possui endereço de envio cadastrado',
+                    'error': 'Produto não possui endereço de envio configurado',
                     'seller_name': seller.get_full_name() or seller.email,
                     'seller_id': seller.id
                 }
@@ -466,20 +464,20 @@ class MelhorEnvioService:
         """
         url = f'{self.base_url}/me/cart'
 
-        # Buscar endereço do vendedor
-        seller_address = Address.objects.filter(
-            user=seller,
-            is_shipping_address=True,
-            is_active=True
-        ).first()
-
-        if not seller_address:
-            raise Exception(f'Vendedor não possui endereço de envio cadastrado')
-
         # Filtrar itens do vendedor
         seller_items = order.items.filter(seller=seller)
         if not seller_items.exists():
             raise Exception(f'Nenhum item do vendedor encontrado neste pedido')
+
+        # Buscar endereço de envio do listing (primeiro item do vendedor)
+        # Todos os itens do mesmo vendedor devem ter o mesmo shipping_address
+        first_item = seller_items.first()
+        from products.models import MarketplaceListing
+        listing = MarketplaceListing.objects.select_related('shipping_address').get(id=first_item.listing_id)
+        seller_address = listing.shipping_address
+
+        if not seller_address:
+            raise Exception(f'Produto não possui endereço de envio configurado')
 
         # VALIDAÇÃO 1: CEPs origem e destino
         origin_zipcode = seller_address.zipcode

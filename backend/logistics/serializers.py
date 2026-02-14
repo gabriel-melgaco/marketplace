@@ -46,24 +46,14 @@ class AddressCreateSerializer(serializers.ModelSerializer):
         else:
             data['is_shipping_address'] = False
 
-        # Verifica se já existe um endereço com o mesmo tipo
-        if Address.objects.filter(
+        # Shipping permite múltiplos; outros tipos são únicos
+        if address_type != 'shipping' and Address.objects.filter(
             user=user,
             address_type=address_type,
             is_active=True
         ).exists():
             raise serializers.ValidationError({
                 "address_type": "Você já possui um endereço deste tipo cadastrado."
-            })
-
-        # Verifica se já existe um endereço de envio
-        if data['is_shipping_address'] and Address.objects.filter(
-            user=user,
-            is_shipping_address=True,
-            is_active=True
-        ).exists():
-            raise serializers.ValidationError({
-                "address_type": "Você já possui um endereço de envio cadastrado."
             })
 
         return data

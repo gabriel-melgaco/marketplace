@@ -147,6 +147,15 @@ class MarketplaceListing(models.Model):
         help_text="Comprimento em cm"
     )
 
+    shipping_address = models.ForeignKey(
+        'logistics.Address',
+        on_delete=models.PROTECT,
+        related_name='listings',
+        null=True,
+        blank=True,
+        help_text="Endereço de envio do anúncio"
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     sold_at = models.DateTimeField(null=True, blank=True)
