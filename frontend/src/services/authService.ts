@@ -210,4 +210,47 @@ export const authService = {
       !tokenStorage.isRefreshTokenExpired()
     );
   },
+
+  // ============================================
+  // TOKEN REFRESH
+  // ============================================
+
+  async refreshToken(): Promise<{ access: string; refresh?: string }> {
+    try {
+      const refreshToken = tokenStorage.getRefreshToken();
+      if (!refreshToken) {
+        throw new Error("No refresh token available");
+      }
+
+      const response = await api.post<{ access: string; refresh?: string }>(
+        "/auth/token/refresh/",
+        { refresh: refreshToken },
+      );
+
+      // Update stored access token
+      if (response.data.access) {
+        tokenStorage.saveTokens({
+          access: response.data.access,
+          refresh: response.data.refresh || refreshToken,
+          access_expiration: "", // Will be updated by backend
+          refresh_expiration: "", // Will be updated by backend
+        });
+      }
+
+      return response.data;
+    } catch (error: any) {
+      // If refresh fails, clear tokens and force re-login
+      tokenStorage.clearAll();
+      throw new Error("Session expired. Please login again.");
+    }
+  },
+
+  async verifyToken(token: string): Promise<boolean> {
+    try {
+      await api.post("/auth/token/verify/", { token });
+      return true;
+    } catch (error) {
+      return false;
+    }
+  },
 };

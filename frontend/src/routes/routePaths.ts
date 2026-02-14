@@ -14,6 +14,7 @@ export const ROUTES = {
 
   // Dashboard
   DASHBOARD: "/dashboard",
+  CREATE_LISTING: "/create-listing",
   EDIT_AD: "/ad/:id",
   MY_PURCHASES: "/mypurchase",
   MY_SALES: "/mysales",

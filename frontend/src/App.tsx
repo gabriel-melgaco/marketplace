@@ -11,7 +11,7 @@ import { Checkout } from "@/pages/Checkout/ClientcheCkout";
 import { Payment } from "@/pages/Checkout/ClientPayment";
 import { OrderConfirmed } from "@/pages/Checkout/OrderConfirmed";
 import { Dashboard } from "@/pages/Dashboard/ClientDashboard";
-import { EditAd } from "@/pages/Dashboard/EditAd";
+import { ListingForm } from "@/pages/Dashboard/ListingForm";
 import { MyPurchase } from "@/pages/Dashboard/MyPurchases";
 import { MySales } from "@/pages/Dashboard/MySales";
 import { MyReviews } from "@/pages/Dashboard/MyReviews";
@@ -50,7 +50,8 @@ const router = createBrowserRouter([
         element: <HomeLayout />,
         children: [
           { path: "dashboard", element: <Dashboard /> },
-          { path: "ad/:id", element: <EditAd /> },
+          { path: "create-listing", element: <ListingForm /> },
+          { path: "ad/:id", element: <ListingForm /> },
           { path: "mypurchase", element: <MyPurchase /> },
           { path: "mysales", element: <MySales /> },
           { path: "myreviews", element: <MyReviews /> },

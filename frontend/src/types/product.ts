@@ -121,6 +121,63 @@ export interface SearchProductsResponse {
   results: MarketplaceListing[];
 }
 
+export interface CreateListingRequest {
+  product: number;
+  brand: number;
+  condition: number;
+  description: string;
+  price: string;
+  weight_kg: string;
+  height_cm: string;
+  width_cm: string;
+  length_cm: string;
+  quantity?: number;
+}
+
+export interface UpdateListingRequest {
+  product?: number;
+  brand?: number;
+  condition?: number;
+  description?: string;
+  price?: string;
+  weight_kg?: string;
+  height_cm?: string;
+  width_cm?: string;
+  length_cm?: string;
+  quantity?: number;
+  is_active?: boolean;
+}
+
+export interface PresignedUrlRequest {
+  file_name: string;
+  content_type: string;
+}
+
+export interface PresignedUrlResponse {
+  upload_url: string;
+  file_url: string;
+}
+
+export interface AddListingImageRequest {
+  image_url: string;
+  is_primary?: boolean;
+  order?: number;
+}
+
+export interface FilterOptionsResponse {
+  categories: { id: number; name: string; slug: string }[];
+  brands: { id: number; name: string; slug: string }[];
+  conditions: { id: number; name: string; slug: string }[];
+  price_range: { min: number; max: number };
+}
+
+export interface ProductListItem {
+  id: number;
+  name: string;
+  slug: string;
+  code: string | null;
+}
+
 export interface MarketplaceListingDetail {
   id: number;
   product: ProductDetail;
@@ -143,4 +200,24 @@ export interface MarketplaceListingDetail {
   created_at: string;
   updated_at: string;
   sold_at: string | null;
+}
+
+export interface FormData {
+  product: string;
+  brand: string;
+  condition: string;
+  description: string;
+  price: string;
+  quantity: string;
+  weight_kg: string;
+  height_cm: string;
+  width_cm: string;
+  length_cm: string;
+}
+
+export interface PendingImage {
+  id: string;
+  file: File;
+  previewUrl: string;
+  isPrimary: boolean;
 }
