@@ -106,6 +106,10 @@ class MarketplaceListing(models.Model):
         on_delete=models.PROTECT,
         related_name='listing'
     )
+    title = models.CharField(
+        max_length=150,
+        help_text="Título do anúncio"
+    )
     price = models.DecimalField(max_digits=10, decimal_places=2)
     brand = models.ForeignKey(
         Brand,
@@ -152,7 +156,7 @@ class MarketplaceListing(models.Model):
         verbose_name_plural = 'Listagem de Produtos'
 
     def __str__(self):
-        return f'{self.product} - {self.seller}'
+        return self.title
 
 
 class MarketplaceListingImages(models.Model):
