@@ -264,21 +264,23 @@ class MelhorEnvioService:
 
             for item in items:
                 listing = item.listing
+                product_insurance = min(float(listing.price), settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE)
                 product_data = {
                     'id': str(listing.id),
                     'width': float(listing.width_cm),
                     'height': float(listing.height_cm),
                     'length': float(listing.length_cm),
                     'weight': float(listing.weight_kg),
-                    'insurance_value': float(listing.price),
+                    'insurance_value': product_insurance,
                     'quantity': item.quantity
                 }
                 products.append(product_data)
                 total_value += float(listing.price) * item.quantity
 
-            # Opções adicionais
+            # Opções adicionais (cap no limite de envios não comerciais)
+            capped_total = min(total_value, settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE)
             options = {
-                'insurance_value': total_value,
+                'insurance_value': capped_total,
                 'receipt': False,
                 'own_hand': False,
                 'collect': False
@@ -554,12 +556,25 @@ class MelhorEnvioService:
             'products': products,
             'volumes': volumes,
             'options': {
-                'insurance_value': float(sum(item.subtotal for item in seller_items)),
+                'insurance_value': min(
+                    float(sum(item.subtotal for item in seller_items)),
+                    settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE
+                ),
                 'receipt': False,
                 'own_hand': False,
                 'collect': False
             }
         }
+
+        # Registrar warning se valor segurado foi limitado
+        original_value = float(sum(item.subtotal for item in seller_items))
+        insurance_capped = original_value > settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE
+        if insurance_capped:
+            logger.warning(
+                f'Valor segurado limitado de R${original_value:.2f} para '
+                f'R${settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE:.2f} (limite para envios não comerciais). '
+                f'Pedido: {order.order_number}, vendedor: {seller.email}'
+            )
 
         try:
             logger.info(
@@ -569,7 +584,18 @@ class MelhorEnvioService:
             response = requests.post(url, json=payload, headers=self.headers, timeout=30)
             response.raise_for_status()
             logger.info(f'Envio adicionado ao carrinho com sucesso: pedido {order.order_number}')
-            return response.json()
+            result = response.json()
+            if insurance_capped:
+                result['_insurance_warning'] = {
+                    'original_value': original_value,
+                    'capped_value': settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE,
+                    'message': (
+                        f'O valor segurado foi limitado de R${original_value:.2f} para '
+                        f'R${settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE:.2f}. Envios não comerciais possuem '
+                        f'limite máximo de seguro de R$1.000,00.'
+                    )
+                }
+            return result
         except requests.exceptions.HTTPError as e:
             # MELHORIA: Capturar corpo completo da resposta para debug
             error_detail = 'Resposta não disponível'
@@ -634,32 +660,35 @@ class MelhorEnvioService:
     def create_shipment(self, order, seller, shipping_service_id):
         """
         Cria envio completo (adiciona ao carrinho + faz checkout)
-        
+
         Args:
             order: Pedido
             seller: Vendedor
             shipping_service_id: ID do serviço de frete
-            
+
         Returns:
-            Shipment: Instância do envio criado
+            tuple: (Shipment, warning_dict ou None)
         """
         # PASSO 1: Adicionar ao carrinho
         cart_data = self.create_shipment_in_cart(order, seller, shipping_service_id)
         melhorenvio_order_id = cart_data.get('id')
-        
+
         if not melhorenvio_order_id:
             raise Exception('ID do pedido não retornado ao adicionar no carrinho')
-        
+
+        # Extrair warning de insurance (se houver)
+        insurance_warning = cart_data.pop('_insurance_warning', None)
+
         # PASSO 2: Fazer checkout
         checkout_result = self.checkout_cart([melhorenvio_order_id])
-        
+
         # Verificar se checkout foi bem-sucedido
         purchase = checkout_result.get('purchase', {})
         if purchase.get('status') != 'paid':
             # Em sandbox, pagamento é aprovado em até 5 minutos
             # Em produção, depende do método de pagamento
             pass
-        
+
         # Calcular dimensões a partir dos itens do vendedor
         seller_items = order.items.filter(seller=seller)
         total_weight = sum(float(item.weight_kg) for item in seller_items)
@@ -684,8 +713,8 @@ class MelhorEnvioService:
             destination_address=cart_data.get('to', {}),
             status='pending'
         )
-        
-        return shipment
+
+        return shipment, insurance_warning
     
     def generate_label(self, shipment):
         """
