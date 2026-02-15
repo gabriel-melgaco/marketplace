@@ -39,7 +39,7 @@ class ShipmentCreationService:
                 shipping_services do pedido
 
         Returns:
-            Lista de Shipment criados
+            tuple: (lista de Shipment criados, lista de warnings)
 
         Raises:
             ShipmentCreationError: se validação falhar ou criação de shipment falhar
@@ -62,6 +62,7 @@ class ShipmentCreationService:
         sellers = order.items.values_list('seller', flat=True).distinct()
 
         created_shipments = []
+        warnings = []
         melhor_envio = MelhorEnvioService()
 
         for seller_id in sellers:
@@ -96,12 +97,14 @@ class ShipmentCreationService:
                 )
 
             try:
-                shipment = melhor_envio.create_shipment(
+                shipment, insurance_warning = melhor_envio.create_shipment(
                     order=order,
                     seller=seller,
                     shipping_service_id=service_id
                 )
                 created_shipments.append(shipment)
+                if insurance_warning:
+                    warnings.append(insurance_warning)
             except Exception as e:
                 raise ShipmentCreationError(
                     f'Erro ao criar envio para vendedor '
@@ -120,4 +123,4 @@ class ShipmentCreationService:
             f"{len(created_shipments)} envio(s)"
         )
 
-        return created_shipments
+        return created_shipments, warnings

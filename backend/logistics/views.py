@@ -388,7 +388,9 @@ class ShipmentDetailView(generics.RetrieveAPIView):
         'Shipping service configuration is read from the order `shipping_services` field '
         '(defined during order creation).\n\n'
         '```json\n{"order_id": "uuid"}\n```\n\n'
-        'Permission: admin, buyer, or a seller of the order.'
+        'Permission: admin, buyer, or a seller of the order.\n\n'
+        '**Note:** If the insured value exceeds R$1.000,00 (non-commercial shipping limit), '
+        'it will be capped at R$1.000,00 and a `warnings` array will be included in the response.'
     ),
     request=inline_serializer(
         name='CreateShipmentsRequest',
@@ -402,7 +404,12 @@ class ShipmentDetailView(generics.RetrieveAPIView):
             fields={
                 'shipments': ShipmentSerializer(many=True),
                 'created_count': rf_serializers.IntegerField(),
-                'order_status': rf_serializers.CharField()
+                'order_status': rf_serializers.CharField(),
+                'warnings': rf_serializers.ListField(
+                    child=rf_serializers.DictField(),
+                    required=False,
+                    help_text='Insurance cap warnings (present only when value was capped at R$1.000,00)'
+                )
             }
         ),
         400: OpenApiResponse(description='Invalid request, missing order_id, or shipment creation error'),
@@ -442,7 +449,7 @@ def create_shipments_for_order(request):
             )
 
     try:
-        created_shipments = ShipmentCreationService.create_shipments_for_order(
+        created_shipments, warnings = ShipmentCreationService.create_shipments_for_order(
             order=order,
         )
     except ShipmentCreationError as e:
@@ -453,11 +460,16 @@ def create_shipments_for_order(request):
 
     serializer = ShipmentSerializer(created_shipments, many=True)
 
-    return Response({
+    response_data = {
         'shipments': serializer.data,
         'created_count': len(created_shipments),
         'order_status': order.status,
-    }, status=status.HTTP_201_CREATED)
+    }
+
+    if warnings:
+        response_data['warnings'] = warnings
+
+    return Response(response_data, status=status.HTTP_201_CREATED)
 
 
 
