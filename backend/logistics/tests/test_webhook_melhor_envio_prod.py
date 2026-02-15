@@ -3,9 +3,11 @@ import hmac
 import hashlib
 import base64
 import json
+from django.conf import settings
+
 
 url = "https://api.megdev.com.br/api/logistics/webhooks/melhor-envio"
-secret = b"Ge5OGxAz7aMYgH9UFKFIrXqvmeargfAycQIfJdGb"
+secret = settings.MELHOR_ENVIO_WEBHOOK_SECRET.encode()
 
 payload = {
     "event": "order.posted",
