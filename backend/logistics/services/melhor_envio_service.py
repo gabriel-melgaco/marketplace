@@ -844,11 +844,11 @@ class MelhorEnvioService:
             dict: Dados de rastreamento
         """
         url = f'{self.base_url}/me/shipment/tracking'
-        params = {'orders': shipment.melhorenvio_order_id}
+        payload = {'orders': [shipment.melhorenvio_order_id]}
 
         try:
             logger.info(f'Rastreando envio: {shipment.melhorenvio_order_id}')
-            response = requests.get(url, params=params, headers=self.headers, timeout=30)
+            response = requests.post(url, json=payload, headers=self.headers, timeout=30)
             response.raise_for_status()
             data = response.json()
 
@@ -898,7 +898,7 @@ class MelhorEnvioService:
             logger.error(
                 f'Erro HTTP ao rastrear envio: {e.response.status_code if e.response else "N/A"}\n'
                 f'URL: {url}\n'
-                f'Params: {params}\n'
+                f'Payload: {payload}\n'
                 f'Resposta: {error_detail}'
             )
             raise Exception(f'Erro ao rastrear envio: {error_detail}')
