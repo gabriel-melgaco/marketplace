@@ -1,30 +1,106 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
+import { Link } from "react-router-dom";
 import { Menu, ShoppingBag, Package, Settings } from "lucide-react";
+import { CgClose } from "react-icons/cg";
+
+const menuItems = [
+  { label: "Minhas Vendas", path: "/my-sales", icon: ShoppingBag },
+  { label: "Minhas Compras", path: "/my-purchases", icon: Package },
+  { label: "Painel Administrativo", path: "/admin", icon: Settings },
+];
 
 export function NavMenu() {
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    document.body.style.overflow = "hidden";
+    closeButtonRef.current?.focus();
+
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsOpen(false);
+    };
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.body.style.overflow = "";
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [isOpen]);
 
   return (
-    <button
-      onClick={() => setMenuOpen(!menuOpen)}
-      className="flex flex-col items-center gap-1 text-white hover:text-blue-800 transition relative cursor-pointer"
-    >
-      <Menu size={24} />
-      <span className="text-xs">Menu</span>
+    <>
+      <button
+        onClick={() => setIsOpen(true)}
+        className="flex flex-col items-center gap-1 text-white hover:text-blue-800 transition cursor-pointer"
+        aria-label="Abrir menu"
+        aria-expanded={isOpen}
+      >
+        <Menu size={24} />
+        <span className="text-xs">Menu</span>
+      </button>
 
-      {menuOpen && (
-        <div className="absolute bottom-full right-0 mb-2 w-56 bg-white rounded-lg shadow-xl py-2 text-gray-800 border">
-          <button className="w-full px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3">
-            <ShoppingBag size={18} /> Minhas Vendas
-          </button>
-          <button className="w-full px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3">
-            <Package size={18} /> Minhas Compras
-          </button>
-          <button className="w-full px-4 py-3 text-left hover:bg-gray-100 flex items-center gap-3">
-            <Settings size={18} /> Painel Administrativo
-          </button>
-        </div>
+      {createPortal(
+        <>
+          {/* Overlay */}
+          <div
+            className={`
+              fixed inset-0 z-[60] bg-black/40 transition-opacity
+              ${isOpen ? "opacity-100" : "opacity-0 pointer-events-none"}
+            `}
+            onClick={() => setIsOpen(false)}
+            aria-hidden="true"
+          />
+
+          {/* Drawer */}
+          <aside
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="nav-menu-heading"
+            className={`
+              fixed top-0 bottom-0 right-0 z-[70]
+              w-3/5 md:w-1/2 lg:w-1/4
+              bg-white shadow-xl
+              transform transition-transform duration-300
+              ${isOpen ? "translate-x-0" : "translate-x-full"}
+              flex flex-col
+            `}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-4 border-b">
+              <span id="nav-menu-heading" className="font-semibold text-lg">
+                Menu
+              </span>
+              <button
+                ref={closeButtonRef}
+                onClick={() => setIsOpen(false)}
+                aria-label="Fechar menu"
+              >
+                <CgClose className="w-8 h-8" />
+              </button>
+            </div>
+
+            {/* Menu items */}
+            <nav className="flex-1 overflow-y-auto" aria-label="Menu principal">
+              {menuItems.map((item) => (
+                <Link
+                  key={item.label}
+                  to={item.path}
+                  onClick={() => setIsOpen(false)}
+                  className="flex items-center gap-3 px-4 py-3 text-gray-800 hover:bg-secundary hover:text-text-primary transition"
+                >
+                  <item.icon size={18} aria-hidden="true" />
+                  {item.label}
+                </Link>
+              ))}
+            </nav>
+          </aside>
+        </>,
+        document.body,
       )}
-    </button>
+    </>
   );
 }

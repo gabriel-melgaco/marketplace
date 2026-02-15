@@ -61,7 +61,7 @@ export function NavSearch() {
       type="button"
       onClick={handleSearch}
       aria-label="Buscar produtos"
-      className="flex flex-col items-center gap-1 text-white hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-blue-900 rounded transition cursor-pointer"
+      className="flex flex-col items-center gap-1 text-white hover:text-blue-800 focus:outline-none transition cursor-pointer"
     >
       <Search size={24} />
       <span className="text-xs">Busca</span>

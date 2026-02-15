@@ -84,7 +84,8 @@ export function ProductList() {
   };
 
   return (
-    <div className="px-4 py-6 max-w-6xl mx-auto">
+    <div className="min-h-screen bg-blue-900 pb-24">
+      <div className="px-4 py-6 max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold text-white mb-4">
         Buscar Produtos
       </h1>
@@ -104,7 +105,7 @@ export function ProductList() {
         </div>
         <button
           type="submit"
-          className="h-11 px-5 rounded-lg bg-blue-900 hover:bg-blue-800 active:bg-blue-950 text-white font-semibold transition-colors"
+          className="h-11 px-5 rounded-lg bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white font-semibold transition-colors shadow-md"
         >
           Buscar
         </button>
@@ -151,6 +152,7 @@ export function ProductList() {
           </div>
         </>
       )}
+      </div>
     </div>
   );
 }
