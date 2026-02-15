@@ -102,6 +102,7 @@ export interface MarketplaceListing {
   product: ProductSimple;
   seller: number;
   seller_name: string;
+  title: string;
   price: string;
   brand: BrandSimple;
   quantity: number;
@@ -122,7 +123,7 @@ export interface SearchProductsResponse {
 }
 
 export interface CreateListingRequest {
-  product: number;
+  title: string;
   brand: number;
   condition: number;
   description: string;
@@ -135,7 +136,7 @@ export interface CreateListingRequest {
 }
 
 export interface UpdateListingRequest {
-  product?: number;
+  title?: string;
   brand?: number;
   condition?: number;
   description?: string;
@@ -188,6 +189,7 @@ export interface MarketplaceListingDetail {
   seller_name: string;
   seller_email: string;
   seller_shipping_address: SellerShippingAddressDetail | null;
+  title: string;
   price: string;
   quantity: number;
   is_active: boolean;
@@ -203,7 +205,7 @@ export interface MarketplaceListingDetail {
 }
 
 export interface FormData {
-  product: string;
+  title: string;
   brand: string;
   condition: string;
   description: string;
