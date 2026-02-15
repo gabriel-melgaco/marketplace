@@ -802,6 +802,14 @@ def create_order_deliveries(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
+    # Verificar se já existem entregas para este pedido
+    from logistics.models import OrderDelivery
+    if OrderDelivery.objects.filter(order=order).exists():
+        return Response(
+            {'error': 'Entregas já foram criadas para este pedido.'},
+            status=status.HTTP_409_CONFLICT
+        )
+
     # Se deliveries não foi enviado, extrair do shipping_services da order
     if not delivery_choices:
         if not order.shipping_services:

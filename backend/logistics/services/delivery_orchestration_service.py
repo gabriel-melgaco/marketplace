@@ -159,17 +159,6 @@ class DeliveryOrchestrationService:
             shipment=None  # Será criado após pagamento confirmado
         )
 
-        # Salvar service_id nos shipping_services do pedido
-        if not order.shipping_services:
-            order.shipping_services = {}
-
-        order.shipping_services[str(seller.id)] = {
-            'service_id': shipping_service_id,
-            'cost': float(delivery_cost),
-            'delivery_type': 'shipping'
-        }
-        order.save(update_fields=['shipping_services'])
-
         # Criar log
         DeliveryStatusLog.objects.create(
             order_delivery=order_delivery,
@@ -223,17 +212,6 @@ class DeliveryOrchestrationService:
             scheduled_time=scheduled_time,
             meeting_notes=meeting_notes
         )
-
-        # Salvar dados no shipping_services do pedido
-        if not order.shipping_services:
-            order.shipping_services = {}
-
-        order.shipping_services[str(seller.id)] = {
-            'delivery_type': 'in_person',
-            'cost': 0,
-            'meeting_location': meeting_location_name
-        }
-        order.save(update_fields=['shipping_services'])
 
         return order_delivery
 

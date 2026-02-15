@@ -57,7 +57,7 @@ class OrderStateMachine:
     # Format: current_status → [allowed_next_statuses]
     VALID_TRANSITIONS: Dict[str, List[str]] = {
         PENDING_PAYMENT: [PAID, FAILED, CANCELED],
-        PAID: [PROCESSING, CANCELED, REFUNDED],
+        PAID: [PROCESSING, DELIVERED, CANCELED, REFUNDED],
         PROCESSING: [SHIPPED, REFUNDED],
         SHIPPED: [DELIVERED],
         CANCELED: [REFUNDED],
