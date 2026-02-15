@@ -508,13 +508,13 @@ class MelhorEnvioWebhookTest(TestCase):
         self.shipment_single.refresh_from_db()
         self.assertEqual(self.shipment_single.status, 'cancelled')
 
-    def test_order_in_transit_event(self):
-        """Test order.in_transit event updates shipment status"""
+    def test_order_paused_event(self):
+        """Test order.paused event updates shipment status to in_transit"""
         self.shipment_single.status = 'posted'
         self.shipment_single.save()
 
         payload = {
-            'event': 'order.in_transit',
+            'event': 'order.paused',
             'data': {
                 'id': 'ME-SINGLE-001',
                 'tracking': 'BR123456789XX'

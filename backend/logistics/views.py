@@ -12,6 +12,7 @@ from django.shortcuts import get_object_or_404
 from django.conf import settings as django_settings
 from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.exceptions import ValidationError
 from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiParameter, OpenApiResponse, OpenApiTypes
@@ -593,6 +594,111 @@ def track_shipment(request, pk):
             },
             status=status.HTTP_400_BAD_REQUEST
         )
+
+
+@extend_schema(
+    tags=['Logistics - Shipping'],
+    summary='Mark shipment as shipped',
+    description=(
+        'Seller marks a shipment as shipped and provides the tracking code.\n\n'
+        'Updates the shipment status to `posted` and, if all shipments for the order '
+        'are posted, transitions the order status to `shipped` (Enviado).\n\n'
+        'Only the seller of the shipment can perform this action.'
+    ),
+    request=inline_serializer(
+        name='MarkShipmentShippedRequest',
+        fields={
+            'tracking_code': rf_serializers.CharField(help_text='Tracking code provided by the carrier'),
+        }
+    ),
+    responses={
+        200: inline_serializer(
+            name='MarkShipmentShippedResponse',
+            fields={
+                'message': rf_serializers.CharField(),
+                'shipment': ShipmentSerializer(),
+                'order_status': rf_serializers.CharField(),
+                'order_transitioned': rf_serializers.BooleanField(),
+            }
+        ),
+        400: OpenApiResponse(description='Shipment already posted/delivered or missing tracking_code'),
+        403: OpenApiResponse(description='Only the seller can mark shipment as shipped'),
+        404: OpenApiResponse(description='Shipment not found'),
+    }
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def mark_shipment_shipped(request, pk):
+    """
+    Vendedor marca o envio como postado e insere o código de rastreio.
+    """
+    shipment = get_object_or_404(Shipment, id=pk)
+
+    # Apenas o vendedor do envio pode marcar como postado
+    if request.user != shipment.seller:
+        return Response(
+            {'error': 'Apenas o vendedor pode marcar o envio como postado'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    # Validar status atual
+    if shipment.status in ('posted', 'in_transit', 'delivered'):
+        return Response(
+            {'error': f'Envio já está com status "{shipment.get_status_display()}"'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    if shipment.status == 'cancelled':
+        return Response(
+            {'error': 'Não é possível marcar um envio cancelado como postado'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Validar tracking_code
+    tracking_code = request.data.get('tracking_code', '').strip()
+    if not tracking_code:
+        return Response(
+            {'error': 'tracking_code é obrigatório'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Atualizar shipment
+    shipment.status = 'posted'
+    shipment.melhorenvio_tracking_code = tracking_code
+    shipment.posted_at = timezone.now()
+    shipment.save()
+
+    # Verificar se TODOS os shipments do pedido foram postados → transicionar Order
+    order = shipment.order
+    order_transitioned = False
+
+    all_shipments = Shipment.objects.filter(order=order)
+    all_posted = all_shipments.exclude(
+        status__in=['posted', 'in_transit', 'delivered']
+    ).count() == 0
+
+    if all_posted and OrderStateMachine.can_transition(order.status, OrderStateMachine.SHIPPED):
+        try:
+            OrderStateMachine.transition_to(
+                order=order,
+                new_status=OrderStateMachine.SHIPPED,
+                changed_by=request.user,
+                notes=f'Envio marcado como postado pelo vendedor. Rastreio: {tracking_code}',
+            )
+            order_transitioned = True
+        except OrderStatusTransitionError as e:
+            logger.warning(
+                f'Não foi possível transicionar order {order.order_number} para shipped: {e}'
+            )
+
+    serializer = ShipmentSerializer(shipment)
+
+    return Response({
+        'message': 'Envio marcado como postado com sucesso',
+        'shipment': serializer.data,
+        'order_status': order.status,
+        'order_transitioned': order_transitioned,
+    })
 
 
 @extend_schema(
@@ -1478,12 +1584,20 @@ def melhor_envio_webhook(request):
             'processed': False
         })
 
-    # Mapear evento para status
+    # Mapear evento para status do Shipment
+    # Ref: https://docs.melhorenvio.com.br (eventos de etiqueta)
     EVENT_STATUS_MAP = {
-        'order.posted': 'posted',
-        'order.delivered': 'delivered',
-        'order.cancelled': 'cancelled',
-        'order.in_transit': 'in_transit',
+        'order.created': 'created',         # Etiqueta criada
+        'order.pending': 'pending',         # Etiqueta retornada ao carrinho
+        'order.released': 'released',       # Etiqueta paga
+        'order.generated': 'generated',     # Etiqueta gerada
+        'order.received': 'posted',         # Encomenda recebida em ponto Pegaki
+        'order.posted': 'posted',           # Encomenda postada
+        'order.delivered': 'delivered',      # Encomenda entregue
+        'order.cancelled': 'cancelled',      # Etiqueta cancelada
+        'order.undelivered': 'returned',     # Não pôde ser entregue
+        'order.paused': 'in_transit',        # Entrega interrompida (ação do destinatário)
+        'order.suspended': 'in_transit',     # Encomenda suspensa
     }
 
     new_shipment_status = EVENT_STATUS_MAP.get(event)
@@ -1499,17 +1613,20 @@ def melhor_envio_webhook(request):
     if data.get('tracking'):
         shipment.melhorenvio_tracking_code = data['tracking']
 
+    # Atualizar tracking_url se disponível
+    if data.get('tracking_url'):
+        shipment.tracking_url = data['tracking_url']
+
     # Atualizar timestamps
     if new_shipment_status == 'posted' and data.get('posted_at'):
         shipment.posted_at = data['posted_at']
     elif new_shipment_status == 'delivered':
-        from django.utils import timezone
         shipment.delivered_at = data.get('delivered_at') or timezone.now()
 
     shipment.save()
 
     logger.info(
-        f'Shipment {shipment.id} atualizado: {old_shipment_status} → {new_shipment_status}'
+        f'Shipment {shipment.id} atualizado: {old_shipment_status} → {new_shipment_status} (evento: {event})'
     )
 
     # Propagar status para o Order
@@ -1517,7 +1634,7 @@ def melhor_envio_webhook(request):
     order_transitioned = False
 
     try:
-        if event == 'order.posted':
+        if event == 'order.posted' or event == 'order.received':
             # Verificar se TODOS os shipments do pedido foram postados
             all_shipments = Shipment.objects.filter(order=order)
             all_posted = all_shipments.exclude(
@@ -1528,7 +1645,7 @@ def melhor_envio_webhook(request):
                 OrderStateMachine.transition_to(
                     order=order,
                     new_status=OrderStateMachine.SHIPPED,
-                    notes='Todos os envios foram postados (webhook Melhor Envio)',
+                    notes=f'Todos os envios foram postados (webhook Melhor Envio: {event})',
                 )
                 order_transitioned = True
 
