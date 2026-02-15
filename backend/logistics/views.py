@@ -1617,11 +1617,13 @@ def melhor_envio_webhook(request):
     if data.get('tracking_url'):
         shipment.tracking_url = data['tracking_url']
 
-    # Atualizar timestamps
+    # Atualizar timestamps (parse ISO 8601 strings da API Melhor Envio)
+    from django.utils.dateparse import parse_datetime
     if new_shipment_status == 'posted' and data.get('posted_at'):
-        shipment.posted_at = data['posted_at']
+        shipment.posted_at = parse_datetime(data['posted_at']) or timezone.now()
     elif new_shipment_status == 'delivered':
-        shipment.delivered_at = data.get('delivered_at') or timezone.now()
+        delivered_at = data.get('delivered_at')
+        shipment.delivered_at = (parse_datetime(delivered_at) if delivered_at else None) or timezone.now()
 
     shipment.save()
 
