@@ -252,11 +252,13 @@ class OrderCreationService:
                 total_shipping += shipping_cost
 
                 # Store service data
+                company = service_found.get('company', '')
+                company_name = company.get('name', '') if isinstance(company, dict) else str(company)
                 shipping_services_data[str(seller_id)] = {
                     'delivery_method': 'shipping',
                     'service_id': service_id,
                     'service_name': service_found.get('name', ''),
-                    'company': service_found.get('company', ''),
+                    'company': company_name,
                     'cost': float(shipping_cost),
                     'delivery_time': service_found.get('delivery_time', 0)
                 }
