@@ -383,12 +383,17 @@ class ShipmentDetailView(generics.RetrieveAPIView):
 @extend_schema(
     tags=['Logistics - Shipping'],
     summary='Create shipments for order',
-    description='Create shipments for all sellers in an order. Shipping services are taken from the order unless overridden.',
+    description=(
+        'Create shipments (Melhor Envio) for sellers in an order that use the **shipping** delivery method.\n\n'
+        'Shipping service configuration is read from the order `shipping_services` field '
+        '(defined during order creation).\n\n'
+        '```json\n{"order_id": "uuid"}\n```\n\n'
+        'Permission: admin, buyer, or a seller of the order.'
+    ),
     request=inline_serializer(
         name='CreateShipmentsRequest',
         fields={
-            'order_id': rf_serializers.UUIDField(help_text='Order ID'),
-            'shipping_services': rf_serializers.DictField(required=False, help_text='Optional override: seller_id -> service_id mapping')
+            'order_id': rf_serializers.UUIDField(help_text='Order UUID'),
         }
     ),
     responses={
@@ -400,8 +405,9 @@ class ShipmentDetailView(generics.RetrieveAPIView):
                 'order_status': rf_serializers.CharField()
             }
         ),
-        400: OpenApiResponse(description='Invalid request or order'),
-        403: OpenApiResponse(description='No permission to create shipments for this order')
+        400: OpenApiResponse(description='Invalid request, missing order_id, or shipment creation error'),
+        403: OpenApiResponse(description='No permission to create shipments for this order'),
+        404: OpenApiResponse(description='Order not found'),
     }
 )
 @api_view(['POST'])
@@ -409,14 +415,12 @@ class ShipmentDetailView(generics.RetrieveAPIView):
 def create_shipments_for_order(request):
     """
     Criar envios para todos os vendedores de um pedido.
+    Os shipping_services são lidos automaticamente do pedido (definidos na criação da order).
 
-    Body SIMPLIFICADO (shipping_services vem do pedido):
+    Body:
     {
         "order_id": "uuid-do-pedido"
     }
-
-    O shipping_services é pego automaticamente do pedido salvo.
-    Caso queira sobrescrever, pode enviar shipping_services no body.
     """
     order_id = request.data.get('order_id')
 
@@ -437,13 +441,9 @@ def create_shipments_for_order(request):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-    # Override opcional via body
-    shipping_services_override = request.data.get('shipping_services')
-
     try:
         created_shipments = ShipmentCreationService.create_shipments_for_order(
             order=order,
-            shipping_services_override=shipping_services_override,
         )
     except ShipmentCreationError as e:
         return Response(
@@ -714,15 +714,18 @@ def lookup_zipcode(request):
 @extend_schema(
     tags=['Logistics - Deliveries'],
     summary='Create order deliveries',
-    description='Create deliveries for an order using dual delivery system (shipping + in-person). Only the buyer can create deliveries.',
+    description=(
+        'Create deliveries for an order based on its `shipping_services` configuration.\n\n'
+        'Delivery methods (shipping via carrier or in-person) are automatically extracted '
+        'from the order\'s `shipping_services` field, configured during checkout.\n\n'
+        'Only the buyer can create deliveries. Returns `409` if deliveries already exist.\n\n'
+        '**Example body:**\n'
+        '```json\n{"order_id": "uuid-do-pedido"}\n```'
+    ),
     request=inline_serializer(
         name='CreateOrderDeliveriesRequest',
         fields={
             'order_id': rf_serializers.UUIDField(help_text='Order UUID'),
-            'deliveries': rf_serializers.ListField(
-                child=rf_serializers.DictField(),
-                help_text='List of delivery configurations per seller'
-            )
         }
     ),
     responses={
@@ -735,9 +738,10 @@ def lookup_zipcode(request):
                 'count': rf_serializers.IntegerField()
             }
         ),
-        400: OpenApiResponse(description='Invalid request'),
+        400: OpenApiResponse(description='Invalid request or missing required fields'),
         403: OpenApiResponse(description='Only the buyer can configure deliveries'),
-        404: OpenApiResponse(description='Order not found')
+        404: OpenApiResponse(description='Order not found'),
+        409: OpenApiResponse(description='Deliveries already exist for this order'),
     }
 )
 @api_view(['POST'])
@@ -747,44 +751,15 @@ def create_order_deliveries(request):
     """
     Criar entregas para um pedido (dual delivery).
 
-    Se 'deliveries' não for enviado, extrai automaticamente do
-    campo shipping_services da order.
+    Extrai automaticamente as configurações de entrega do campo
+    shipping_services da order (configurado durante o checkout).
 
-    Body mínimo:
+    Body:
     {
         "order_id": "uuid-do-pedido"
     }
-
-    Body completo (override manual):
-    {
-        "order_id": "uuid-do-pedido",
-        "deliveries": [
-            {
-                "seller_id": 1,
-                "delivery_method": "shipping",
-                "shipping_service_id": 3,
-                "delivery_cost": 25.90
-            },
-            {
-                "seller_id": 2,
-                "delivery_method": "in_person",
-                "meeting_location_name": "Shopping X",
-                "meeting_address": {
-                    "street": "Rua X",
-                    "number": "123",
-                    "city": "São Paulo",
-                    "state": "SP"
-                },
-                "seller_contact_phone": "11999999999",
-                "buyer_contact_phone": "11888888888",
-                "scheduled_date": "2026-02-10",
-                "scheduled_time": "14:00"
-            }
-        ]
-    }
     """
     order_id = request.data.get('order_id')
-    delivery_choices = request.data.get('deliveries', [])
 
     if not order_id:
         return Response(
@@ -810,40 +785,40 @@ def create_order_deliveries(request):
             status=status.HTTP_409_CONFLICT
         )
 
-    # Se deliveries não foi enviado, extrair do shipping_services da order
+    # Extrair configurações de entrega do shipping_services da order
+    if not order.shipping_services:
+        return Response(
+            {'error': 'A order deve ter shipping_services configurado durante o checkout'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    delivery_choices = []
+    for seller_id, shipping_info in order.shipping_services.items():
+        if not isinstance(shipping_info, dict):
+            continue
+
+        delivery_method = shipping_info.get('delivery_method', 'shipping')
+        choice = {
+            'seller_id': int(seller_id),
+            'delivery_method': delivery_method,
+        }
+
+        if delivery_method == 'shipping':
+            choice['shipping_service_id'] = shipping_info.get('service_id')
+            choice['delivery_cost'] = shipping_info.get('cost', 0)
+        elif delivery_method == 'in_person':
+            choice.update({
+                k: v for k, v in shipping_info.items()
+                if k not in ('delivery_method', 'cost')
+            })
+
+        delivery_choices.append(choice)
+
     if not delivery_choices:
-        if not order.shipping_services:
-            return Response(
-                {'error': 'deliveries é obrigatório ou a order deve ter shipping_services configurado'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        for seller_id, shipping_info in order.shipping_services.items():
-            if not isinstance(shipping_info, dict):
-                continue
-
-            delivery_method = shipping_info.get('delivery_method', 'shipping')
-            choice = {
-                'seller_id': int(seller_id),
-                'delivery_method': delivery_method,
-            }
-
-            if delivery_method == 'shipping':
-                choice['shipping_service_id'] = shipping_info.get('service_id')
-                choice['delivery_cost'] = shipping_info.get('cost', 0)
-            elif delivery_method == 'in_person':
-                choice.update({
-                    k: v for k, v in shipping_info.items()
-                    if k not in ('delivery_method', 'cost')
-                })
-
-            delivery_choices.append(choice)
-
-        if not delivery_choices:
-            return Response(
-                {'error': 'Nenhuma configuração de entrega válida encontrada na order'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        return Response(
+            {'error': 'Nenhuma configuração de entrega válida encontrada na order'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
     # Verificar permissão (apenas o comprador)
     if request.user != order.buyer:
