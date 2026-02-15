@@ -29,5 +29,18 @@ export const BRAZILIAN_STATES = [
 ] as const;
 
 export const STATE_NAMES: Record<string, string> = Object.fromEntries(
-  BRAZILIAN_STATES.map((state) => [state.uf, state.name])
+  BRAZILIAN_STATES.map((state) => [state.uf, state.name]),
 );
+
+export const INITIAL_FORMDATA = {
+  title: "",
+  brand: "",
+  condition: "",
+  description: "",
+  price: "",
+  quantity: "1",
+  weight_kg: "",
+  height_cm: "",
+  width_cm: "",
+  length_cm: "",
+};

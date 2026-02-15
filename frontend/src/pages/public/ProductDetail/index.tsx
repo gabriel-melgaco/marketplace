@@ -4,7 +4,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Package,
-  Loader2,
   MessageCircle,
   MapPin,
   Eye,
@@ -14,10 +13,13 @@ import {
   User,
   Weight,
   Ruler,
+  ShoppingCart,
+  ShoppingBag,
 } from "lucide-react";
 import { productService } from "@/services/productService";
 import { useAuth } from "@/contexts/AuthContext";
 import { Footer } from "@/components/layout/Footer";
+import { ProductDetailSkeleton } from "@/components/skeletons/ProductDetailSkeleton";
 import type {
   MarketplaceListingDetail,
   MarketplaceListing,
@@ -254,6 +256,14 @@ export function ProductDetail() {
     };
   }, [id]);
 
+  const handleBuyClick = () => {
+    // TODO: implement checkout flow
+  };
+
+  const handleAddToCartClick = () => {
+    // TODO: implement cart
+  };
+
   const handleChatClick = () => {
     if (isAuthenticated) {
       navigate(`/chat/${id}`);
@@ -263,13 +273,7 @@ export function ProductDetail() {
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-blue-900">
-        <div className="flex justify-center items-center py-20">
-          <Loader2 size={40} className="animate-spin text-white" />
-        </div>
-      </div>
-    );
+    return <ProductDetailSkeleton />;
   }
 
   if (error || !listing) {
@@ -313,18 +317,27 @@ export function ProductDetail() {
 
             {/* Mobile: Price/Chat + Seller (after image on mobile, hidden on desktop) */}
             <div className="lg:hidden space-y-4">
-              {/* Price + Chat */}
+              {/* Price + Buy buttons */}
               <div className="bg-white rounded-xl p-5 shadow-md">
                 <p className="text-3xl font-bold text-blue-800 mb-4">
                   R$ {formatPrice(listing.price)}
                 </p>
-                <button
-                  onClick={handleChatClick}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-800 text-white rounded-lg font-semibold hover:bg-blue-900 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
-                >
-                  <MessageCircle size={20} />
-                  Chat com vendedor
-                </button>
+                <div className="space-y-3">
+                  <button
+                    onClick={handleBuyClick}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-900 text-white rounded-lg font-semibold hover:bg-blue-950 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
+                  >
+                    <ShoppingBag size={20} />
+                    Comprar
+                  </button>
+                  <button
+                    onClick={handleAddToCartClick}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-white text-blue-800 border border-blue-800 rounded-lg font-semibold hover:bg-blue-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
+                  >
+                    <ShoppingCart size={20} />
+                    Adicionar ao Carrinho
+                  </button>
+                </div>
               </div>
 
               {/* Seller info */}
@@ -347,6 +360,13 @@ export function ProductDetail() {
                     )}
                   </div>
                 </div>
+                <button
+                  onClick={handleChatClick}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 mt-4 bg-blue-800 text-white rounded-lg font-semibold hover:bg-blue-900 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
+                >
+                  <MessageCircle size={20} />
+                  Chat com vendedor
+                </button>
               </div>
             </div>
 
@@ -528,21 +548,30 @@ export function ProductDetail() {
             </div>
           </div>
 
-          {/* Right sidebar: Price + Chat + Seller - Desktop only */}
+          {/* Right sidebar: Price + Buy + Seller - Desktop only */}
           <div className="hidden lg:block">
             <div className="space-y-4">
-              {/* Price + Chat */}
+              {/* Price + Buy buttons */}
               <div className="bg-white rounded-xl p-6 shadow-md">
                 <p className="text-3xl font-bold text-blue-800 mb-4">
                   R$ {formatPrice(listing.price)}
                 </p>
-                <button
-                  onClick={handleChatClick}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-800 text-white rounded-lg font-semibold hover:bg-blue-900 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
-                >
-                  <MessageCircle size={20} />
-                  Chat com vendedor
-                </button>
+                <div className="space-y-3">
+                  <button
+                    onClick={handleBuyClick}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-900 text-white rounded-lg font-semibold hover:bg-blue-950 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
+                  >
+                    <ShoppingBag size={20} />
+                    Comprar
+                  </button>
+                  <button
+                    onClick={handleAddToCartClick}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-white text-blue-800 border border-blue-800 rounded-lg font-semibold hover:bg-blue-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
+                  >
+                    <ShoppingCart size={20} />
+                    Adicionar ao Carrinho
+                  </button>
+                </div>
               </div>
 
               {/* Seller info */}
@@ -565,6 +594,13 @@ export function ProductDetail() {
                     )}
                   </div>
                 </div>
+                <button
+                  onClick={handleChatClick}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 mt-4 bg-blue-800 text-white rounded-lg font-semibold hover:bg-blue-900 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
+                >
+                  <MessageCircle size={20} />
+                  Chat com vendedor
+                </button>
               </div>
             </div>
           </div>

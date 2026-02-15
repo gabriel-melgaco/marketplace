@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
-import { Package, Loader2 } from "lucide-react";
+import { Package } from "lucide-react";
 import { productService } from "@/services/productService";
 import { Footer } from "@/components/layout/Footer";
 import { StateButton } from "@/components/ui/StateButton";
 import { ProductCard } from "@/components/ui/ProductCard";
+import { ProductGridSkeleton } from "@/components/skeletons/ProductCardSkeleton";
 import type { MarketplaceListing } from "@/types/product";
 
 export default function Home() {
@@ -50,11 +51,7 @@ export default function Home() {
 
       {/* Produtos */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 pb-24">
-        {loading && (
-          <div className="flex justify-center items-center py-20">
-            <Loader2 size={40} className="animate-spin text-white" />
-          </div>
-        )}
+        {loading && <ProductGridSkeleton />}
 
         {error && (
           <div className="text-center py-20">
