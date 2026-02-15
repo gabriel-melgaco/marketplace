@@ -702,11 +702,18 @@ class MelhorEnvioService:
         max_width = max(float(item.width_cm) for item in seller_items)
         total_length = sum(float(item.length_cm) for item in seller_items)
 
-        # Extrair carrier info da resposta (com fallback para dados conhecidos)
+        # Extrair carrier info da resposta da API
         service_data = cart_data.get('service') or {}
         company_data = service_data.get('company') or {}
         carrier_name = company_data.get('name', '')
         carrier_service = service_data.get('name', '')
+
+        # Fallback: buscar carrier info do shipping_services da order (dados da cotação)
+        if not carrier_name or not carrier_service:
+            seller_shipping = (order.shipping_services or {}).get(str(seller.id), {})
+            if isinstance(seller_shipping, dict):
+                carrier_name = carrier_name or seller_shipping.get('company', '')
+                carrier_service = carrier_service or seller_shipping.get('service_name', '')
 
         # Extrair endereços da resposta (com fallback para o payload enviado)
         origin_address = cart_data.get('from') or sent_payload.get('from', {})
