@@ -322,7 +322,7 @@ class InPersonDeliveryService:
         # save() do modelo muda meeting_status para 'completed' se ambos confirmaram
         in_person_delivery.save()
 
-        # Se ambos confirmaram, atualizar OrderDelivery
+        # Se ambos confirmaram, atualizar OrderDelivery e verificar Order
         if in_person_delivery.is_fully_completed():
             try:
                 order_delivery = in_person_delivery.order_delivery
@@ -338,6 +338,24 @@ class InPersonDeliveryService:
                     changed_by=user,
                     notes=f'Ambas as partes confirmaram a conclusão. {completion_notes}'
                 )
+
+                # Se TODAS as entregas do pedido estão entregues, marcar order como delivered
+                order = order_delivery.order
+                all_deliveries = order.deliveries.all()
+                if all_deliveries.exists() and all(
+                    d.status == 'delivered' for d in all_deliveries
+                ):
+                    from orders.services.order_state_machine import OrderStateMachine
+                    try:
+                        OrderStateMachine.transition_to(
+                            order=order,
+                            new_status=OrderStateMachine.DELIVERED,
+                            changed_by=user,
+                            notes='Todas as entregas concluídas.',
+                        )
+                    except Exception:
+                        pass  # Order pode já estar em estado terminal
+
             except OrderDelivery.DoesNotExist:
                 pass
 
