@@ -712,7 +712,12 @@ class MelhorEnvioService:
         if not carrier_name or not carrier_service:
             seller_shipping = (order.shipping_services or {}).get(str(seller.id), {})
             if isinstance(seller_shipping, dict):
-                carrier_name = carrier_name or seller_shipping.get('company', '')
+                # 'company' pode ser string ou dict (objeto da API Melhor Envio)
+                company = seller_shipping.get('company', '')
+                if isinstance(company, dict):
+                    carrier_name = carrier_name or company.get('name', '')
+                else:
+                    carrier_name = carrier_name or str(company)
                 carrier_service = carrier_service or seller_shipping.get('service_name', '')
 
         # Extrair endereços da resposta (com fallback para o payload enviado)
