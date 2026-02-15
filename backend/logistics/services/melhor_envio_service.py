@@ -1,3 +1,4 @@
+import json
 import requests
 import logging
 from django.conf import settings
@@ -458,7 +459,7 @@ class MelhorEnvioService:
             shipping_service_id: ID do serviço escolhido na cotação
 
         Returns:
-            dict: Dados do envio criado no carrinho
+            tuple: (response_data, payload_enviado)
 
         Raises:
             ShippingValidationError: Se validação falhar
@@ -585,6 +586,11 @@ class MelhorEnvioService:
             response.raise_for_status()
             logger.info(f'Envio adicionado ao carrinho com sucesso: pedido {order.order_number}')
             result = response.json()
+
+            logger.info(
+                f'Resposta do carrinho Melhor Envio: {json.dumps(result, default=str)[:2000]}'
+            )
+
             if insurance_capped:
                 result['_insurance_warning'] = {
                     'original_value': original_value,
@@ -595,7 +601,7 @@ class MelhorEnvioService:
                         f'limite máximo de seguro de R$1.000,00.'
                     )
                 }
-            return result
+            return result, payload
         except requests.exceptions.HTTPError as e:
             # MELHORIA: Capturar corpo completo da resposta para debug
             error_detail = 'Resposta não disponível'
@@ -670,7 +676,7 @@ class MelhorEnvioService:
             tuple: (Shipment, warning_dict ou None)
         """
         # PASSO 1: Adicionar ao carrinho
-        cart_data = self.create_shipment_in_cart(order, seller, shipping_service_id)
+        cart_data, sent_payload = self.create_shipment_in_cart(order, seller, shipping_service_id)
         melhorenvio_order_id = cart_data.get('id')
 
         if not melhorenvio_order_id:
@@ -696,22 +702,32 @@ class MelhorEnvioService:
         max_width = max(float(item.width_cm) for item in seller_items)
         total_length = sum(float(item.length_cm) for item in seller_items)
 
+        # Extrair carrier info da resposta (com fallback para dados conhecidos)
+        service_data = cart_data.get('service') or {}
+        company_data = service_data.get('company') or {}
+        carrier_name = company_data.get('name', '')
+        carrier_service = service_data.get('name', '')
+
+        # Extrair endereços da resposta (com fallback para o payload enviado)
+        origin_address = cart_data.get('from') or sent_payload.get('from', {})
+        destination_address = cart_data.get('to') or sent_payload.get('to', {})
+
         # Criar registro de Shipment
         shipment = Shipment.objects.create(
             order=order,
             seller=seller,
             melhorenvio_order_id=melhorenvio_order_id,
-            carrier_name=cart_data.get('service', {}).get('company', {}).get('name', ''),
-            carrier_service=cart_data.get('service', {}).get('name', ''),
+            carrier_name=carrier_name,
+            carrier_service=carrier_service,
             shipping_cost=cart_data.get('price', 0) or 0,
             insurance_value=cart_data.get('insurance_value', 0) or 0,
             weight=total_weight,
             height=max_height,
             width=max_width,
             length=total_length,
-            origin_address=cart_data.get('from', {}),
-            destination_address=cart_data.get('to', {}),
-            status='pending'
+            origin_address=origin_address,
+            destination_address=destination_address,
+            status='created'
         )
 
         return shipment, insurance_warning

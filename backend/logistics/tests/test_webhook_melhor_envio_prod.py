@@ -10,11 +10,11 @@ url = "https://api.megdev.com.br/api/logistics/webhooks/melhor-envio"
 secret = settings.MELHOR_ENVIO_WEBHOOK_SECRET.encode()
 
 payload = {
-    "event": "order.posted",
+    "event": "order.delivered",
     "data": {
         "id": "a116234f-3087-4c9a-b623-3a29674c2b3f",
         "protocol": "ORD-202602261925",
-        "status": "posted",
+        "status": "delivered",
         "tracking": "teste_tracking_code",
         "self_tracking": None,
         "user_id": "0000111",
