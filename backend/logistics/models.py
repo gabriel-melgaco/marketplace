@@ -66,7 +66,10 @@ class Shipment(models.Model):
     """Envio criado no Melhor Envio - Um envio por vendedor"""
     
     STATUS_CHOICES = [
+        ('created', 'Etiqueta Criada'),
         ('pending', 'Pendente'),
+        ('released', 'Etiqueta Paga'),
+        ('generated', 'Etiqueta Gerada'),
         ('posted', 'Postado'),
         ('in_transit', 'Em Trânsito'),
         ('out_for_delivery', 'Saiu para Entrega'),

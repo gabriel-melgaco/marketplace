@@ -948,54 +948,78 @@ class InPersonDeliveryAPITest(InPersonDeliveryTestMixin, TestCase):
         self.assertEqual(response.data['count'], 1)
         self.assertEqual(str(response.data['order_id']), str(order.id))
 
-    def test_create_deliveries_with_explicit_delivery_data(self):
-        """POST /api/logistics/deliveries/create/ - funciona com deliveries explicitas."""
-        self.order.status = 'paid'
-        self.order.save()
+    @patch('orders.signals.auto_create_shipments_on_payment')
+    def test_create_deliveries_with_shipping_services(self, mock_signal):
+        """POST /api/logistics/deliveries/create/ - funciona com shipping_services na order."""
+        order = Order.objects.create(
+            buyer=self.buyer,
+            subtotal=Decimal('100.00'),
+            shipping_cost=Decimal('0.00'),
+            total=Decimal('100.00'),
+            status='paid',
+            shipping_address={'street': 'Rua X', 'city': 'SP', 'state': 'SP', 'zipcode': '01234-567'},
+            shipping_services={
+                str(self.seller.id): {
+                    'delivery_method': 'in_person',
+                    'meeting_location_name': 'Shopping Direto',
+                    'meeting_address': {'city': 'Sao Paulo'},
+                    'seller_contact_phone': '11999999999',
+                    'buyer_contact_phone': '11888888888',
+                }
+            }
+        )
+        OrderItem.objects.create(
+            order=order, listing=self.listing, seller=self.seller,
+            product_name=self.product.name, brand_name=self.brand.name,
+            condition_name=self.condition.name, quantity=1,
+            unit_price=Decimal('100.00'), subtotal=Decimal('100.00'),
+            weight_kg=Decimal('1.5'), height_cm=Decimal('10'),
+            width_cm=Decimal('10'), length_cm=Decimal('10')
+        )
 
         self.client.force_authenticate(user=self.buyer)
         response = self.client.post(
             '/api/logistics/deliveries/create/',
-            {
-                'order_id': str(self.order.id),
-                'deliveries': [
-                    {
-                        'seller_id': self.seller.id,
-                        'delivery_method': 'in_person',
-                        'meeting_location_name': 'Shopping Direto',
-                        'meeting_address': {'city': 'Sao Paulo'},
-                        'seller_contact_phone': '11999999999',
-                        'buyer_contact_phone': '11888888888',
-                    }
-                ]
-            },
+            {'order_id': str(order.id)},
             format='json'
         )
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data['count'], 1)
 
-    def test_create_deliveries_only_buyer_can_create(self):
+    @patch('orders.signals.auto_create_shipments_on_payment')
+    def test_create_deliveries_only_buyer_can_create(self, mock_signal):
         """POST /api/logistics/deliveries/create/ - so o comprador pode criar entregas."""
-        self.order.status = 'paid'
-        self.order.save()
+        order = Order.objects.create(
+            buyer=self.buyer,
+            subtotal=Decimal('100.00'),
+            shipping_cost=Decimal('0.00'),
+            total=Decimal('100.00'),
+            status='paid',
+            shipping_address={'street': 'Rua X', 'city': 'SP', 'state': 'SP', 'zipcode': '01234-567'},
+            shipping_services={
+                str(self.seller.id): {
+                    'delivery_method': 'in_person',
+                    'meeting_location_name': 'Shopping',
+                    'meeting_address': {'city': 'SP'},
+                    'seller_contact_phone': '11999999999',
+                    'buyer_contact_phone': '11888888888',
+                }
+            }
+        )
+        OrderItem.objects.create(
+            order=order, listing=self.listing, seller=self.seller,
+            product_name=self.product.name, brand_name=self.brand.name,
+            condition_name=self.condition.name, quantity=1,
+            unit_price=Decimal('100.00'), subtotal=Decimal('100.00'),
+            weight_kg=Decimal('1.5'), height_cm=Decimal('10'),
+            width_cm=Decimal('10'), length_cm=Decimal('10')
+        )
 
         self.client.force_authenticate(user=self.seller)
         response = self.client.post(
             '/api/logistics/deliveries/create/',
-            {
-                'order_id': str(self.order.id),
-                'deliveries': [
-                    {
-                        'seller_id': self.seller.id,
-                        'delivery_method': 'in_person',
-                        'meeting_location_name': 'Shopping',
-                        'meeting_address': {'city': 'SP'},
-                        'seller_contact_phone': '11999999999',
-                        'buyer_contact_phone': '11888888888',
-                    }
-                ]
-            },
+            {'order_id': str(order.id)},
             format='json'
         )
 
@@ -1179,41 +1203,41 @@ class InPersonDeliveryFullFlowTest(InPersonDeliveryTestMixin, TestCase):
         4. Completar delivery (ambas as partes) via API
         5. Verificar todos os status finais
         """
-        # 1. Order ja esta criada com status 'paid' no setUp
-        self.assertEqual(self.order.status, 'paid')
+        # 1. Configurar shipping_services na order (como feito no checkout)
+        # O signal auto_create_shipments_on_payment cria deliveries automaticamente
+        # quando a order com shipping_services é salva com status 'paid'
+        self.order.shipping_services = {
+            str(self.seller.id): {
+                'delivery_method': 'in_person',
+                'meeting_location_name': 'Shopping Integracao',
+                'meeting_address': {
+                    'street': 'Av Paulista',
+                    'number': '1000',
+                    'city': 'Sao Paulo',
+                    'state': 'SP'
+                },
+                'seller_contact_phone': '11999999999',
+                'buyer_contact_phone': '11888888888',
+                'scheduled_date': str(self.scheduled_date),
+                'scheduled_time': '14:00',
+            }
+        }
+        self.order.save()  # Signal cria deliveries automaticamente
 
-        # 2. Criar delivery via API
-        self.client.force_authenticate(user=self.buyer)
-        create_response = self.client.post(
-            '/api/logistics/deliveries/create/',
-            {
-                'order_id': str(self.order.id),
-                'deliveries': [
-                    {
-                        'seller_id': self.seller.id,
-                        'delivery_method': 'in_person',
-                        'meeting_location_name': 'Shopping Integracao',
-                        'meeting_address': {
-                            'street': 'Av Paulista',
-                            'number': '1000',
-                            'city': 'Sao Paulo',
-                            'state': 'SP'
-                        },
-                        'seller_contact_phone': '11999999999',
-                        'buyer_contact_phone': '11888888888',
-                        'scheduled_date': str(self.scheduled_date),
-                        'scheduled_time': '14:00',
-                    }
-                ]
-            },
-            format='json'
-        )
-        self.assertEqual(create_response.status_code, 201)
-        self.assertEqual(create_response.data['count'], 1)
+        # 2. Verificar que deliveries foram criadas pelo signal
+        from logistics.models import OrderDelivery
+        self.assertTrue(OrderDelivery.objects.filter(order=self.order).exists())
+        create_response_data = {
+            'count': OrderDelivery.objects.filter(order=self.order).count(),
+            'deliveries': list(OrderDelivery.objects.filter(order=self.order).values(
+                'id', 'in_person_delivery_id'
+            ))
+        }
+        self.assertEqual(create_response_data['count'], 1)
 
         # Extrair IDs
-        delivery_data = create_response.data['deliveries'][0]
-        in_person_id = delivery_data['in_person_delivery']
+        delivery_data = create_response_data['deliveries'][0]
+        in_person_id = delivery_data['in_person_delivery_id']
         order_delivery_id = delivery_data['id']
 
         # Verificar status inicial
