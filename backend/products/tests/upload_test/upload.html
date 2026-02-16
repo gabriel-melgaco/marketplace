@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Teste Upload Marketplace</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
+    }
+    button {
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Upload de imagem - Listing</h2>
+
+  <label>JWT Token</label><br />
+  <input type="text" id="token" style="width:100%" placeholder="Bearer token" />
+
+  <br /><br />
+
+  <label>ID do Listing</label><br />
+  <input type="number" id="listingId" placeholder="Ex: 42" />
+
+  <br /><br />
+
+  <input type="file" id="fileInput" accept="image/*" />
+
+  <br />
+  <button id="uploadBtn">Enviar imagem</button>
+
+  <pre id="output"></pre>
+
+  <script src="upload.js"></script>
+</body>
+</html>
