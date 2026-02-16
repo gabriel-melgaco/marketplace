@@ -73,6 +73,7 @@ export const storageService = {
     return {
       upload_url: toPublicUrl(response.data.upload_url),
       file_url: toPublicUrl(response.data.file_url),
+      object_name: response.data.object_name,
     };
   },
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   X,
@@ -37,6 +37,7 @@ const TOTAL_STEPS = 7;
 
 interface UploadedImageUrl {
   url: string;
+  objectName: string;
   isPrimary: boolean;
   order: number;
 }
@@ -69,6 +70,7 @@ export function ListingForm() {
   const [selectedProduct, setSelectedProduct] = useState<ProductListItem | null>(null);
   const [searchingProducts, setSearchingProducts] = useState(false);
   const [searchAbortController, setSearchAbortController] = useState<AbortController | null>(null);
+  const draftProductRestoredRef = useRef(false);
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -83,9 +85,9 @@ export function ListingForm() {
 
   const draftKey = isEditMode ? `listing_draft_${id}` : "listing_draft";
 
-  // Load draft from localStorage
+  // Load draft from localStorage (runs once)
   useEffect(() => {
-    if (isEditMode) return; // No localStorage for edit mode
+    if (isEditMode) return;
 
     try {
       const saved = localStorage.getItem(draftKey);
@@ -95,20 +97,33 @@ export function ListingForm() {
         setCurrentStep(draft.step);
         setFormData(draft.formData);
         setUploadedImageUrls(draft.uploadedImageUrls || []);
-
-        // Restore selectedProduct from draft if product ID exists
-        if (draft.formData.product && allProducts.length > 0) {
-          const product = allProducts.find(p => p.id === Number(draft.formData.product));
-          if (product) {
-            setSelectedProduct(product);
-          }
-        }
       }
     } catch (err) {
       console.error("Error loading draft:", err);
       localStorage.removeItem(draftKey);
     }
-  }, [draftKey, isEditMode, allProducts]);
+  }, [draftKey, isEditMode]);
+
+  // Restore selectedProduct from draft once allProducts loads
+  useEffect(() => {
+    if (isEditMode || draftProductRestoredRef.current || allProducts.length === 0) return;
+
+    try {
+      const saved = localStorage.getItem(draftKey);
+      if (saved) {
+        const draft: DraftData = JSON.parse(saved);
+        if (draft.formData.product) {
+          const product = allProducts.find(p => p.id === Number(draft.formData.product));
+          if (product) {
+            setSelectedProduct(product);
+          }
+          draftProductRestoredRef.current = true;
+        }
+      }
+    } catch {
+      // Draft already handled above
+    }
+  }, [allProducts, draftKey, isEditMode]);
 
   // Save draft to localStorage
   const saveDraft = useCallback(() => {
@@ -213,14 +228,17 @@ export function ListingForm() {
     loadListing();
   }, [isEditMode, id]);
 
-  // Cleanup: Revoke object URLs when component unmounts or pendingImages change
+  // Track pending images in a ref for cleanup on unmount only
+  const pendingImagesRef = useRef(pendingImages);
+  pendingImagesRef.current = pendingImages;
+
   useEffect(() => {
     return () => {
-      pendingImages.forEach((img) => {
+      pendingImagesRef.current.forEach((img) => {
         URL.revokeObjectURL(img.previewUrl);
       });
     };
-  }, [pendingImages]);
+  }, []);
 
   const handleChange = (
     e: React.ChangeEvent<
@@ -494,8 +512,9 @@ export function ListingForm() {
   }, []);
 
   // Upload images to S3 and save URLs (Step 1)
-  const uploadImagesToS3 = useCallback(async () => {
-    if (pendingImages.length === 0) return;
+  // Returns the newly uploaded URLs so callers avoid stale closure issues
+  const uploadImagesToS3 = useCallback(async (): Promise<UploadedImageUrl[]> => {
+    if (pendingImages.length === 0) return [];
 
     setUploading(true);
     setUploadError(null);
@@ -509,16 +528,15 @@ export function ListingForm() {
         setUploadProgress({ current: i + 1, total: pendingImages.length });
 
         // Step 1: Get presigned URL
-        const { upload_url, file_url } = await storageService.getPresignedUrl(
-          img.file.name,
-          img.file.type,
-        );
+        const { upload_url, file_url, object_name } =
+          await storageService.getPresignedUrl(img.file.name, img.file.type);
 
         // Step 2: Upload to S3
         await storageService.uploadToS3(upload_url, img.file);
 
         newUploadedUrls.push({
           url: file_url,
+          objectName: object_name,
           isPrimary: img.isPrimary,
           order: uploadedImageUrls.length + i,
         });
@@ -530,6 +548,8 @@ export function ListingForm() {
         prev.forEach((img) => URL.revokeObjectURL(img.previewUrl));
         return [];
       });
+
+      return newUploadedUrls;
     } catch (err) {
       console.error("Erro ao fazer upload de imagens:", err);
       setUploadError(
@@ -555,6 +575,7 @@ export function ListingForm() {
         for (const img of uploadedImageUrls) {
           await listingImageService.addImage(listingId, {
             image_url: img.url,
+            object_name: img.objectName,
             is_primary: img.isPrimary,
             order: img.order,
           });
@@ -635,11 +656,12 @@ export function ListingForm() {
         // Upload new pending images if any
         if (pendingImages.length > 0) {
           try {
-            await uploadImagesToS3();
-            // Link new images
-            for (const img of uploadedImageUrls) {
+            const newUrls = await uploadImagesToS3();
+            // Link new images using returned array (not stale state)
+            for (const img of newUrls) {
               await listingImageService.addImage(Number(id), {
                 image_url: img.url,
+                object_name: img.objectName,
                 is_primary: img.isPrimary,
                 order: img.order,
               });
@@ -751,29 +773,52 @@ export function ListingForm() {
         </div>
 
         {/* Draft Notice */}
-        {!isEditMode && hasDraft && currentStep === 1 && (
-          <div className="bg-blue-800 rounded-xl p-4 mb-6 border border-blue-700">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-white font-medium mb-1">
-                  Rascunho encontrado
-                </p>
-                <p className="text-blue-200 text-sm">
-                  Você tem um rascunho salvo. Continue de onde parou ou descarte
-                  para começar um novo anúncio.
-                </p>
+        {!isEditMode && hasDraft && currentStep === 1 && (() => {
+          const draft: DraftData | null = (() => {
+            try {
+              const saved = localStorage.getItem(draftKey);
+              return saved ? JSON.parse(saved) : null;
+            } catch { return null; }
+          })();
+          const draftStep = draft?.step ?? 1;
+          const draftStepName = stepConfig.find(s => s.step === draftStep)?.title ?? `Passo ${draftStep}`;
+
+          return (
+            <div className="bg-blue-800 rounded-xl p-4 mb-6 border border-blue-700">
+              <div className="flex flex-col gap-3">
+                <div>
+                  <p className="text-white font-medium mb-1">
+                    Rascunho encontrado
+                  </p>
+                  <p className="text-blue-200 text-sm">
+                    Você parou no passo <strong className="text-white">{draftStep} de {TOTAL_STEPS}</strong> ({draftStepName}).
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHasDraft(false);
+                      setCurrentStep(draftStep);
+                    }}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-white text-blue-900 rounded-lg text-sm font-semibold hover:bg-gray-100 transition-all"
+                  >
+                    <ArrowRight size={14} />
+                    Continuar do passo {draftStep}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={discardDraft}
+                    className="flex items-center gap-1 px-3 py-2 bg-white/10 text-white rounded-lg text-sm hover:bg-white/20 transition-all border border-white/20 whitespace-nowrap"
+                  >
+                    <Trash2 size={14} />
+                    Descartar
+                  </button>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={discardDraft}
-                className="flex items-center gap-1 px-3 py-2 bg-white/10 text-white rounded-lg text-sm hover:bg-white/20 transition-all border border-white/20 whitespace-nowrap"
-              >
-                <Trash2 size={14} />
-                Descartar
-              </button>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Step Progress Indicator */}
         <div className="bg-white rounded-xl p-5 sm:p-6 shadow-md mb-6">
@@ -795,11 +840,11 @@ export function ListingForm() {
           </div>
 
           {/* Step dots */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-start justify-between">
             {stepConfig.map(({ step, title, icon: Icon }) => (
-              <div key={step} className="flex flex-col items-center gap-2">
+              <div key={step} className="flex flex-col items-center gap-1 w-0 flex-1">
                 <div
-                  className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
+                  className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center shrink-0 transition-all ${
                     step < currentStep
                       ? "bg-green-500 text-white"
                       : step === currentStep
@@ -808,13 +853,13 @@ export function ListingForm() {
                   }`}
                 >
                   {step < currentStep ? (
-                    <CheckCircle size={20} />
+                    <CheckCircle size={16} className="sm:w-5 sm:h-5" />
                   ) : (
-                    <Icon size={20} />
+                    <Icon size={16} className="sm:w-5 sm:h-5" />
                   )}
                 </div>
                 <span
-                  className={`text-[10px] sm:text-xs font-medium text-center ${
+                  className={`text-[9px] sm:text-xs font-medium text-center leading-tight ${
                     step === currentStep
                       ? "text-blue-800"
                       : step < currentStep
@@ -822,7 +867,8 @@ export function ListingForm() {
                         : "text-gray-400"
                   }`}
                 >
-                  {title}
+                  <span className="hidden sm:inline">{title}</span>
+                  <span className="sm:hidden">{step}</span>
                 </span>
               </div>
             ))}

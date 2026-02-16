@@ -159,10 +159,12 @@ export interface PresignedUrlRequest {
 export interface PresignedUrlResponse {
   upload_url: string;
   file_url: string;
+  object_name: string;
 }
 
 export interface AddListingImageRequest {
   image_url: string;
+  object_name: string;
   is_primary?: boolean;
   order?: number;
 }
