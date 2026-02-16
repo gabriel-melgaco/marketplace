@@ -275,12 +275,16 @@ MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY")
 MINIO_BUCKET = os.getenv("MINIO_BUCKET")
+
 MINIO_USE_SSL = os.getenv("MINIO_USE_SSL", "false").lower() == "true"
+MINIO_PUBLIC_USE_SSL = os.getenv("MINIO_PUBLIC_USE_SSL", "true").lower() == "true"
+
 MINIO_PUBLIC_URL = os.getenv("MINIO_PUBLIC_URL")
 MINIO_PUBLIC_ENDPOINT = os.getenv("MINIO_PUBLIC_ENDPOINT")
-# Falhar cedo se estiver mal configurado
+
 if not MINIO_PUBLIC_URL or not MINIO_PUBLIC_ENDPOINT:
     raise RuntimeError("MinIO público não configurado corretamente")
+
 
 
 

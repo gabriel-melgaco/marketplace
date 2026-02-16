@@ -24,7 +24,7 @@
 
   <label>Ambiente</label>
   <div class="env-toggle">
-    <button id="envLocal" onclick="setEnv('local')">Local (localhost:8001)</button>
+    <button id="envLocal" onclick="setEnv('local')">Local (localhost:5000)</button>
     <button id="envProd" onclick="setEnv('prod')">Produção (api.megdev.com.br)</button>
   </div>
   <small>API: <span id="apiDisplay">-</span></small>
@@ -44,7 +44,7 @@
   <input type="file" id="fileInput" accept="image/*" />
 
   <br />
-  <button id="uploadBtn">Enviar imagem</button>
+<button id="uploadBtn" type="button">Enviar imagem</button>
 
   <pre id="output"></pre>
 
