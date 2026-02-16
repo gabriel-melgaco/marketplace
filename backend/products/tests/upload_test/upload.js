@@ -2,7 +2,7 @@ const output = document.getElementById("output");
 
 // Ambiente selecionavel via botoes no HTML
 const ENVS = {
-  local: "http://localhost:8001",
+  local: "http://localhost:5000",
   prod: "https://api.megdev.com.br",
 };
 

@@ -5,7 +5,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
 from django.conf import settings
-from .minio_client import get_minio_client, ensure_bucket_ready
+from .minio_client import get_internal_minio_client, get_public_minio_client, ensure_bucket_ready
 from .serializers import PresignedUrlSerializer, PresignedUrlResponseSerializer
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 
@@ -32,35 +32,18 @@ class GeneratePresignedUrlView(APIView):
         file_name = serializer.validated_data["file_name"]
         content_type = serializer.validated_data["content_type"]
 
-        extension = file_name.rsplit(".", 1)[-1] if "." in file_name else "bin"
+        extension = file_name.rsplit(".", 1)[-1]
         object_name = f"products/{uuid.uuid4()}.{extension}"
 
-        client = get_minio_client()
+        public_client = get_public_minio_client()
 
-        # 🔴 URL INTERNA (minio:9000)
-        internal_url = client.presigned_put_object(
+        upload_url = public_client.presigned_put_object(
             bucket_name=settings.MINIO_BUCKET,
             object_name=object_name,
             expires=timedelta(minutes=10),
         )
 
-        # ✅ REWRITE PARA DOMÍNIO PÚBLICO
-        parsed = urlparse(internal_url)
-
-        upload_url = urlunparse((
-            "https",
-            settings.MINIO_PUBLIC_ENDPOINT,  # ex: minio.megdev.com.br
-            parsed.path,
-            parsed.params,
-            parsed.query,
-            parsed.fragment,
-        ))
-
-        file_url = f"{settings.MINIO_PUBLIC_URL}/{settings.MINIO_BUCKET}/{object_name}"
-
-        # DEBUG TEMPORÁRIO (IMPORTANTE)
-        print("INTERNAL URL:", internal_url)
-        print("PUBLIC URL:", upload_url)
+        file_url = f"https://{settings.MINIO_PUBLIC_ENDPOINT}/{settings.MINIO_BUCKET}/{object_name}"
 
         return Response({
             "upload_url": upload_url,
