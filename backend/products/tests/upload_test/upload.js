@@ -1,9 +1,22 @@
 const output = document.getElementById("output");
 
-// Base URL configuravel - altere para testar local ou producao
-const API_BASE = window.location.hostname === "localhost"
-  ? "http://localhost:8001"
-  : "https://api.megdev.com.br";
+// Ambiente selecionavel via botoes no HTML
+const ENVS = {
+  local: "http://localhost:8001",
+  prod: "https://api.megdev.com.br",
+};
+
+let API_BASE = ENVS.prod; // default: producao
+
+function setEnv(env) {
+  API_BASE = ENVS[env] || ENVS.prod;
+  document.getElementById("apiDisplay").textContent = API_BASE;
+  document.querySelectorAll(".env-toggle button").forEach(b => b.classList.remove("active"));
+  document.getElementById(env === "local" ? "envLocal" : "envProd").classList.add("active");
+}
+
+// Inicializar com producao selecionado
+setEnv("prod");
 
 function log(message) {
   output.textContent += message + "\n";
@@ -99,7 +112,7 @@ document.getElementById("uploadBtn").addEventListener("click", async () => {
       return;
     }
 
-    log(`API Base: ${API_BASE}`);
+    log(`Ambiente: ${API_BASE}`);
     log(`Arquivo: ${file.name} (${file.type}, ${(file.size / 1024).toFixed(1)} KB)`);
     log("");
 
