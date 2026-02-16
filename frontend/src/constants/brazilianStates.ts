@@ -33,6 +33,7 @@ export const STATE_NAMES: Record<string, string> = Object.fromEntries(
 );
 
 export const INITIAL_FORMDATA = {
+  product: "",
   title: "",
   brand: "",
   condition: "",

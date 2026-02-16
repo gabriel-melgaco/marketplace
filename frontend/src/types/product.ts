@@ -123,6 +123,7 @@ export interface SearchProductsResponse {
 }
 
 export interface CreateListingRequest {
+  product: number;
   title: string;
   brand: number;
   condition: number;
@@ -136,6 +137,7 @@ export interface CreateListingRequest {
 }
 
 export interface UpdateListingRequest {
+  product?: number;
   title?: string;
   brand?: number;
   condition?: number;
@@ -205,6 +207,7 @@ export interface MarketplaceListingDetail {
 }
 
 export interface FormData {
+  product: string;
   title: string;
   brand: string;
   condition: string;

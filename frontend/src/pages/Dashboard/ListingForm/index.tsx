@@ -14,6 +14,8 @@ import {
   CheckCircle,
   Ruler,
   Trash2,
+  Search,
+  ShoppingBag,
 } from "lucide-react";
 import { productService } from "@/services/productService";
 import { storageService, IMAGE_UPLOAD_LIMITS } from "@/services/storageService";
@@ -25,12 +27,13 @@ import type {
   UpdateListingRequest,
   FormData,
   PendingImage,
+  ProductListItem,
 } from "@/types/product";
 import { INITIAL_FORMDATA } from "@/constants/brazilianStates";
 
 const MAX_IMAGES = 10;
 
-const TOTAL_STEPS = 6;
+const TOTAL_STEPS = 7;
 
 interface UploadedImageUrl {
   url: string;
@@ -60,6 +63,13 @@ export function ListingForm() {
   const [existingImages, setExistingImages] = useState<
     MarketplaceListingImage[]
   >([]);
+  const [productSearch, setProductSearch] = useState("");
+  const [productResults, setProductResults] = useState<ProductListItem[]>([]);
+  const [allProducts, setAllProducts] = useState<ProductListItem[]>([]);
+  const [selectedProduct, setSelectedProduct] = useState<ProductListItem | null>(null);
+  const [searchingProducts, setSearchingProducts] = useState(false);
+  const [searchAbortController, setSearchAbortController] = useState<AbortController | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -85,12 +95,20 @@ export function ListingForm() {
         setCurrentStep(draft.step);
         setFormData(draft.formData);
         setUploadedImageUrls(draft.uploadedImageUrls || []);
+
+        // Restore selectedProduct from draft if product ID exists
+        if (draft.formData.product && allProducts.length > 0) {
+          const product = allProducts.find(p => p.id === Number(draft.formData.product));
+          if (product) {
+            setSelectedProduct(product);
+          }
+        }
       }
     } catch (err) {
       console.error("Error loading draft:", err);
       localStorage.removeItem(draftKey);
     }
-  }, [draftKey, isEditMode]);
+  }, [draftKey, isEditMode, allProducts]);
 
   // Save draft to localStorage
   const saveDraft = useCallback(() => {
@@ -138,12 +156,16 @@ export function ListingForm() {
     setErrors({});
   }, [draftKey]);
 
-  // Load filter options
+  // Load filter options and products
   useEffect(() => {
     async function loadOptions() {
       try {
-        const opts = await productService.getFilterOptions();
+        const [opts, products] = await Promise.all([
+          productService.getFilterOptions(),
+          productService.getProducts(),
+        ]);
         setFilterOptions(opts);
+        setAllProducts(products);
       } catch (err) {
         console.error("Erro ao carregar opções:", err);
       } finally {
@@ -161,6 +183,7 @@ export function ListingForm() {
       try {
         const listing = await productService.getListingById(Number(id));
         setFormData({
+          product: String(listing.product.id),
           title: listing.title || "",
           brand: String(listing.brand.id),
           condition: String(listing.condition.id),
@@ -171,6 +194,12 @@ export function ListingForm() {
           height_cm: listing.height_cm || "",
           width_cm: listing.width_cm || "",
           length_cm: listing.length_cm || "",
+        });
+        setSelectedProduct({
+          id: listing.product.id,
+          name: listing.product.name,
+          slug: listing.product.slug,
+          code: listing.product.code ?? null,
         });
         setExistingImages(listing.images);
         // In edit mode, start at step 2 (skip image upload)
@@ -209,6 +238,77 @@ export function ListingForm() {
     }
   };
 
+  // Product search handler with debounce
+  const handleProductSearch = useCallback(
+    (term: string) => {
+      setProductSearch(term);
+
+      if (!term.trim()) {
+        setProductResults([]);
+        setSearchingProducts(false);
+        if (searchAbortController) {
+          searchAbortController.abort();
+          setSearchAbortController(null);
+        }
+        return;
+      }
+
+      // Cancel previous search
+      if (searchAbortController) {
+        searchAbortController.abort();
+      }
+
+      setSearchingProducts(true);
+
+      // Debounce: wait 300ms before searching
+      const timeoutId = setTimeout(async () => {
+        const controller = new AbortController();
+        setSearchAbortController(controller);
+
+        try {
+          const results = await productService.getProducts({ search: term.trim() });
+          // Only update if this request wasn't aborted
+          if (!controller.signal.aborted) {
+            setProductResults(results);
+          }
+        } catch (err: any) {
+          if (err.name !== 'AbortError' && err.name !== 'CanceledError') {
+            console.error("Erro ao buscar produtos:", err);
+          }
+        } finally {
+          if (!controller.signal.aborted) {
+            setSearchingProducts(false);
+          }
+        }
+      }, 300);
+
+      return () => clearTimeout(timeoutId);
+    },
+    [searchAbortController],
+  );
+
+  const selectProduct = useCallback(
+    (product: ProductListItem) => {
+      setSelectedProduct(product);
+      setFormData((prev) => ({ ...prev, product: String(product.id) }));
+      setProductSearch("");
+      setProductResults([]);
+      if (errors.product) {
+        setErrors((prev) => {
+          const next = { ...prev };
+          delete next.product;
+          return next;
+        });
+      }
+    },
+    [errors.product],
+  );
+
+  const clearProduct = useCallback(() => {
+    setSelectedProduct(null);
+    setFormData((prev) => ({ ...prev, product: "" }));
+  }, []);
+
   // Step-specific validation
   const validateStep = (step: number): boolean => {
     const newErrors: Record<string, string> = {};
@@ -216,27 +316,32 @@ export function ListingForm() {
     switch (step) {
       case 1: // Images - optional, no validation needed
         break;
-      case 2: // Title
+      case 2: // Product
+        if (!formData.product || formData.product.trim() === "" || Number(formData.product) <= 0) {
+          newErrors.product = "Selecione um produto";
+        }
+        break;
+      case 3: // Title
         if (!formData.title.trim())
           newErrors.title = "O título do anúncio é obrigatório";
         if (formData.title.length > 150)
           newErrors.title = "Máximo 150 caracteres";
         break;
-      case 3: // Description
+      case 4: // Description
         if (!formData.description.trim())
           newErrors.description = "Descrição é obrigatória";
         if (formData.description.length > 255)
           newErrors.description = "Máximo 255 caracteres";
         break;
-      case 4: // Price and Quantity
+      case 5: // Price and Quantity
         if (!formData.price || Number(formData.price) <= 0)
           newErrors.price = "Preço inválido";
         break;
-      case 5: // Brand and Condition
+      case 6: // Brand and Condition
         if (!formData.brand) newErrors.brand = "Selecione uma marca";
         if (!formData.condition) newErrors.condition = "Selecione a condição";
         break;
-      case 6: // Dimensions and Weight
+      case 7: // Dimensions and Weight
         if (!formData.weight_kg || Number(formData.weight_kg) <= 0)
           newErrors.weight_kg = "Peso inválido";
         if (!formData.height_cm || Number(formData.height_cm) <= 0)
@@ -471,6 +576,7 @@ export function ListingForm() {
 
   const buildListingData = useCallback(() => {
     return {
+      product: Number(formData.product),
       title: formData.title.trim(),
       brand: Number(formData.brand),
       condition: Number(formData.condition),
@@ -512,10 +618,10 @@ export function ListingForm() {
     setErrors({});
   };
 
-  // Handle final submit (Step 6 - "Publicar Anúncio")
+  // Handle final submit (Step 7 - "Publicar Anúncio")
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validateStep(6)) return;
+    if (!validateStep(7)) return;
 
     setSubmitting(true);
     setUploadError(null);
@@ -619,11 +725,12 @@ export function ListingForm() {
   // Step configuration
   const stepConfig = [
     { step: 1, title: "Imagens", icon: ImagePlus },
-    { step: 2, title: "Título", icon: Package },
-    { step: 3, title: "Descrição", icon: FileText },
-    { step: 4, title: "Preço e Quantidade", icon: DollarSign },
-    { step: 5, title: "Marca e Condição", icon: Tag },
-    { step: 6, title: "Dimensões e Peso", icon: Ruler },
+    { step: 2, title: "Produto", icon: ShoppingBag },
+    { step: 3, title: "Título", icon: Package },
+    { step: 4, title: "Descrição", icon: FileText },
+    { step: 5, title: "Preço", icon: DollarSign },
+    { step: 6, title: "Marca", icon: Tag },
+    { step: 7, title: "Dimensões", icon: Ruler },
   ];
 
   return (
@@ -895,8 +1002,138 @@ export function ListingForm() {
             </div>
           )}
 
-          {/* STEP 2: TITLE */}
+          {/* STEP 2: PRODUCT */}
           {currentStep === 2 && (
+            <div className="bg-white rounded-xl p-5 sm:p-6 shadow-md space-y-4">
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <ShoppingBag size={20} className="text-blue-800" />
+                Produto
+              </h2>
+              <p className="text-sm text-gray-500">
+                Selecione o produto que melhor se enquadra no seu anúncio.
+              </p>
+
+              {/* Selected product display */}
+              {selectedProduct ? (
+                <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">
+                      {selectedProduct.name}
+                    </p>
+                    {selectedProduct.code && (
+                      <p className="text-xs text-gray-500">
+                        Código: {selectedProduct.code}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={clearProduct}
+                    className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                    aria-label="Remover produto"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Search input */}
+                  <div className="relative">
+                    <Search
+                      className="absolute left-3 top-2.5 text-gray-400"
+                      size={18}
+                    />
+                    <input
+                      type="text"
+                      value={productSearch}
+                      onChange={(e) => handleProductSearch(e.target.value)}
+                      placeholder="Buscar produto por nome..."
+                      className={`w-full pl-10 pr-4 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-800 focus:border-transparent transition-colors ${
+                        errors.product
+                          ? "border-red-300 bg-red-50"
+                          : "border-gray-300 bg-white"
+                      }`}
+                    />
+                    {searchingProducts && (
+                      <Loader2
+                        size={18}
+                        className="absolute right-3 top-2.5 text-blue-800 animate-spin"
+                      />
+                    )}
+                  </div>
+
+                  {errors.product && (
+                    <div className="flex items-start gap-1">
+                      <X size={14} className="text-red-500 shrink-0 mt-0.5" />
+                      <p className="text-red-600 text-xs">{errors.product}</p>
+                    </div>
+                  )}
+
+                  {/* Search results */}
+                  {productSearch.trim() && productResults.length > 0 && (
+                    <div className="border border-gray-200 rounded-lg max-h-48 overflow-y-auto divide-y divide-gray-100">
+                      {productResults.map((product) => (
+                        <button
+                          key={product.id}
+                          type="button"
+                          onClick={() => selectProduct(product)}
+                          className="w-full text-left px-3 py-2.5 hover:bg-blue-50 transition-colors"
+                        >
+                          <p className="text-sm font-medium text-gray-900">
+                            {product.name}
+                          </p>
+                          {product.code && (
+                            <p className="text-xs text-gray-500">
+                              Código: {product.code}
+                            </p>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {productSearch.trim() &&
+                    !searchingProducts &&
+                    productResults.length === 0 && (
+                      <p className="text-sm text-gray-500 text-center py-2">
+                        Nenhum produto encontrado.
+                      </p>
+                    )}
+
+                  {/* Quick select from all products */}
+                  {!productSearch.trim() && allProducts.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 mb-2">
+                        Ou selecione da lista:
+                      </p>
+                      <div className="border border-gray-200 rounded-lg max-h-48 overflow-y-auto divide-y divide-gray-100">
+                        {allProducts.map((product) => (
+                          <button
+                            key={product.id}
+                            type="button"
+                            onClick={() => selectProduct(product)}
+                            className="w-full text-left px-3 py-2.5 hover:bg-blue-50 transition-colors"
+                          >
+                            <p className="text-sm font-medium text-gray-900">
+                              {product.name}
+                            </p>
+                            {product.code && (
+                              <p className="text-xs text-gray-500">
+                                Código: {product.code}
+                              </p>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* STEP 3: TITLE */}
+          {currentStep === 3 && (
             <div className="bg-white rounded-xl p-5 sm:p-6 shadow-md space-y-4">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                 <Package size={20} className="text-blue-800" />
@@ -939,8 +1176,8 @@ export function ListingForm() {
             </div>
           )}
 
-          {/* STEP 3: DESCRIPTION */}
-          {currentStep === 3 && (
+          {/* STEP 4: DESCRIPTION */}
+          {currentStep === 4 && (
             <div className="bg-white rounded-xl p-5 sm:p-6 shadow-md space-y-4">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                 <FileText size={20} className="text-blue-800" />
@@ -985,8 +1222,8 @@ export function ListingForm() {
             </div>
           )}
 
-          {/* STEP 4: PRICE AND QUANTITY */}
-          {currentStep === 4 && (
+          {/* STEP 5: PRICE AND QUANTITY */}
+          {currentStep === 5 && (
             <div className="bg-white rounded-xl p-5 sm:p-6 shadow-md space-y-4">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                 <DollarSign size={20} className="text-blue-800" />
@@ -1038,8 +1275,8 @@ export function ListingForm() {
             </div>
           )}
 
-          {/* STEP 5: BRAND AND CONDITION */}
-          {currentStep === 5 && (
+          {/* STEP 6: BRAND AND CONDITION */}
+          {currentStep === 6 && (
             <div className="bg-white rounded-xl p-5 sm:p-6 shadow-md space-y-4">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                 <Tag size={20} className="text-blue-800" />
@@ -1106,8 +1343,8 @@ export function ListingForm() {
             </div>
           )}
 
-          {/* STEP 6: DIMENSIONS AND WEIGHT */}
-          {currentStep === 6 && (
+          {/* STEP 7: DIMENSIONS AND WEIGHT */}
+          {currentStep === 7 && (
             <div className="bg-white rounded-xl p-5 sm:p-6 shadow-md space-y-4">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
