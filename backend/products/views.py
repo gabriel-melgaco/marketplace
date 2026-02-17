@@ -33,7 +33,7 @@ class CategoryListView(generics.ListAPIView):
     """Listar todas as categorias ativas com hierarquia"""
     serializer_class = CategorySerializer
     permission_classes = [AllowAny]
-    
+
     def get_queryset(self):
         return Category.objects.filter(
             is_active=True,
@@ -197,6 +197,7 @@ class ConditionListView(generics.ListAPIView):
     queryset = Condition.objects.all()
     serializer_class = ConditionSerializer
     permission_classes = [AllowAny]
+    pagination_class = None
 
 
 # =================== Marketplace Listing Views ===================
