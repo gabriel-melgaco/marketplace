@@ -3,6 +3,8 @@ import os
 from dotenv import load_dotenv
 from datetime import timedelta
 
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 

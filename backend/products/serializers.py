@@ -86,7 +86,7 @@ class ProductSimpleSerializer(serializers.ModelSerializer):
     """Serializer simples de produto"""
     class Meta:
         model = Products
-        fields = ['id', 'name', 'slug', 'code']
+        fields = ['id', 'name', 'slug', 'code', 'image_url']
 
 
 # =================== Listing Images Serializers ===================
