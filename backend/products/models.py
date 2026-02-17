@@ -39,7 +39,7 @@ class Series(models.Model):
 
 class Products(models.Model):
     name = models.CharField(max_length=200)
-    slug = models.SlugField(unique=True)
+    slug = models.SlugField(max_length=100, unique=True)
     code = models.CharField(max_length=100, null=True, blank=True)
     category = models.ForeignKey(
         Category,
