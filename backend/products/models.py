@@ -53,6 +53,8 @@ class Products(models.Model):
         related_name='products'
     )
 
+    image_url = models.URLField(max_length=500, blank=True, default='')
+
     description = models.TextField(blank=True)
 
     class Meta:
