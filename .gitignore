@@ -29,3 +29,7 @@ dist-ssr
 
 .local-docs/
 .claude
+
+# Test artifacts
+playwright-report/
+test-results/
