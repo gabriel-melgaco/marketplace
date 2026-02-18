@@ -45,6 +45,7 @@ from .services import (
     ShipmentCreationError,
     CarrierRuleService,
 )
+from .services.melhor_envio_oauth_service import MelhorEnvioOAuthService, MelhorEnvioOAuthError
 from orders.models import Order, Cart
 from orders.services.order_state_machine import OrderStateMachine, OrderStatusTransitionError
 from products.models import MarketplaceListing
@@ -1681,15 +1682,24 @@ def melhor_envio_webhook(request):
 @extend_schema(
     tags=['Logistics - Webhooks'],
     summary='Melhor Envio OAuth callback',
-    description='Callback endpoint for Melhor Envio OAuth2 authorization redirect.',
+    description=(
+        'Callback endpoint for Melhor Envio OAuth2 authorization redirect.\n\n'
+        'When the user authorizes the application on Melhor Envio, they are redirected '
+        'here with an authorization `code`. This endpoint exchanges the code for '
+        'OAuth 2.0 tokens and persists them in the database.\n\n'
+        '**This is critical for webhook functionality**: only labels created with an '
+        'OAuth 2.0 token from the app where the webhook is configured will trigger '
+        'the webhook notifications.'
+    ),
     responses={
         200: inline_serializer(
             name='OAuthCallbackResponse',
             fields={
                 'message': rf_serializers.CharField(),
-                'code': rf_serializers.CharField(allow_null=True),
+                'token_status': rf_serializers.DictField(allow_null=True),
             }
         ),
+        500: OpenApiResponse(description='Token exchange failed'),
     }
 )
 @api_view(['GET', 'POST'])
@@ -1699,22 +1709,153 @@ def melhor_envio_oauth_callback(request):
     """
     Callback OAuth2 do Melhor Envio.
 
-    Recebe o código de autorização após o usuário autorizar o aplicativo.
+    Recebe o código de autorização e troca pelos tokens OAuth 2.0.
+    Os tokens são persistidos no banco de dados para uso em chamadas à API.
+
+    IMPORTANTE: Este callback é chamado automaticamente pelo Melhor Envio após
+    o usuário autorizar o aplicativo. Certifique-se de que a URL de redirect
+    configurada no app Melhor Envio aponta para este endpoint.
     """
     code = request.query_params.get('code')
 
-    if code:
-        logger.info(f'Melhor Envio OAuth callback recebido com code={code[:10]}...')
+    if not code:
+        # Retorna 200 para testes de conexão sem código
+        logger.info('Melhor Envio OAuth callback: requisição sem código (teste de conexão)')
         return Response({
-            'message': 'Autorização recebida com sucesso',
-            'code': code,
+            'message': 'Callback ativo. Aguardando código de autorização.',
+            'token_status': None,
         })
 
-    # Retorna 200 mesmo sem code (teste de conexão do Melhor Envio)
-    return Response({
-        'message': 'Callback ativo',
-        'code': None,
-    })
+    logger.info(f'Melhor Envio OAuth callback recebido com code={code[:10]}...')
+
+    try:
+        oauth_service = MelhorEnvioOAuthService()
+        token_record = oauth_service.exchange_code_for_token(code)
+
+        # Retornar status do token sem expor os tokens em si
+        token_status = {
+            'environment': token_record.environment,
+            'token_id': token_record.id,
+            'expires_at': token_record.expires_at.isoformat(),
+            'scope': token_record.scope,
+        }
+
+        logger.info(
+            f'Token OAuth salvo com sucesso: id={token_record.id}, '
+            f'environment={token_record.environment}'
+        )
+
+        return Response({
+            'message': 'Autorização OAuth 2.0 concluída. Token salvo com sucesso.',
+            'token_status': token_status,
+        })
+
+    except MelhorEnvioOAuthError as e:
+        logger.error(f'Erro ao trocar código OAuth: {str(e)}')
+        return Response(
+            {
+                'message': 'Erro ao processar autorização OAuth',
+                'detail': str(e),
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@extend_schema(
+    tags=['Logistics - Webhooks'],
+    summary='Get Melhor Envio OAuth authorization URL',
+    description=(
+        'Returns the OAuth 2.0 authorization URL to redirect the user to Melhor Envio.\n\n'
+        'Flow:\n'
+        '1. Call this endpoint to get the authorization URL\n'
+        '2. Redirect the user to the URL\n'
+        '3. User authorizes the application on Melhor Envio\n'
+        '4. Melhor Envio redirects back to the callback URL with an authorization code\n'
+        '5. The callback endpoint exchanges the code for tokens automatically\n\n'
+        'Requires admin/staff permission.'
+    ),
+    request=None,
+    responses={
+        200: inline_serializer(
+            name='OAuthAuthorizeResponse',
+            fields={
+                'authorization_url': rf_serializers.URLField(),
+                'environment': rf_serializers.CharField(),
+                'instructions': rf_serializers.CharField(),
+            }
+        ),
+        500: OpenApiResponse(description='OAuth not configured'),
+    }
+)
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def melhor_envio_oauth_authorize(request):
+    """
+    Retorna a URL de autorização OAuth 2.0 do Melhor Envio.
+
+    Apenas administradores podem iniciar o fluxo de autorização.
+    Redirecione o usuário para a URL retornada.
+    """
+    try:
+        oauth_service = MelhorEnvioOAuthService()
+        authorization_url = oauth_service.get_authorization_url()
+
+        return Response({
+            'authorization_url': authorization_url,
+            'environment': oauth_service.environment,
+            'instructions': (
+                'Acesse a authorization_url para autorizar o aplicativo no Melhor Envio. '
+                'Após autorizar, você será redirecionado ao callback e os tokens '
+                'serão salvos automaticamente.'
+            ),
+        })
+
+    except MelhorEnvioOAuthError as e:
+        return Response(
+            {
+                'error': 'OAuth não configurado corretamente',
+                'detail': str(e),
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@extend_schema(
+    tags=['Logistics - Webhooks'],
+    summary='Get Melhor Envio OAuth token status',
+    description=(
+        'Returns the current status of the Melhor Envio OAuth 2.0 token.\n\n'
+        'Use this to diagnose webhook issues. If `has_token` is False or '
+        '`is_expired` is True, labels created will NOT trigger webhook notifications.\n\n'
+        'Requires admin/staff permission.'
+    ),
+    request=None,
+    responses={
+        200: inline_serializer(
+            name='OAuthTokenStatusResponse',
+            fields={
+                'has_token': rf_serializers.BooleanField(),
+                'environment': rf_serializers.CharField(),
+                'is_expired': rf_serializers.BooleanField(allow_null=True),
+                'expires_at': rf_serializers.CharField(allow_null=True),
+                'expires_in_seconds': rf_serializers.IntegerField(allow_null=True),
+                'is_refresh_token_expired': rf_serializers.BooleanField(allow_null=True),
+                'last_refreshed_at': rf_serializers.CharField(allow_null=True),
+            }
+        ),
+    }
+)
+@api_view(['GET'])
+@permission_classes([IsAdminUser])
+def melhor_envio_oauth_token_status(request):
+    """
+    Retorna o status atual do token OAuth 2.0 do Melhor Envio.
+
+    Use este endpoint para diagnosticar problemas com o webhook.
+    """
+    oauth_service = MelhorEnvioOAuthService()
+    token_status = oauth_service.get_token_status()
+    return Response(token_status)
 
 
 # =================== Carrier Rule Views ===================

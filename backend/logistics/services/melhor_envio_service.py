@@ -16,32 +16,91 @@ class ShippingValidationError(Exception):
 
 
 class MelhorEnvioService:
-    """Serviço para integração com Melhor Envio API v2"""
-    
+    """
+    Serviço para integração com Melhor Envio API v2.
+
+    IMPORTANTE - Autenticação OAuth 2.0:
+    Este serviço usa preferencialmente tokens OAuth 2.0 (via MelhorEnvioOAuthService)
+    para autenticar as chamadas à API. Isso é OBRIGATÓRIO para que o webhook do
+    Melhor Envio seja acionado.
+
+    O webhook só dispara para etiquetas criadas com um token OAuth 2.0 do aplicativo
+    onde o webhook está configurado. Tokens pessoais/diretos (MELHOR_ENVIO_TOKEN)
+    NÃO acionam o webhook.
+
+    Fallback: Se não houver token OAuth ativo, usa MELHOR_ENVIO_TOKEN como fallback
+    (útil para cálculo de frete, que não depende do webhook).
+    """
+
     def __init__(self):
         """
-        Inicializa o serviço Melhor Envio
-        
-        Configuração necessária no settings.py:
-        MELHOR_ENVIO_TOKEN = 'seu_token_aqui'
-        MELHOR_ENVIO_SANDBOX = True  # ou False para produção
+        Inicializa o serviço Melhor Envio.
+
+        Prioridade de autenticação:
+        1. Token OAuth 2.0 (MelhorEnvioOAuthToken do banco de dados) - necessário para webhook
+        2. MELHOR_ENVIO_TOKEN (fallback para operações que não dependem do webhook)
         """
-        self.token = settings.MELHOR_ENVIO_TOKEN
         self.is_sandbox = getattr(settings, 'MELHOR_ENVIO_SANDBOX', True)
-        
+
         # Define URL base conforme ambiente
         if self.is_sandbox:
             self.base_url = 'https://sandbox.melhorenvio.com.br/api/v2'
         else:
             self.base_url = 'https://melhorenvio.com.br/api/v2'
-        
-        # Headers obrigatórios conforme documentação
-        self.headers = {
-            'Authorization': f'Bearer {self.token}',
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'User-Agent': 'Marketplace App (contato@seuapp.com)'  # OBRIGATÓRIO
-        }
+
+        # Token legado (fallback) - usado apenas se OAuth não estiver configurado
+        self._legacy_token = getattr(settings, 'MELHOR_ENVIO_TOKEN', '')
+
+        # Contact email para User-Agent
+        self._contact_email = getattr(
+            settings, 'MELHOR_ENVIO_USER_AGENT_EMAIL', 'contato@seuapp.com'
+        )
+
+    def _get_headers(self, require_oauth: bool = False) -> dict:
+        """
+        Retorna os headers HTTP para chamadas à API.
+
+        Tenta usar o token OAuth 2.0. Se não disponível:
+        - Se require_oauth=True: levanta exceção (operações que dependem do webhook)
+        - Se require_oauth=False: usa MELHOR_ENVIO_TOKEN como fallback
+
+        Args:
+            require_oauth: Se True, falha se token OAuth não estiver disponível.
+                           Deve ser True para operações de criação de etiqueta,
+                           checkout e criação de shipment.
+
+        Returns:
+            dict: Headers com Authorization Bearer
+        """
+        from .melhor_envio_oauth_service import MelhorEnvioOAuthService, MelhorEnvioOAuthError
+
+        oauth_service = MelhorEnvioOAuthService()
+
+        try:
+            return oauth_service.get_oauth_headers()
+        except MelhorEnvioOAuthError as e:
+            if require_oauth:
+                raise
+
+            # Fallback para token legado (somente para operações que não dependem do webhook)
+            if self._legacy_token:
+                logger.warning(
+                    f'Token OAuth 2.0 não disponível ({e}). '
+                    f'Usando MELHOR_ENVIO_TOKEN como fallback. '
+                    f'ATENÇÃO: Etiquetas criadas com token legado NÃO acionam o webhook!'
+                )
+                return {
+                    'Authorization': f'Bearer {self._legacy_token}',
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'User-Agent': f'Marketplace App ({self._contact_email})',
+                }
+
+            raise MelhorEnvioOAuthError(
+                f'Nenhum método de autenticação disponível. '
+                f'Configure MELHOR_ENVIO_TOKEN ou autorize o aplicativo via OAuth 2.0. '
+                f'Detalhe: {e}'
+            )
 
     def _validate_document(self, document, document_type='CPF'):
         """
@@ -174,7 +233,7 @@ class MelhorEnvioService:
 
         try:
             logger.info(f'Calculando frete: {from_zipcode} → {to_zipcode}')
-            response = requests.post(url, json=payload, headers=self.headers, timeout=30)
+            response = requests.post(url, json=payload, headers=self._get_headers(), timeout=30)
             response.raise_for_status()
             logger.info(f'Frete calculado com sucesso: {from_zipcode} → {to_zipcode}')
             return response.json()
@@ -582,7 +641,7 @@ class MelhorEnvioService:
                 f'Adicionando envio ao carrinho: pedido {order.order_number}, '
                 f'vendedor {seller.email}, serviço {shipping_service_id}'
             )
-            response = requests.post(url, json=payload, headers=self.headers, timeout=30)
+            response = requests.post(url, json=payload, headers=self._get_headers(require_oauth=True), timeout=30)
             response.raise_for_status()
             logger.info(f'Envio adicionado ao carrinho com sucesso: pedido {order.order_number}')
             result = response.json()
@@ -640,7 +699,7 @@ class MelhorEnvioService:
 
         try:
             logger.info(f'Fazendo checkout dos envios: {order_ids}')
-            response = requests.post(url, json=payload, headers=self.headers, timeout=30)
+            response = requests.post(url, json=payload, headers=self._get_headers(require_oauth=True), timeout=30)
             response.raise_for_status()
             logger.info(f'Checkout realizado com sucesso: {order_ids}')
             return response.json()
@@ -758,12 +817,16 @@ class MelhorEnvioService:
         generate_url = f'{self.base_url}/me/shipment/generate'
         generate_payload = {'orders': [shipment.melhorenvio_order_id]}
 
+        # Etiquetas DEVEM ser geradas com token OAuth para que o webhook seja acionado.
+        # require_oauth=True garante que não haverá fallback silencioso aqui.
+        oauth_headers = self._get_headers(require_oauth=True)
+
         try:
             logger.info(f'Gerando etiqueta para envio {shipment.melhorenvio_order_id}')
             response = requests.post(
                 generate_url,
                 json=generate_payload,
-                headers=self.headers,
+                headers=oauth_headers,
                 timeout=30
             )
             response.raise_for_status()
@@ -799,7 +862,7 @@ class MelhorEnvioService:
             print_response = requests.post(
                 print_url,
                 json=print_payload,
-                headers=self.headers,
+                headers=oauth_headers,
                 timeout=30
             )
             print_response.raise_for_status()
@@ -848,7 +911,7 @@ class MelhorEnvioService:
 
         try:
             logger.info(f'Rastreando envio: {shipment.melhorenvio_order_id}')
-            response = requests.post(url, json=payload, headers=self.headers, timeout=30)
+            response = requests.post(url, json=payload, headers=self._get_headers(), timeout=30)
             response.raise_for_status()
             data = response.json()
 

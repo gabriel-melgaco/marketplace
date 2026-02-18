@@ -538,6 +538,96 @@ class DeliveryStatusLog(models.Model):
         return f'{self.order_delivery} - {self.from_status} → {self.to_status}'
 
 
+class MelhorEnvioOAuthToken(models.Model):
+    """
+    Armazena os tokens OAuth 2.0 do Melhor Envio de forma persistente.
+
+    O webhook do Melhor Envio só é disparado para etiquetas criadas com um
+    token OAuth 2.0 do aplicativo onde o webhook foi configurado.
+    Etiquetas criadas com tokens pessoais/diretos NÃO acionam o webhook.
+
+    Ciclo de vida dos tokens:
+    - access_token: validade de 30 dias
+    - refresh_token: validade de 45 dias
+    - O sistema deve renovar o access_token automaticamente antes de expirar
+    """
+
+    # Identificador do ambiente (sandbox ou production)
+    # Apenas um registro por ambiente deve existir como ativo
+    environment = models.CharField(
+        max_length=20,
+        choices=[('sandbox', 'Sandbox'), ('production', 'Production')],
+        default='sandbox',
+    )
+
+    access_token = models.TextField(
+        help_text='Token de acesso OAuth 2.0 (validade 30 dias)'
+    )
+
+    refresh_token = models.TextField(
+        help_text='Token de atualização OAuth 2.0 (validade 45 dias)'
+    )
+
+    token_type = models.CharField(
+        max_length=50,
+        default='Bearer',
+        help_text='Tipo do token (geralmente "Bearer")'
+    )
+
+    expires_at = models.DateTimeField(
+        help_text='Data/hora de expiração do access_token'
+    )
+
+    refresh_token_expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='Data/hora de expiração do refresh_token (45 dias após emissão)'
+    )
+
+    scope = models.TextField(
+        blank=True,
+        help_text='Escopos autorizados'
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        help_text='Indica se este token é o ativo para o ambiente'
+    )
+
+    # Metadata de auditoria
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    last_refreshed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='Última vez que o token foi renovado automaticamente'
+    )
+
+    class Meta:
+        verbose_name = 'Token OAuth Melhor Envio'
+        verbose_name_plural = 'Tokens OAuth Melhor Envio'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['environment', 'is_active']),
+        ]
+
+    def __str__(self):
+        return f'OAuth Token ({self.environment}) - expires {self.expires_at}'
+
+    def is_expired(self):
+        """Verifica se o access_token está expirado (com margem de 5 minutos)."""
+        from django.utils import timezone
+        from datetime import timedelta
+        return timezone.now() >= (self.expires_at - timedelta(minutes=5))
+
+    def is_refresh_token_expired(self):
+        """Verifica se o refresh_token está expirado."""
+        from django.utils import timezone
+        if not self.refresh_token_expires_at:
+            return False
+        return timezone.now() >= self.refresh_token_expires_at
+
+
 class CarrierRule(models.Model):
     """
     Regras de dimensões e peso por transportadora/modalidade.
