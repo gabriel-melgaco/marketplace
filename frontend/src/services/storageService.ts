@@ -15,7 +15,7 @@ export const IMAGE_UPLOAD_LIMITS = {
  * Idempotent: returns the URL unchanged if it already uses the public host.
  * Preserves path and query params (critical for presigned URL signatures).
  */
-function toPublicUrl(url: string): string {
+export function toPublicUrl(url: string): string {
   if (!url) return url;
 
   try {
@@ -36,7 +36,7 @@ function toPublicUrl(url: string): string {
   }
 }
 
-function validateImageFile(file: File): void {
+export function validateImageFile(file: File): void {
   if (!file.size) {
     throw new Error("Arquivo vazio ou corrompido.");
   }
@@ -56,6 +56,38 @@ function validateImageFile(file: File): void {
   }
 }
 
+const S3_UPLOAD_TIMEOUT_MS = 120_000;
+const S3_MAX_RETRIES = 3;
+const S3_INITIAL_DELAY_MS = 1000;
+
+export function isRetryableError(error: unknown): boolean {
+  if (!axios.isAxiosError(error)) return false;
+  const status = error.response?.status;
+  // Retry on network errors (no response) or server errors (5xx)
+  return !status || status >= 500;
+}
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = S3_MAX_RETRIES,
+  initialDelay: number = S3_INITIAL_DELAY_MS,
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (attempt >= maxRetries || !isRetryableError(error)) {
+        throw error;
+      }
+      const delay = initialDelay * Math.pow(2, attempt);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  throw lastError;
+}
+
 export const storageService = {
   /**
    * Requests a presigned PUT URL from the backend.
@@ -70,10 +102,18 @@ export const storageService = {
       { file_name: fileName, content_type: contentType } as PresignedUrlRequest,
     );
 
+    const { upload_url, file_url, object_name } = response.data;
+
+    if (!object_name?.trim()) {
+      throw new Error(
+        "Servidor não retornou object_name válido. Tente novamente.",
+      );
+    }
+
     return {
-      upload_url: toPublicUrl(response.data.upload_url),
-      file_url: toPublicUrl(response.data.file_url),
-      object_name: response.data.object_name,
+      upload_url: toPublicUrl(upload_url),
+      file_url: toPublicUrl(file_url),
+      object_name,
     };
   },
 
@@ -91,15 +131,17 @@ export const storageService = {
     onProgress?: (percent: number) => void,
   ): Promise<void> {
     try {
-      await axios.put(uploadUrl, file, {
-        headers: { "Content-Type": file.type },
-        timeout: 120_000,
-        onUploadProgress: (e) => {
-          if (onProgress && e.total) {
-            onProgress(Math.round((e.loaded * 100) / e.total));
-          }
-        },
-      });
+      await withRetry(() =>
+        axios.put(uploadUrl, file, {
+          headers: { "Content-Type": file.type },
+          timeout: S3_UPLOAD_TIMEOUT_MS,
+          onUploadProgress: (e) => {
+            if (onProgress && e.total) {
+              onProgress(Math.round((e.loaded * 100) / e.total));
+            }
+          },
+        }),
+      );
     } catch (error) {
       if (axios.isAxiosError(error)) {
         const status = error.response?.status;

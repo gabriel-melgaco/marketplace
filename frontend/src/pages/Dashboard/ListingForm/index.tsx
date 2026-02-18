@@ -30,6 +30,12 @@ import type {
   ProductListItem,
 } from "@/types/product";
 import { INITIAL_FORMDATA } from "@/constants/brazilianStates";
+import {
+  validateStep as validateStepHelper,
+  formatDecimal,
+  buildListingData as buildListingDataHelper,
+} from "@/utils/listingHelpers";
+import Swal from "sweetalert2";
 
 const MAX_IMAGES = 10;
 
@@ -86,6 +92,8 @@ export function ListingForm() {
   const draftKey = isEditMode ? `listing_draft_${id}` : "listing_draft";
 
   // Load draft from localStorage (runs once)
+  // Note: keeps currentStep at 1 so the Draft Notice can show.
+  // The user clicks "Continuar do passo X" to jump to the saved step.
   useEffect(() => {
     if (isEditMode) return;
 
@@ -94,9 +102,9 @@ export function ListingForm() {
       if (saved) {
         const draft: DraftData = JSON.parse(saved);
         setHasDraft(true);
-        setCurrentStep(draft.step);
         setFormData(draft.formData);
         setUploadedImageUrls(draft.uploadedImageUrls || []);
+        // Don't restore currentStep here; the Draft Notice handles navigation
       }
     } catch (err) {
       console.error("Error loading draft:", err);
@@ -160,8 +168,21 @@ export function ListingForm() {
     isEditMode,
   ]);
 
-  // Discard draft
-  const discardDraft = useCallback(() => {
+  // Discard draft with confirmation
+  const discardDraft = useCallback(async () => {
+    const result = await Swal.fire({
+      title: "Descartar rascunho?",
+      text: "Todos os dados preenchidos serão perdidos.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#1e3a8a",
+      cancelButtonColor: "#6b7280",
+      confirmButtonText: "Sim, descartar",
+      cancelButtonText: "Cancelar",
+    });
+
+    if (!result.isConfirmed) return;
+
     localStorage.removeItem(draftKey);
     setHasDraft(false);
     setCurrentStep(1);
@@ -327,50 +348,9 @@ export function ListingForm() {
     setFormData((prev) => ({ ...prev, product: "" }));
   }, []);
 
-  // Step-specific validation
+  // Step-specific validation (delegates to pure helper)
   const validateStep = (step: number): boolean => {
-    const newErrors: Record<string, string> = {};
-
-    switch (step) {
-      case 1: // Images - optional, no validation needed
-        break;
-      case 2: // Product
-        if (!formData.product || formData.product.trim() === "" || Number(formData.product) <= 0) {
-          newErrors.product = "Selecione um produto";
-        }
-        break;
-      case 3: // Title
-        if (!formData.title.trim())
-          newErrors.title = "O título do anúncio é obrigatório";
-        if (formData.title.length > 150)
-          newErrors.title = "Máximo 150 caracteres";
-        break;
-      case 4: // Description
-        if (!formData.description.trim())
-          newErrors.description = "Descrição é obrigatória";
-        if (formData.description.length > 255)
-          newErrors.description = "Máximo 255 caracteres";
-        break;
-      case 5: // Price and Quantity
-        if (!formData.price || Number(formData.price) <= 0)
-          newErrors.price = "Preço inválido";
-        break;
-      case 6: // Brand and Condition
-        if (!formData.brand) newErrors.brand = "Selecione uma marca";
-        if (!formData.condition) newErrors.condition = "Selecione a condição";
-        break;
-      case 7: // Dimensions and Weight
-        if (!formData.weight_kg || Number(formData.weight_kg) <= 0)
-          newErrors.weight_kg = "Peso inválido";
-        if (!formData.height_cm || Number(formData.height_cm) <= 0)
-          newErrors.height_cm = "Altura inválida";
-        if (!formData.width_cm || Number(formData.width_cm) <= 0)
-          newErrors.width_cm = "Largura inválida";
-        if (!formData.length_cm || Number(formData.length_cm) <= 0)
-          newErrors.length_cm = "Comprimento inválido";
-        break;
-    }
-
+    const newErrors = validateStepHelper(step, formData);
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -571,6 +551,16 @@ export function ListingForm() {
     async (listingId: number) => {
       if (uploadedImageUrls.length === 0) return;
 
+      // Validate all images have required fields before linking
+      const invalidImages = uploadedImageUrls.filter(
+        (img) => !img.url || !img.objectName?.trim(),
+      );
+      if (invalidImages.length > 0) {
+        throw new Error(
+          `${invalidImages.length} imagem(ns) sem dados válidos de upload. Tente enviar novamente.`,
+        );
+      }
+
       try {
         for (const img of uploadedImageUrls) {
           await listingImageService.addImage(listingId, {
@@ -588,28 +578,10 @@ export function ListingForm() {
     [uploadedImageUrls],
   );
 
-  // Format decimal to 2 places (FIX for 400 Bad Request)
-  const formatDecimal = (value: string): string => {
-    const num = parseFloat(value);
-    if (isNaN(num)) return "0.00";
-    return num.toFixed(2);
-  };
-
-  const buildListingData = useCallback(() => {
-    return {
-      product: Number(formData.product),
-      title: formData.title.trim(),
-      brand: Number(formData.brand),
-      condition: Number(formData.condition),
-      description: formData.description.trim(),
-      price: formatDecimal(formData.price),
-      quantity: Number(formData.quantity) || 1,
-      weight_kg: formatDecimal(formData.weight_kg),
-      height_cm: formatDecimal(formData.height_cm),
-      width_cm: formatDecimal(formData.width_cm),
-      length_cm: formatDecimal(formData.length_cm),
-    };
-  }, [formData]);
+  const buildListingData = useCallback(
+    () => buildListingDataHelper(formData),
+    [formData],
+  );
 
   // Handle "Continuar" button (Step 1-5)
   const handleContinue = async () => {
