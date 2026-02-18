@@ -300,10 +300,32 @@ STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY', 'sk_test_...')
 STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', 'whsec_...')
 
 # =================== MELHOR ENVIO CONFIGURATION ===================
+
+# Token legado (usado como fallback para cálculo de frete se OAuth não estiver configurado)
+# ATENÇÃO: Etiquetas criadas com este token NÃO acionam o webhook!
+# Para o webhook funcionar, use o fluxo OAuth 2.0 abaixo.
 MELHOR_ENVIO_TOKEN = os.getenv('MELHOR_ENVIO_TOKEN', '')
-MELHOR_ENVIO_SANDBOX = os.getenv('MELHOR_ENVIO_SANDBOX', True)
+MELHOR_ENVIO_SANDBOX = os.getenv('MELHOR_ENVIO_SANDBOX', 'True').lower() not in ('false', '0', 'no')
 MELHOR_ENVIO_WEBHOOK_SECRET = os.getenv('MELHOR_ENVIO_WEBHOOK_SECRET', '')
 MELHOR_ENVIO_MAX_INSURANCE_VALUE = float(os.getenv('MELHOR_ENVIO_MAX_INSURANCE_VALUE', '1000.00'))
+
+# Melhor Envio OAuth 2.0 Application Credentials
+# Obtenha em: https://melhorenvio.com.br/painel/gerenciar/aplicativos
+# OBRIGATÓRIO para que o webhook seja acionado nas etiquetas geradas.
+MELHOR_ENVIO_CLIENT_ID = os.getenv('MELHOR_ENVIO_CLIENT_ID', '')
+MELHOR_ENVIO_CLIENT_SECRET = os.getenv('MELHOR_ENVIO_CLIENT_SECRET', '')
+
+# URL de callback configurada no aplicativo Melhor Envio
+# Deve apontar para /api/logistics/webhooks/melhor-envio/callback/
+MELHOR_ENVIO_REDIRECT_URI = os.getenv(
+    'MELHOR_ENVIO_REDIRECT_URI',
+    'https://api.megdev.com.br/api/logistics/webhooks/melhor-envio/callback/'
+)
+
+# Email para o User-Agent obrigatório nas chamadas à API
+MELHOR_ENVIO_USER_AGENT_EMAIL = os.getenv('MELHOR_ENVIO_USER_AGENT_EMAIL', 'contato@seuapp.com')
+
+
 # =================== PAYMENT CONFIGURATION ===================
 # Taxa da plataforma (%)
 PLATFORM_FEE_PERCENTAGE = 10  # 10% de taxa

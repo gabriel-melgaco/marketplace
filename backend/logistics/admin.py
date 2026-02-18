@@ -2,7 +2,7 @@ from django.contrib import admin
 from .models import (
     ShippingQuote, Shipment, ShipmentTracking, Address,
     OrderDelivery, InPersonDelivery, DeliveryStatusLog,
-    CarrierRule,
+    CarrierRule, MelhorEnvioOAuthToken,
 )
 
 
@@ -250,3 +250,76 @@ class CarrierRuleAdmin(admin.ModelAdmin):
 
 
 admin.site.register(CarrierRule, CarrierRuleAdmin)
+
+
+@admin.register(MelhorEnvioOAuthToken)
+class MelhorEnvioOAuthTokenAdmin(admin.ModelAdmin):
+    """
+    Admin para gerenciar tokens OAuth 2.0 do Melhor Envio.
+
+    ATENÇÃO: Tokens de acesso são dados sensíveis.
+    O admin exibe apenas os primeiros 20 caracteres.
+    """
+
+    list_display = (
+        'id',
+        'environment',
+        'is_active',
+        'is_expired_display',
+        'expires_at',
+        'refresh_token_expires_at',
+        'last_refreshed_at',
+        'created_at',
+    )
+    list_filter = ('environment', 'is_active')
+    readonly_fields = (
+        'token_type',
+        'expires_at',
+        'refresh_token_expires_at',
+        'scope',
+        'last_refreshed_at',
+        'created_at',
+        'updated_at',
+        'access_token_preview',
+        'refresh_token_preview',
+    )
+
+    # Nunca mostrar tokens completos no admin
+    exclude = ('access_token', 'refresh_token')
+
+    fieldsets = (
+        ('Status', {
+            'fields': ('environment', 'is_active', 'token_type'),
+        }),
+        ('Tokens (somente leitura - primeiros 20 caracteres)', {
+            'fields': ('access_token_preview', 'refresh_token_preview'),
+        }),
+        ('Expiração', {
+            'fields': ('expires_at', 'refresh_token_expires_at'),
+        }),
+        ('Metadata', {
+            'fields': ('scope', 'last_refreshed_at', 'created_at', 'updated_at'),
+            'classes': ('collapse',),
+        }),
+    )
+
+    def is_expired_display(self, obj):
+        return obj.is_expired()
+    is_expired_display.short_description = 'Expirado?'
+    is_expired_display.boolean = True
+
+    def access_token_preview(self, obj):
+        if obj.access_token:
+            return f'{obj.access_token[:20]}...'
+        return '(vazio)'
+    access_token_preview.short_description = 'Access Token (preview)'
+
+    def refresh_token_preview(self, obj):
+        if obj.refresh_token:
+            return f'{obj.refresh_token[:20]}...'
+        return '(vazio)'
+    refresh_token_preview.short_description = 'Refresh Token (preview)'
+
+    def has_add_permission(self, request):
+        # Tokens são criados apenas via fluxo OAuth, não manualmente
+        return False

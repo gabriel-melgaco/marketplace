@@ -36,6 +36,12 @@ urlpatterns = [
     path('webhooks/melhor-envio', views.melhor_envio_webhook, name='melhor-envio-webhook-no-slash'),
     path('webhooks/melhor-envio/callback/', views.melhor_envio_oauth_callback, name='melhor-envio-oauth-callback'),
 
+    # =================== OAuth 2.0 Management (Admin only) ===================
+    # GET: Returns authorization URL to start the OAuth flow
+    path('webhooks/melhor-envio/authorize/', views.melhor_envio_oauth_authorize, name='melhor-envio-oauth-authorize'),
+    # GET: Returns current token status for diagnostics
+    path('webhooks/melhor-envio/token-status/', views.melhor_envio_oauth_token_status, name='melhor-envio-token-status'),
+
     # =================== Order Deliveries (Dual Delivery) ===================
     path('deliveries/create/', views.create_order_deliveries, name='create-order-deliveries'),
     path('deliveries/order/<uuid:order_id>/', views.get_order_deliveries_details, name='order-deliveries-details'),
