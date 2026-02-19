@@ -562,15 +562,17 @@ class MelhorEnvioService:
             raise ShippingValidationError('Comprador não possui CPF ou CNPJ cadastrado')
 
         # Preparar produtos
+        # Documentação Melhor Envio: quantity e unitary_value devem ser strings
         products = []
         for item in seller_items:
             products.append({
                 'name': item.product_name,
-                'quantity': item.quantity,
-                'unitary_value': float(item.unit_price)
+                'quantity': str(item.quantity),
+                'unitary_value': str(float(item.unit_price))
             })
 
-        # Preparar volume único consolidado (transportadoras não aceitam múltiplos volumes)
+        # Preparar volume único consolidado
+        # Correios, J&T e Loggi não aceitam múltiplos volumes em uma única requisição
         total_weight = sum(float(item.weight_kg) * item.quantity for item in seller_items)
         max_height = max(float(item.height_cm) for item in seller_items)
         max_width = max(float(item.width_cm) for item in seller_items)
@@ -583,23 +585,33 @@ class MelhorEnvioService:
             'weight': total_weight
         }]
 
+        # Montar bloco "from" do vendedor
+        # CNPJ (14 dígitos) -> usar company_document; CPF (11 dígitos) -> omitir company_document
+        seller_is_pj = len(validated_seller_doc) == 14
+        from_block = {
+            'name': seller.get_full_name() or seller.email,
+            'phone': seller_address.recipient_phone,
+            'email': seller.email,
+            'document': validated_seller_doc,
+            'postal_code': origin_zipcode.replace('-', ''),
+            'address': seller_address.street,
+            'number': seller_address.number,
+            'complement': seller_address.complement or '',
+            'district': seller_address.neighborhood,
+            'city': seller_address.city,
+            'state_abbr': seller_address.state,
+            # Envios não comerciais (declaração de conteúdo): state_register = "ISENTO"
+            'state_register': 'ISENTO',
+        }
+        if seller_is_pj:
+            # Pessoa Jurídica: adicionar company_document com o CNPJ
+            from_block['company_document'] = validated_seller_doc
+        # Pessoa Física: company_document é omitido completamente (não enviar string vazia)
+
         # Montar payload com documentos validados
         payload = {
             'service': shipping_service_id,
-            'from': {
-                'name': seller.get_full_name() or seller.email,
-                'phone': seller_address.recipient_phone,
-                'email': seller.email,
-                'document': validated_seller_doc,
-                'company_document': '',  # Deixar vazio, usar apenas 'document'
-                'postal_code': origin_zipcode.replace('-', ''),
-                'address': seller_address.street,
-                'number': seller_address.number,
-                'complement': seller_address.complement or '',
-                'district': seller_address.neighborhood,
-                'city': seller_address.city,
-                'state_abbr': seller_address.state,
-            },
+            'from': from_block,
             'to': {
                 'name': order.shipping_address.get('recipient_name', ''),
                 'phone': order.shipping_address.get('recipient_phone', ''),
@@ -622,7 +634,8 @@ class MelhorEnvioService:
                 ),
                 'receipt': False,
                 'own_hand': False,
-                'collect': False
+                # Adicionar tag com número do pedido para rastreamento no painel Melhor Envio
+                'tags': [{'tag': str(order.order_number), 'url': ''}],
             }
         }
 
