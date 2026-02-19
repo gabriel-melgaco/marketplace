@@ -33,7 +33,6 @@ urlpatterns = [
 
     # =================== Webhooks ===================
     path('webhooks/melhor-envio/', views.melhor_envio_webhook, name='melhor-envio-webhook'),
-    path('webhooks/melhor-envio', views.melhor_envio_webhook, name='melhor-envio-webhook-no-slash'),
     path('webhooks/melhor-envio/callback/', views.melhor_envio_oauth_callback, name='melhor-envio-oauth-callback'),
 
     # =================== OAuth 2.0 Management (Admin only) ===================

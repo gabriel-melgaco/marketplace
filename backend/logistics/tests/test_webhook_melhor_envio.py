@@ -26,7 +26,7 @@ from rest_framework.test import APIClient
 from authentication.models import CustomUser
 from orders.models import Order, OrderItem, OrderStatusHistory
 from products.models import Products, MarketplaceListing, Brand, Condition, Category, Series
-from logistics.models import Shipment
+from logistics.models import Shipment, OrderDelivery, DeliveryStatusLog, ShipmentTracking, DeliveryMethod
 from orders.services.order_state_machine import OrderStateMachine
 
 
@@ -845,3 +845,354 @@ class MelhorEnvioWebhookTest(TestCase):
         self.assertTrue(response.data['order_transitioned'])
         self.assertEqual(response.data['order_status'], OrderStateMachine.SHIPPED)
         self.assertEqual(response.data['shipment_status'], 'posted')
+
+    # =================== OrderDelivery update tests ===================
+
+    def _create_order_delivery_for_shipment(self, shipment, initial_status='confirmed'):
+        """Helper: creates an OrderDelivery linked to the given shipment."""
+        return OrderDelivery.objects.create(
+            order=shipment.order,
+            seller=shipment.seller,
+            delivery_method=DeliveryMethod.SHIPPING,
+            status=initial_status,
+            shipment=shipment,
+            delivery_cost=shipment.shipping_cost,
+        )
+
+    def test_webhook_updates_order_delivery_status_to_in_transit_on_posted(self):
+        """Webhook order.posted should update linked OrderDelivery status to in_transit"""
+        order_delivery = self._create_order_delivery_for_shipment(
+            self.shipment_single, initial_status='confirmed'
+        )
+
+        payload = {
+            'event': 'order.posted',
+            'data': {
+                'id': 'ME-SINGLE-001',
+                'tracking': 'BR123456789XX',
+                'posted_at': '2026-02-11T10:00:00Z'
+            }
+        }
+
+        response = self.client.post(self.webhook_url, data=payload, format='json')
+
+        self.assertEqual(response.status_code, 200)
+
+        order_delivery.refresh_from_db()
+        self.assertEqual(order_delivery.status, 'in_transit')
+
+    def test_webhook_updates_order_delivery_status_to_delivered(self):
+        """Webhook order.delivered should update linked OrderDelivery status to delivered"""
+        self.order_single.status = OrderStateMachine.SHIPPED
+        self.order_single.save()
+        self.shipment_single.status = 'posted'
+        self.shipment_single.save()
+
+        order_delivery = self._create_order_delivery_for_shipment(
+            self.shipment_single, initial_status='in_transit'
+        )
+
+        payload = {
+            'event': 'order.delivered',
+            'data': {
+                'id': 'ME-SINGLE-001',
+                'delivered_at': '2026-02-15T14:30:00Z'
+            }
+        }
+
+        response = self.client.post(self.webhook_url, data=payload, format='json')
+
+        self.assertEqual(response.status_code, 200)
+
+        order_delivery.refresh_from_db()
+        self.assertEqual(order_delivery.status, 'delivered')
+        self.assertIsNotNone(order_delivery.completed_at)
+
+    def test_webhook_updates_order_delivery_status_to_cancelled(self):
+        """Webhook order.cancelled should update linked OrderDelivery status to cancelled"""
+        order_delivery = self._create_order_delivery_for_shipment(
+            self.shipment_single, initial_status='confirmed'
+        )
+
+        payload = {
+            'event': 'order.cancelled',
+            'data': {
+                'id': 'ME-SINGLE-001'
+            }
+        }
+
+        response = self.client.post(self.webhook_url, data=payload, format='json')
+
+        self.assertEqual(response.status_code, 200)
+
+        order_delivery.refresh_from_db()
+        self.assertEqual(order_delivery.status, 'cancelled')
+
+    def test_webhook_does_not_fail_when_shipment_has_no_order_delivery(self):
+        """Webhook should process normally when Shipment has no linked OrderDelivery"""
+        # shipment_single has no OrderDelivery - ensure no DoesNotExist exception propagates
+        payload = {
+            'event': 'order.posted',
+            'data': {
+                'id': 'ME-SINGLE-001',
+                'tracking': 'BR123456789XX',
+            }
+        }
+
+        response = self.client.post(self.webhook_url, data=payload, format='json')
+
+        self.assertEqual(response.status_code, 200)
+        # Shipment should still be updated
+        self.shipment_single.refresh_from_db()
+        self.assertEqual(self.shipment_single.status, 'posted')
+
+    # =================== DeliveryStatusLog creation tests ===================
+
+    def test_webhook_creates_delivery_status_log_on_status_change(self):
+        """Webhook should create a DeliveryStatusLog when OrderDelivery status changes"""
+        order_delivery = self._create_order_delivery_for_shipment(
+            self.shipment_single, initial_status='confirmed'
+        )
+
+        payload = {
+            'event': 'order.posted',
+            'data': {
+                'id': 'ME-SINGLE-001',
+                'tracking': 'BR123456789XX',
+                'posted_at': '2026-02-11T10:00:00Z'
+            }
+        }
+
+        response = self.client.post(self.webhook_url, data=payload, format='json')
+
+        self.assertEqual(response.status_code, 200)
+
+        # Exactly one DeliveryStatusLog should be created
+        logs = DeliveryStatusLog.objects.filter(order_delivery=order_delivery)
+        self.assertEqual(logs.count(), 1)
+
+        log = logs.first()
+        self.assertEqual(log.from_status, 'confirmed')
+        self.assertEqual(log.to_status, 'in_transit')
+        self.assertIsNone(log.changed_by)  # webhook has no user
+        self.assertIn('webhook', log.notes.lower())
+        self.assertIn('melhor envio', log.notes.lower())
+
+    def test_webhook_log_metadata_contains_event_info(self):
+        """DeliveryStatusLog metadata should contain event details"""
+        order_delivery = self._create_order_delivery_for_shipment(
+            self.shipment_single, initial_status='confirmed'
+        )
+
+        payload = {
+            'event': 'order.posted',
+            'data': {
+                'id': 'ME-SINGLE-001',
+                'tracking': 'BR123456789XX',
+                'tracking_url': 'https://www.melhorrastreio.com.br/rastreio/BR123456789XX',
+            }
+        }
+
+        self.client.post(self.webhook_url, data=payload, format='json')
+
+        log = DeliveryStatusLog.objects.filter(order_delivery=order_delivery).first()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.metadata.get('event'), 'order.posted')
+        self.assertEqual(log.metadata.get('melhorenvio_order_id'), 'ME-SINGLE-001')
+        self.assertEqual(log.metadata.get('tracking'), 'BR123456789XX')
+
+    def test_webhook_does_not_create_log_when_no_order_delivery(self):
+        """No DeliveryStatusLog should be created when Shipment has no OrderDelivery"""
+        initial_log_count = DeliveryStatusLog.objects.count()
+
+        payload = {
+            'event': 'order.posted',
+            'data': {
+                'id': 'ME-SINGLE-001',
+                'tracking': 'BR123456789XX',
+            }
+        }
+
+        self.client.post(self.webhook_url, data=payload, format='json')
+
+        # No new log created (no OrderDelivery exists)
+        self.assertEqual(DeliveryStatusLog.objects.count(), initial_log_count)
+
+    def test_webhook_does_not_create_log_when_status_unchanged(self):
+        """No DeliveryStatusLog when OrderDelivery status does not change"""
+        # Set OrderDelivery already at in_transit (same as what posted maps to)
+        order_delivery = self._create_order_delivery_for_shipment(
+            self.shipment_single, initial_status='in_transit'
+        )
+
+        payload = {
+            'event': 'order.posted',
+            'data': {
+                'id': 'ME-SINGLE-001',
+                'tracking': 'BR123456789XX',
+            }
+        }
+
+        self.client.post(self.webhook_url, data=payload, format='json')
+
+        logs = DeliveryStatusLog.objects.filter(order_delivery=order_delivery)
+        self.assertEqual(logs.count(), 0)
+
+    # =================== ShipmentTracking creation tests ===================
+
+    def test_webhook_creates_shipment_tracking_when_tracking_code_present(self):
+        """Webhook should create ShipmentTracking entry when tracking code is in payload"""
+        payload = {
+            'event': 'order.posted',
+            'data': {
+                'id': 'ME-SINGLE-001',
+                'tracking': 'BR123456789XX',
+                'posted_at': '2026-02-11T10:00:00Z'
+            }
+        }
+
+        response = self.client.post(self.webhook_url, data=payload, format='json')
+
+        self.assertEqual(response.status_code, 200)
+
+        tracking_entries = ShipmentTracking.objects.filter(shipment=self.shipment_single)
+        self.assertEqual(tracking_entries.count(), 1)
+
+        entry = tracking_entries.first()
+        self.assertEqual(entry.status, 'posted')
+        self.assertIn('postada', entry.description.lower())
+        self.assertIsNotNone(entry.occurred_at)
+
+    def test_webhook_creates_shipment_tracking_with_tracking_url_only(self):
+        """ShipmentTracking should be created even when only tracking_url is present"""
+        payload = {
+            'event': 'order.posted',
+            'data': {
+                'id': 'ME-SINGLE-001',
+                'tracking': None,
+                'tracking_url': 'https://www.melhorrastreio.com.br/rastreio/BR999',
+            }
+        }
+
+        self.client.post(self.webhook_url, data=payload, format='json')
+
+        tracking_entries = ShipmentTracking.objects.filter(shipment=self.shipment_single)
+        self.assertEqual(tracking_entries.count(), 1)
+
+        entry = tracking_entries.first()
+        self.assertIn('melhorrastreio', entry.description.lower())
+
+    def test_webhook_does_not_create_shipment_tracking_when_no_tracking_data(self):
+        """No ShipmentTracking should be created when payload has no tracking data"""
+        payload = {
+            'event': 'order.posted',
+            'data': {
+                'id': 'ME-SINGLE-001',
+                # No 'tracking', 'self_tracking', or 'tracking_url'
+            }
+        }
+
+        self.client.post(self.webhook_url, data=payload, format='json')
+
+        tracking_entries = ShipmentTracking.objects.filter(shipment=self.shipment_single)
+        self.assertEqual(tracking_entries.count(), 0)
+
+    def test_webhook_shipment_tracking_uses_posted_at_timestamp(self):
+        """ShipmentTracking occurred_at should use posted_at from payload for posted events"""
+        payload = {
+            'event': 'order.posted',
+            'data': {
+                'id': 'ME-SINGLE-001',
+                'tracking': 'BR123456789XX',
+                'posted_at': '2026-02-11T10:00:00Z'
+            }
+        }
+
+        self.client.post(self.webhook_url, data=payload, format='json')
+
+        entry = ShipmentTracking.objects.filter(shipment=self.shipment_single).first()
+        self.assertIsNotNone(entry)
+        # occurred_at should match posted_at from payload (2026-02-11T10:00:00Z)
+        self.assertEqual(entry.occurred_at.year, 2026)
+        self.assertEqual(entry.occurred_at.month, 2)
+        self.assertEqual(entry.occurred_at.day, 11)
+
+    def test_webhook_shipment_tracking_uses_delivered_at_timestamp(self):
+        """ShipmentTracking occurred_at should use delivered_at from payload for delivered events"""
+        self.order_single.status = OrderStateMachine.SHIPPED
+        self.order_single.save()
+        self.shipment_single.status = 'posted'
+        self.shipment_single.save()
+
+        payload = {
+            'event': 'order.delivered',
+            'data': {
+                'id': 'ME-SINGLE-001',
+                'tracking': 'BR123456789XX',
+                'delivered_at': '2026-02-15T14:30:00Z'
+            }
+        }
+
+        self.client.post(self.webhook_url, data=payload, format='json')
+
+        entry = ShipmentTracking.objects.filter(
+            shipment=self.shipment_single,
+            status='delivered'
+        ).first()
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry.occurred_at.year, 2026)
+        self.assertEqual(entry.occurred_at.month, 2)
+        self.assertEqual(entry.occurred_at.day, 15)
+
+    def test_webhook_full_payload_creates_all_records(self):
+        """Full webhook payload should update Shipment, OrderDelivery, create DeliveryStatusLog and ShipmentTracking"""
+        order_delivery = self._create_order_delivery_for_shipment(
+            self.shipment_single, initial_status='confirmed'
+        )
+
+        payload = {
+            'event': 'order.posted',
+            'data': {
+                'id': 'ME-SINGLE-001',
+                'protocol': 'ORD-2026XXXXXXXXXX',
+                'status': 'posted',
+                'tracking': 'BR123456789XX',
+                'self_tracking': None,
+                'user_id': '0000111',
+                'tags': [{'tag': 'tag1', 'url': 'www.url1.com'}],
+                'created_at': '2024-03-29T23:49:26+00:00',
+                'paid_at': None,
+                'generated_at': None,
+                'posted_at': '2026-02-11T10:00:00+00:00',
+                'delivered_at': None,
+                'canceled_at': None,
+                'expired_at': None,
+                'tracking_url': 'https://www.melhorrastreio.com.br/rastreio/BR123456789XX'
+            }
+        }
+
+        response = self.client.post(self.webhook_url, data=payload, format='json')
+
+        self.assertEqual(response.status_code, 200)
+
+        # 1. Shipment updated
+        self.shipment_single.refresh_from_db()
+        self.assertEqual(self.shipment_single.status, 'posted')
+        self.assertEqual(self.shipment_single.melhorenvio_tracking_code, 'BR123456789XX')
+        self.assertEqual(self.shipment_single.tracking_url, 'https://www.melhorrastreio.com.br/rastreio/BR123456789XX')
+        self.assertIsNotNone(self.shipment_single.posted_at)
+
+        # 2. OrderDelivery updated
+        order_delivery.refresh_from_db()
+        self.assertEqual(order_delivery.status, 'in_transit')
+
+        # 3. DeliveryStatusLog created
+        log = DeliveryStatusLog.objects.filter(order_delivery=order_delivery).first()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.from_status, 'confirmed')
+        self.assertEqual(log.to_status, 'in_transit')
+
+        # 4. ShipmentTracking created
+        tracking = ShipmentTracking.objects.filter(shipment=self.shipment_single).first()
+        self.assertIsNotNone(tracking)
+        self.assertEqual(tracking.status, 'posted')
