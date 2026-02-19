@@ -24,7 +24,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from .models import (
     ShippingQuote, Shipment, ShipmentTracking, Address,
     OrderDelivery, InPersonDelivery, DeliveryMethod,
-    CarrierRule,
+    CarrierRule, DeliveryStatusLog,
 )
 from .serializers import (
     AddressSerializer, AddressCreateSerializer,
@@ -1489,25 +1489,27 @@ def melhor_envio_webhook(request):
     )
 
     # Verificar assinatura HMAC-SHA256
+    # O Melhor Envio assina o corpo da requisição usando HMAC-SHA256
+    # e codifica o resultado em base64 no header X-ME-Signature.
+    # Ref: https://docs.melhorenvio.com.br (autenticidade das requisições)
     webhook_secret = django_settings.MELHOR_ENVIO_WEBHOOK_SECRET
     signature = request.headers.get('X-ME-Signature', '')
     signature_valid = False
 
     if webhook_secret and signature:
         body = request.body
-        digest = hmac.new(
+        # Calcular digest uma única vez e derivar ambos os formatos
+        mac = hmac.new(
             webhook_secret.encode('utf-8'),
             body,
             hashlib.sha256
-        ).digest()
-        expected_signature_b64 = base64.b64encode(digest).decode('utf-8')
-        expected_signature_hex = hmac.new(
-            webhook_secret.encode('utf-8'),
-            body,
-            hashlib.sha256
-        ).hexdigest()
+        )
+        raw_digest = mac.digest()
+        expected_signature_b64 = base64.b64encode(raw_digest).decode('utf-8')
+        expected_signature_hex = raw_digest.hex()
 
-        # Melhor Envio usa base64, mas verificar ambos por segurança
+        # Melhor Envio usa base64 conforme documentação oficial.
+        # Verificamos também hexdigest por compatibilidade com clientes antigos.
         if hmac.compare_digest(signature, expected_signature_b64) or hmac.compare_digest(signature, expected_signature_hex):
             signature_valid = True
         else:
@@ -1606,69 +1608,183 @@ def melhor_envio_webhook(request):
         logger.info(f'Webhook Melhor Envio: evento {event} ignorado (não mapeado)')
         return Response({'message': f'Evento {event} recebido mas não processado'})
 
-    # Atualizar status do shipment
-    old_shipment_status = shipment.status
-    shipment.status = new_shipment_status
+    # Mapeia status do Shipment para status do OrderDelivery
+    # O OrderDelivery usa um conjunto de status mais amplo e semântico
+    SHIPMENT_TO_DELIVERY_STATUS_MAP = {
+        'created': 'confirmed',
+        'pending': 'pending',
+        'released': 'confirmed',
+        'generated': 'confirmed',
+        'posted': 'in_transit',
+        'in_transit': 'in_transit',
+        'out_for_delivery': 'in_transit',
+        'delivered': 'delivered',
+        'cancelled': 'cancelled',
+        'returned': 'failed',
+    }
 
-    # Atualizar tracking code se disponível
-    if data.get('tracking'):
-        shipment.melhorenvio_tracking_code = data['tracking']
-
-    # Atualizar tracking_url se disponível
-    if data.get('tracking_url'):
-        shipment.tracking_url = data['tracking_url']
-
-    # Atualizar timestamps (parse ISO 8601 strings da API Melhor Envio)
     from django.utils.dateparse import parse_datetime
-    if new_shipment_status == 'posted' and data.get('posted_at'):
-        shipment.posted_at = parse_datetime(data['posted_at']) or timezone.now()
-    elif new_shipment_status == 'delivered':
-        delivered_at = data.get('delivered_at')
-        shipment.delivered_at = (parse_datetime(delivered_at) if delivered_at else None) or timezone.now()
 
-    shipment.save()
+    with transaction.atomic():
+        # --- 1. Atualizar Shipment ---
+        old_shipment_status = shipment.status
+        shipment.status = new_shipment_status
 
-    logger.info(
-        f'Shipment {shipment.id} atualizado: {old_shipment_status} → {new_shipment_status} (evento: {event})'
-    )
+        # Atualizar tracking code se disponível
+        if data.get('tracking'):
+            shipment.melhorenvio_tracking_code = data['tracking']
 
-    # Propagar status para o Order
-    order = shipment.order
-    order_transitioned = False
+        # Atualizar tracking_url se disponível
+        if data.get('tracking_url'):
+            shipment.tracking_url = data['tracking_url']
 
-    try:
-        if event == 'order.posted' or event == 'order.received':
-            # Verificar se TODOS os shipments do pedido foram postados
-            all_shipments = Shipment.objects.filter(order=order)
-            all_posted = all_shipments.exclude(
-                status__in=['posted', 'in_transit', 'delivered']
-            ).count() == 0
+        # Atualizar timestamps (parse ISO 8601 strings da API Melhor Envio)
+        if new_shipment_status == 'posted' and data.get('posted_at'):
+            shipment.posted_at = parse_datetime(data['posted_at']) or timezone.now()
+        elif new_shipment_status == 'delivered':
+            delivered_at = data.get('delivered_at')
+            shipment.delivered_at = (parse_datetime(delivered_at) if delivered_at else None) or timezone.now()
 
-            if all_posted and OrderStateMachine.can_transition(order.status, OrderStateMachine.SHIPPED):
-                OrderStateMachine.transition_to(
-                    order=order,
-                    new_status=OrderStateMachine.SHIPPED,
-                    notes=f'Todos os envios foram postados (webhook Melhor Envio: {event})',
-                )
-                order_transitioned = True
+        shipment.save()
 
-        elif event == 'order.delivered':
-            # Verificar se TODOS os shipments do pedido foram entregues
-            all_shipments = Shipment.objects.filter(order=order)
-            all_delivered = all_shipments.exclude(status='delivered').count() == 0
-
-            if all_delivered and OrderStateMachine.can_transition(order.status, OrderStateMachine.DELIVERED):
-                OrderStateMachine.transition_to(
-                    order=order,
-                    new_status=OrderStateMachine.DELIVERED,
-                    notes='Todos os envios foram entregues (webhook Melhor Envio)',
-                )
-                order_transitioned = True
-
-    except OrderStatusTransitionError as e:
-        logger.warning(
-            f'Webhook: não foi possível transicionar order {order.order_number}: {str(e)}'
+        logger.info(
+            f'Shipment {shipment.id} atualizado: {old_shipment_status} → {new_shipment_status} (evento: {event})'
         )
+
+        # --- 2. Atualizar OrderDelivery correspondente ---
+        try:
+            order_delivery = shipment.order_delivery
+            new_delivery_status = SHIPMENT_TO_DELIVERY_STATUS_MAP.get(new_shipment_status)
+            old_delivery_status = order_delivery.status
+
+            if new_delivery_status and new_delivery_status != old_delivery_status:
+                order_delivery.status = new_delivery_status
+
+                # Atualizar timestamps do OrderDelivery conforme o novo status
+                if new_delivery_status == 'confirmed' and not order_delivery.confirmed_at:
+                    order_delivery.confirmed_at = timezone.now()
+                elif new_delivery_status == 'delivered' and not order_delivery.completed_at:
+                    order_delivery.completed_at = timezone.now()
+
+                order_delivery.save(update_fields=['status', 'confirmed_at', 'completed_at', 'updated_at'])
+
+                # --- 3. Criar DeliveryStatusLog ---
+                DeliveryStatusLog.objects.create(
+                    order_delivery=order_delivery,
+                    from_status=old_delivery_status,
+                    to_status=new_delivery_status,
+                    changed_by=None,  # origem: webhook externo (sem usuário)
+                    notes=f'Status atualizado via webhook Melhor Envio (evento: {event})',
+                    metadata={
+                        'event': event,
+                        'melhorenvio_order_id': melhorenvio_order_id,
+                        'shipment_status': new_shipment_status,
+                        'tracking': data.get('tracking'),
+                        'tracking_url': data.get('tracking_url'),
+                    }
+                )
+
+                logger.info(
+                    f'OrderDelivery {order_delivery.id} atualizado: '
+                    f'{old_delivery_status} → {new_delivery_status} (evento: {event})'
+                )
+            else:
+                logger.debug(
+                    f'OrderDelivery {order_delivery.id} não alterado: '
+                    f'status={old_delivery_status}, mapeamento={new_delivery_status}'
+                )
+
+        except OrderDelivery.DoesNotExist:
+            # Shipment pode não ter um OrderDelivery associado (ex: criado manualmente)
+            logger.info(
+                f'Webhook: Shipment {shipment.id} não possui OrderDelivery associado. '
+                f'Apenas o Shipment foi atualizado.'
+            )
+
+        # --- 4. Criar/atualizar ShipmentTracking com dados de tracking do payload ---
+        tracking_code = data.get('tracking')
+        self_tracking = data.get('self_tracking')
+        tracking_url = data.get('tracking_url')
+
+        # Só cria registro de ShipmentTracking se houver dados de rastreio úteis
+        if tracking_code or self_tracking or tracking_url:
+            # Montar descrição do evento
+            event_description_map = {
+                'order.created': 'Etiqueta criada no Melhor Envio',
+                'order.pending': 'Etiqueta retornada ao carrinho',
+                'order.released': 'Etiqueta paga',
+                'order.generated': 'Etiqueta gerada',
+                'order.received': 'Encomenda recebida em ponto de coleta',
+                'order.posted': 'Encomenda postada pelo remetente',
+                'order.delivered': 'Encomenda entregue ao destinatário',
+                'order.cancelled': 'Etiqueta cancelada',
+                'order.undelivered': 'Encomenda não pôde ser entregue (devolvida)',
+                'order.paused': 'Entrega interrompida (ação do destinatário)',
+                'order.suspended': 'Encomenda suspensa',
+            }
+            description = event_description_map.get(event, f'Evento Melhor Envio: {event}')
+
+            # Adicionar tracking_url à descrição se disponível e não houver tracking code
+            if tracking_url and not tracking_code:
+                description += f' — {tracking_url}'
+
+            # Determinar timestamp do evento
+            event_occurred_at = timezone.now()
+            if new_shipment_status == 'posted' and data.get('posted_at'):
+                event_occurred_at = parse_datetime(data['posted_at']) or timezone.now()
+            elif new_shipment_status == 'delivered' and data.get('delivered_at'):
+                event_occurred_at = parse_datetime(data['delivered_at']) or timezone.now()
+
+            ShipmentTracking.objects.create(
+                shipment=shipment,
+                status=new_shipment_status,
+                description=description,
+                location='',  # Melhor Envio não fornece localização no webhook
+                occurred_at=event_occurred_at,
+            )
+
+            logger.info(
+                f'ShipmentTracking criado para shipment {shipment.id}: '
+                f'status={new_shipment_status}, tracking={tracking_code}'
+            )
+
+        # --- 5. Propagar status para o Order ---
+        order = shipment.order
+        order_transitioned = False
+
+        try:
+            if event == 'order.posted' or event == 'order.received':
+                # Verificar se TODOS os shipments do pedido foram postados
+                all_shipments = Shipment.objects.filter(order=order)
+                all_posted = all_shipments.exclude(
+                    status__in=['posted', 'in_transit', 'delivered']
+                ).count() == 0
+
+                if all_posted and OrderStateMachine.can_transition(order.status, OrderStateMachine.SHIPPED):
+                    OrderStateMachine.transition_to(
+                        order=order,
+                        new_status=OrderStateMachine.SHIPPED,
+                        notes=f'Todos os envios foram postados (webhook Melhor Envio: {event})',
+                    )
+                    order_transitioned = True
+
+            elif event == 'order.delivered':
+                # Verificar se TODOS os shipments do pedido foram entregues
+                all_shipments = Shipment.objects.filter(order=order)
+                all_delivered = all_shipments.exclude(status='delivered').count() == 0
+
+                if all_delivered and OrderStateMachine.can_transition(order.status, OrderStateMachine.DELIVERED):
+                    OrderStateMachine.transition_to(
+                        order=order,
+                        new_status=OrderStateMachine.DELIVERED,
+                        notes='Todos os envios foram entregues (webhook Melhor Envio)',
+                    )
+                    order_transitioned = True
+
+        except OrderStatusTransitionError as e:
+            logger.warning(
+                f'Webhook: não foi possível transicionar order {order.order_number}: {str(e)}'
+            )
 
     return Response({
         'message': f'Evento {event} processado com sucesso',
@@ -1680,20 +1796,44 @@ def melhor_envio_webhook(request):
 
 
 @extend_schema(
+    methods=['GET'],
     tags=['Logistics - Webhooks'],
-    summary='Melhor Envio OAuth callback',
+    operation_id='logistics_melhor_envio_oauth_callback_get',
+    summary='Melhor Envio OAuth callback (GET)',
     description=(
-        'Callback endpoint for Melhor Envio OAuth2 authorization redirect.\n\n'
-        'When the user authorizes the application on Melhor Envio, they are redirected '
-        'here with an authorization `code`. This endpoint exchanges the code for '
-        'OAuth 2.0 tokens and persists them in the database.\n\n'
+        'Callback endpoint (GET) for Melhor Envio OAuth2 authorization redirect.\n\n'
+        'The user is redirected here with an authorization `code` in the query string '
+        'after authorizing the application on Melhor Envio.'
+    ),
+    request=None,
+    responses={
+        200: inline_serializer(
+            name='OAuthCallbackGetResponse',
+            fields={
+                'message': rf_serializers.CharField(),
+                'token_status': rf_serializers.DictField(allow_null=True),
+            }
+        ),
+        500: OpenApiResponse(description='Token exchange failed'),
+    }
+)
+@extend_schema(
+    methods=['POST'],
+    tags=['Logistics - Webhooks'],
+    operation_id='logistics_melhor_envio_oauth_callback_post',
+    summary='Melhor Envio OAuth callback (POST)',
+    description=(
+        'Callback endpoint (POST) for Melhor Envio OAuth2 authorization redirect.\n\n'
+        'Accepts the authorization `code` in the request body or query string and '
+        'exchanges it for OAuth 2.0 tokens persisted in the database.\n\n'
         '**This is critical for webhook functionality**: only labels created with an '
         'OAuth 2.0 token from the app where the webhook is configured will trigger '
         'the webhook notifications.'
     ),
+    request=None,
     responses={
         200: inline_serializer(
-            name='OAuthCallbackResponse',
+            name='OAuthCallbackPostResponse',
             fields={
                 'message': rf_serializers.CharField(),
                 'token_status': rf_serializers.DictField(allow_null=True),
