@@ -58,4 +58,5 @@ urlpatterns = [
 
     # =================== Debug ===================
     path('debug/me-account/', views.me_account_info, name='me-account-info'),
+    path('debug/me-cart-test/', views.me_cart_minimal_test, name='me-cart-test'),
 ]

@@ -376,6 +376,128 @@ def me_account_info(request):
         return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
+@extend_schema(
+    tags=['Logistics - Debug'],
+    summary='Test ME cart with minimal payload (debug)',
+    description=(
+        'Envia um payload mínimo ao carrinho do Melhor Envio usando os dados exatos '
+        'da conta ME autenticada no bloco "from". '
+        'Use para isolar se o erro 500 é causado por campos do endereço de origem '
+        'ou por outro fator. Retorna o payload enviado e a resposta da API.'
+    ),
+    request=None,
+    responses={200: OpenApiTypes.OBJECT},
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def me_cart_minimal_test(request):
+    """
+    Testa o carrinho ME com payload mínimo usando dados reais da conta OAuth.
+
+    Fluxo:
+    1. Busca dados da conta ME via GET /api/v2/me
+    2. Monta um payload mínimo usando o address da conta no bloco 'from'
+    3. POST /api/v2/me/cart com serviço PAC (1) para CEP de teste
+    4. Retorna payload enviado + resposta completa da ME
+    """
+    import requests as req_lib
+    melhor_envio = MelhorEnvioService()
+
+    # 1. Fetch account to get exact registered address
+    try:
+        account = melhor_envio.get_account_info()
+    except Exception as e:
+        return Response({'error': f'Falha ao buscar conta ME: {e}'}, status=400)
+
+    me_address = account.get('address', {})
+    me_document = (account.get('document') or '').replace('.', '').replace('-', '').replace('/', '')
+    me_email = account.get('email', '')
+    me_firstname = account.get('firstname', 'Test')
+    me_phone = (account.get('phone') or '').replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
+    if not me_phone:
+        me_phone = '11999999999'  # fallback phone
+
+    from_postal = (me_address.get('postal_code') or '').replace('-', '')
+    from_street = me_address.get('address') or 'Rua Teste'
+    from_number = me_address.get('number') or '1'
+    from_district = me_address.get('district') or 'Centro'
+    from_city = me_address.get('city') or 'São Paulo'
+    from_state = me_address.get('uf') or 'SP'
+
+    payload = {
+        'service': 1,  # Correios PAC
+        'from': {
+            'name': me_firstname,
+            'phone': me_phone,
+            'email': me_email,
+            'document': me_document,
+            'postal_code': from_postal,
+            'address': from_street,
+            'number': from_number,
+            'complement': '',
+            'district': from_district,
+            'city': from_city,
+            'state_abbr': from_state,
+            'country_id': 'BR',
+        },
+        'to': {
+            'name': 'Comprador Teste',
+            'phone': '11988887777',
+            'email': 'comprador@teste.com',
+            'document': '52998224725',  # CPF de teste válido
+            'postal_code': '01310100',  # Av. Paulista, São Paulo
+            'address': 'Avenida Paulista',
+            'number': '1578',
+            'complement': '',
+            'district': 'Bela Vista',
+            'city': 'São Paulo',
+            'state_abbr': 'SP',
+            'country_id': 'BR',
+        },
+        'products': [
+            {
+                'name': 'Produto Teste',
+                'quantity': '1',
+                'unitary_value': '100.00',
+            }
+        ],
+        'volumes': [
+            {
+                'height': 20,
+                'width': 20,
+                'length': 20,
+                'weight': 1,
+            }
+        ],
+        'options': {
+            'insurance_value': 100,
+            'receipt': False,
+            'own_hand': False,
+        },
+    }
+
+    # 2. Send to ME cart
+    url = melhor_envio.base_url + '/me/cart'
+    try:
+        headers = melhor_envio._get_headers(require_oauth=True)
+        response = req_lib.post(url, json=payload, headers=headers, timeout=30)
+        try:
+            me_response = response.json()
+        except Exception:
+            me_response = response.text
+        return Response({
+            'status_code': response.status_code,
+            'sent_payload': payload,
+            'me_response': me_response,
+            'account_address_used': me_address,
+        })
+    except Exception as e:
+        return Response({
+            'error': str(e),
+            'sent_payload': payload,
+        }, status=400)
+
+
 # =================== Shipment Views ===================
 @extend_schema(
     tags=['Logistics - Shipping'],

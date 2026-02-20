@@ -698,6 +698,7 @@ class MelhorEnvioService:
             'district': seller_address.neighborhood,
             'city': seller_address.city,
             'state_abbr': seller_address.state,
+            'country_id': 'BR',
         }
 
         buyer_digits = validated_buyer_doc.replace('.', '').replace('/', '').replace('-', '')
@@ -1006,10 +1007,23 @@ class MelhorEnvioService:
         sender_name = getattr(settings, 'MELHOR_ENVIO_SENDER_NAME', '') or seller.get_full_name() or seller.email
 
         sender_digits = sender_document.replace('.', '').replace('/', '').replace('-', '')
+
+        logger.info(
+            f'[add_to_cart_raw] Remetente: document={sender_digits}, email={sender_email}, '
+            f'postal_code={origin_zipcode.replace("-", "")}, district={seller_address.neighborhood}, '
+            f'phone={self._sanitize_phone(seller_address.recipient_phone) or "(vazio)"}'
+        )
+
         if len(sender_digits) == 14:
             raise ShippingValidationError(
                 'Envio via Melhor Envio para vendedores PJ (CNPJ) não é suportado. '
                 'Configure o remetente como CPF (Pessoa Física).'
+            )
+
+        if not sender_digits:
+            raise ShippingValidationError(
+                'Documento do remetente não configurado. '
+                'Configure MELHOR_ENVIO_SENDER_DOCUMENT no .env ou garanta que o vendedor tem CPF cadastrado.'
             )
 
         from_block = {
@@ -1024,6 +1038,7 @@ class MelhorEnvioService:
             'district': seller_address.neighborhood,
             'city': seller_address.city,
             'state_abbr': seller_address.state,
+            'country_id': 'BR',
         }
 
         buyer_digits = validated_buyer_doc.replace('.', '').replace('/', '').replace('-', '')
