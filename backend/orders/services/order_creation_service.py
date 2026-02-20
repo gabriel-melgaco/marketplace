@@ -115,6 +115,15 @@ class OrderCreationService:
         # Step 5: Calculate total
         total = OrderTotalCalculator.calculate_order_total(subtotal, total_shipping)
 
+        # Step 5.5: Add freight to Melhor Envio cart BEFORE creating order in DB.
+        # Fail fast: if ME API rejects the payload, we never persist an inconsistent order.
+        me_cart_results = cls._add_sellers_to_me_cart_preorder(
+            user=user,
+            validated_items=validated_items,
+            shipping_services_data=shipping_services_data,
+            shipping_address=shipping_address,
+        )
+
         # Step 6: Create order
         order = cls._create_order_record(
             user=user,
@@ -133,6 +142,11 @@ class OrderCreationService:
             validated_items=validated_items,
             shipping_by_seller=shipping_by_seller
         )
+
+        # Step 7.5: Create Shipment DB records from cart IDs collected in step 5.5.
+        # order.items now exist so create_shipment_record() can read dimensions.
+        if me_cart_results:
+            cls._create_shipment_records_from_cart(order, me_cart_results)
 
         # Step 8: Handle stock management based on strategy
         if cls.STOCK_STRATEGY == 'immediate':
@@ -162,6 +176,126 @@ class OrderCreationService:
         )
 
         return order
+
+    @staticmethod
+    def _add_sellers_to_me_cart_preorder(user, validated_items, shipping_services_data, shipping_address):
+        """
+        Adiciona fretes ao carrinho do Melhor Envio ANTES de criar o pedido no banco.
+
+        Usa dados brutos (validated_items) em vez de order.items para não depender
+        de registros no banco. Se a API do ME rejeitar, o pedido jamais é criado.
+
+        Args:
+            user: Usuário comprador
+            validated_items: Lista de validated_items de todos os sellers
+            shipping_services_data: Dict {str(seller_id): {'delivery_method', 'service_id', ...}}
+            shipping_address: Address instance (ainda não convertida para dict)
+
+        Returns:
+            dict: {seller_id(int): {'cart_response', 'sent_payload', 'insurance_warning', 'seller'}}
+
+        Raises:
+            OrderCreationError: Se a chamada à API do ME falhar
+        """
+        from collections import defaultdict
+        from logistics.services.melhor_envio_service import MelhorEnvioService, ShippingValidationError
+
+        melhor_envio = MelhorEnvioService()
+        shipping_address_dict = shipping_address.to_dict()
+
+        # Agrupar validated_items por seller_id
+        items_by_seller = defaultdict(list)
+        for item in validated_items:
+            items_by_seller[item['seller'].id].append(item)
+
+        me_cart_results = {}
+
+        for seller_id_str, seller_config in shipping_services_data.items():
+            if not isinstance(seller_config, dict):
+                continue
+            if seller_config.get('delivery_method', 'shipping') != 'shipping':
+                continue
+            service_id = seller_config.get('service_id')
+            if not service_id:
+                continue
+
+            seller_id = int(seller_id_str)
+            seller_items = items_by_seller.get(seller_id, [])
+            if not seller_items:
+                continue
+
+            seller = seller_items[0]['seller']
+
+            try:
+                cart_response, sent_payload = melhor_envio.add_to_cart_raw(
+                    buyer=user,
+                    seller=seller,
+                    seller_validated_items=seller_items,
+                    shipping_address_dict=shipping_address_dict,
+                    service_id=service_id,
+                )
+                insurance_warning = cart_response.pop('_insurance_warning', None)
+                me_cart_results[seller_id] = {
+                    'cart_response': cart_response,
+                    'sent_payload': sent_payload,
+                    'insurance_warning': insurance_warning,
+                    'seller': seller,
+                }
+                logger.info(
+                    f'Frete adicionado ao carrinho ME para vendedor {seller.email}: '
+                    f'cart_id={cart_response.get("id")}'
+                )
+            except (ShippingValidationError, Exception) as e:
+                logger.error(
+                    f'Erro ao adicionar frete ao carrinho ME para vendedor '
+                    f'{seller.email}: {str(e)}',
+                    exc_info=True,
+                )
+                raise OrderCreationError(
+                    f'Erro ao adicionar frete ao carrinho Melhor Envio '
+                    f'para vendedor {seller.email}: {str(e)}'
+                ) from e
+
+        return me_cart_results
+
+    @staticmethod
+    def _create_shipment_records_from_cart(order, me_cart_results):
+        """
+        Cria registros de Shipment no banco usando os cart_ids coletados antes
+        da criação do pedido. Chamado APÓS order.items existirem no banco.
+
+        Args:
+            order: Order instance já persistida com items
+            me_cart_results: retorno de _add_sellers_to_me_cart_preorder()
+        """
+        from logistics.services.melhor_envio_service import MelhorEnvioService
+
+        me_service = MelhorEnvioService()
+        for seller_id, data in me_cart_results.items():
+            seller = data['seller']
+            cart_response = data['cart_response']
+            sent_payload = data['sent_payload']
+            insurance_warning = data['insurance_warning']
+
+            # Reinjeta o warning temporariamente para create_shipment_record() limpá-lo
+            if insurance_warning:
+                cart_response['_insurance_warning'] = insurance_warning
+
+            shipment, _ = me_service.create_shipment_record(
+                order=order,
+                seller=seller,
+                cart_data=cart_response,
+                sent_payload=sent_payload,
+            )
+            logger.info(
+                f'Shipment criado para pedido {order.order_number}, '
+                f'vendedor {seller.email}: id={shipment.id}, '
+                f'melhorenvio_order_id={shipment.melhorenvio_order_id}'
+            )
+            if insurance_warning:
+                logger.warning(
+                    f'Pedido {order.order_number}: {insurance_warning.get("message", "")}'
+                )
 
     @staticmethod
     def _validate_and_calculate_shipping(

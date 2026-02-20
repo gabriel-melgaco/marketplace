@@ -4,8 +4,8 @@ import base64
 import json
 import logging
 
-from rest_framework import generics, status, viewsets, filters
-from rest_framework.decorators import api_view, permission_classes, authentication_classes, action
+from rest_framework import generics, status
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 from django.shortcuts import get_object_or_404
@@ -17,14 +17,13 @@ from django.views.decorators.csrf import csrf_exempt
 from rest_framework.exceptions import ValidationError
 from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiParameter, OpenApiResponse, OpenApiTypes
 from rest_framework import serializers as rf_serializers
-from django_filters.rest_framework import DjangoFilterBackend
 
 
 
 from .models import (
     ShippingQuote, Shipment, ShipmentTracking, Address,
     OrderDelivery, InPersonDelivery, DeliveryMethod,
-    CarrierRule, DeliveryStatusLog,
+    DeliveryStatusLog,
 )
 from .serializers import (
     AddressSerializer, AddressCreateSerializer,
@@ -34,8 +33,6 @@ from .serializers import (
     OrderDeliverySerializer, OrderDeliveryCreateSerializer,
     InPersonDeliverySerializer, InPersonDeliveryCreateSerializer,
     InPersonDeliveryUpdateSerializer, DeliveryMethodChoiceSerializer,
-    CarrierRuleSerializer, CarrierRuleCreateUpdateSerializer,
-    PackageValidationRequestSerializer,
 )
 from .services import (
     MelhorEnvioService,
@@ -43,7 +40,6 @@ from .services import (
     DeliveryOrchestrationService,
     ShipmentCreationService,
     ShipmentCreationError,
-    CarrierRuleService,
 )
 from .services.melhor_envio_oauth_service import MelhorEnvioOAuthService, MelhorEnvioOAuthError
 from orders.models import Order, Cart
@@ -384,13 +380,21 @@ class ShipmentDetailView(generics.RetrieveAPIView):
 
 @extend_schema(
     tags=['Logistics - Shipping'],
-    summary='Create shipments for order',
+    summary='Checkout shipments for order',
     description=(
-        'Create shipments (Melhor Envio) for sellers in an order that use the **shipping** delivery method.\n\n'
-        'Shipping service configuration is read from the order `shipping_services` field '
-        '(defined during order creation).\n\n'
+        'Performs the Melhor Envio checkout for all **shipping** sellers in an order.\n\n'
+        'This is **Step 2** of the two-step shipment flow:\n\n'
+        '- **Step 1** (automatic): When the order is created at `POST /api/orders/create/`, '
+        'each shipping seller is automatically added to the Melhor Envio cart '
+        '(`POST /api/v2/me/cart`) and a `Shipment` record is created with '
+        '`status=pending` and the `melhorenvio_order_id` (cart ID) saved.\n\n'
+        '- **Step 2** (this endpoint): After payment is confirmed, call this endpoint '
+        'to perform the Melhor Envio checkout (`POST /api/v2/me/shipment/checkout`) '
+        'using the cart IDs already saved in the `Shipment` records. '
+        'Shipment status is updated to `created` on success.\n\n'
         '```json\n{"order_id": "uuid"}\n```\n\n'
         'Permission: admin, buyer, or a seller of the order.\n\n'
+        '**Requires:** Order status must be `paid`.\n\n'
         '**Note:** If the insured value exceeds R$1.000,00 (non-commercial shipping limit), '
         'it will be capped at R$1.000,00 and a `warnings` array will be included in the response.'
     ),
@@ -407,15 +411,16 @@ class ShipmentDetailView(generics.RetrieveAPIView):
                 'shipments': ShipmentSerializer(many=True),
                 'created_count': rf_serializers.IntegerField(),
                 'order_status': rf_serializers.CharField(),
-                'warnings': rf_serializers.ListField(
-                    child=rf_serializers.DictField(),
+                'checkout_result': rf_serializers.DictField(
                     required=False,
-                    help_text='Insurance cap warnings (present only when value was capped at R$1.000,00)'
-                )
+                    help_text='Raw checkout response from Melhor Envio API'
+                ),
             }
         ),
-        400: OpenApiResponse(description='Invalid request, missing order_id, or shipment creation error'),
-        403: OpenApiResponse(description='No permission to create shipments for this order'),
+        400: OpenApiResponse(
+            description='Invalid request, missing order_id, order not paid, or checkout error'
+        ),
+        403: OpenApiResponse(description='No permission to checkout shipments for this order'),
         404: OpenApiResponse(description='Order not found'),
     }
 )
@@ -423,13 +428,18 @@ class ShipmentDetailView(generics.RetrieveAPIView):
 @permission_classes([IsAuthenticated])
 def create_shipments_for_order(request):
     """
-    Criar envios para todos os vendedores de um pedido.
-    Os shipping_services são lidos automaticamente do pedido (definidos na criação da order).
+    PASSO 2: Fazer checkout dos envios no Melhor Envio.
+
+    Os shipments já foram adicionados ao carrinho do Melhor Envio durante a criação
+    do pedido (POST /api/orders/create/). Este endpoint apenas realiza o checkout
+    usando os melhorenvio_order_id já salvos nos registros de Shipment.
 
     Body:
     {
         "order_id": "uuid-do-pedido"
     }
+
+    Requisito: Order deve estar com status 'paid' (pagamento confirmado).
     """
     order_id = request.data.get('order_id')
 
@@ -451,7 +461,7 @@ def create_shipments_for_order(request):
             )
 
     try:
-        created_shipments, warnings = ShipmentCreationService.create_shipments_for_order(
+        checkedout_shipments, checkout_result = ShipmentCreationService.checkout_shipments_for_order(
             order=order,
         )
     except ShipmentCreationError as e:
@@ -460,16 +470,17 @@ def create_shipments_for_order(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    serializer = ShipmentSerializer(created_shipments, many=True)
+    # Recarregar order para pegar status atualizado
+    order.refresh_from_db()
+
+    serializer = ShipmentSerializer(checkedout_shipments, many=True)
 
     response_data = {
         'shipments': serializer.data,
-        'created_count': len(created_shipments),
+        'created_count': len(checkedout_shipments),
         'order_status': order.status,
+        'checkout_result': checkout_result,
     }
-
-    if warnings:
-        response_data['warnings'] = warnings
 
     return Response(response_data, status=status.HTTP_201_CREATED)
 
@@ -1998,184 +2009,67 @@ def melhor_envio_oauth_token_status(request):
     return Response(token_status)
 
 
-# =================== Carrier Rule Views ===================
-
-class IsAdminOrReadOnly(IsAuthenticated):
-    """
-    Permissao customizada:
-    - GET/HEAD/OPTIONS: qualquer usuario autenticado
-    - POST/PUT/PATCH/DELETE: apenas admin/staff
-    """
-
-    def has_permission(self, request, view):
-        is_authenticated = super().has_permission(request, view)
-        if not is_authenticated:
-            return False
-
-        if request.method in ('GET', 'HEAD', 'OPTIONS'):
-            return True
-
-        return request.user and request.user.is_staff
-
-
-@extend_schema(tags=['Logistics - Carrier Rules'])
-class CarrierRuleViewSet(viewsets.ModelViewSet):
-    """
-    CRUD de regras de transportadoras.
-
-    - GET (list/retrieve): qualquer usuario autenticado pode consultar
-    - POST/PUT/PATCH/DELETE: apenas admin/staff
-
-    Filtros disponiveis via query params:
-    - ?carrier_name=Correios
-    - ?is_active=true
-    - ?search=Jadlog (busca em carrier_name e modality)
-    """
-    queryset = CarrierRule.objects.all()
-    permission_classes = [IsAdminOrReadOnly]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['carrier_name', 'is_active']
-    search_fields = ['carrier_name', 'modality', 'notes']
-    ordering_fields = ['carrier_name', 'modality', 'created_at', 'max_weight']
-    ordering = ['carrier_name', 'modality']
-
-    def get_serializer_class(self):
-        if self.action in ('create', 'update', 'partial_update'):
-            return CarrierRuleCreateUpdateSerializer
-        return CarrierRuleSerializer
-
-    @extend_schema(
-        summary='List carrier rules',
-        description=(
-            'List all carrier rules. Supports filtering by carrier_name and is_active. '
-            'Search by carrier_name, modality, or notes.'
-        ),
-        parameters=[
-            OpenApiParameter(
-                name='carrier_name',
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                description='Filter by carrier name (exact match)',
-                required=False,
-            ),
-            OpenApiParameter(
-                name='is_active',
-                type=OpenApiTypes.BOOL,
-                location=OpenApiParameter.QUERY,
-                description='Filter by active status',
-                required=False,
-            ),
-            OpenApiParameter(
-                name='search',
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                description='Search in carrier_name, modality, and notes',
-                required=False,
-            ),
-        ],
-    )
-    def list(self, request, *args, **kwargs):
-        return super().list(request, *args, **kwargs)
-
-    @extend_schema(
-        summary='Create carrier rule',
-        description='Create a new carrier rule. Admin only.',
-    )
-    def create(self, request, *args, **kwargs):
-        return super().create(request, *args, **kwargs)
-
-    @extend_schema(
-        summary='Get carrier rule details',
-        description='Get details of a specific carrier rule.',
-    )
-    def retrieve(self, request, *args, **kwargs):
-        return super().retrieve(request, *args, **kwargs)
-
-    @extend_schema(
-        summary='Update carrier rule',
-        description='Fully update a carrier rule. Admin only.',
-    )
-    def update(self, request, *args, **kwargs):
-        return super().update(request, *args, **kwargs)
-
-    @extend_schema(
-        summary='Partially update carrier rule',
-        description='Partially update a carrier rule. Admin only.',
-    )
-    def partial_update(self, request, *args, **kwargs):
-        return super().partial_update(request, *args, **kwargs)
-
-    @extend_schema(
-        summary='Delete carrier rule',
-        description='Delete a carrier rule. Admin only.',
-    )
-    def destroy(self, request, *args, **kwargs):
-        return super().destroy(request, *args, **kwargs)
-
+# =================== Carrier Services Views ===================
 
 @extend_schema(
-    tags=['Logistics - Carrier Rules'],
-    summary='Validate package against carrier rules',
+    tags=['Logistics - Carrier Services'],
+    summary='List available carrier services from Melhor Envio',
     description=(
-        'Validates package dimensions and weight against all active carrier rules. '
-        'Returns eligible and ineligible carriers with rejection reasons. '
-        'Does NOT call Melhor Envio API - uses locally configured rules only.'
+        'Returns all shipping services available in the connected Melhor Envio account.\n\n'
+        'Calls `GET /api/v2/me/shipment/services` on the Melhor Envio API and returns '
+        'the raw list of services including carrier info, service type, ranges, and '
+        'package restrictions.\n\n'
+        'This replaces the previous manual carrier-rules CRUD endpoint. '
+        'Services are sourced live from Melhor Envio rather than a local database.\n\n'
+        'Requires authentication. Results are not cached — each call hits the ME API.'
     ),
-    request=PackageValidationRequestSerializer,
+    request=None,
     responses={
         200: inline_serializer(
-            name='PackageValidationResponse',
+            name='CarrierServicesResponse',
             fields={
-                'eligible': rf_serializers.ListField(
+                'services': rf_serializers.ListField(
                     child=rf_serializers.DictField(),
-                    help_text='Carriers compatible with the package',
+                    help_text='List of available shipping services from Melhor Envio',
                 ),
-                'ineligible': rf_serializers.ListField(
-                    child=rf_serializers.DictField(),
-                    help_text='Carriers incompatible with reasons',
+                'count': rf_serializers.IntegerField(
+                    help_text='Total number of services returned',
                 ),
-                'warnings': rf_serializers.ListField(
-                    child=rf_serializers.DictField(),
-                    help_text='Non-blocking warnings (e.g. extra fees)',
-                ),
-                'package_info': rf_serializers.DictField(
-                    help_text='Summary of the validated package',
-                ),
-            },
+            }
         ),
-        400: OpenApiResponse(description='Invalid package data'),
-    },
-)
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def validate_package_against_rules(request):
-    """
-    Valida dimensoes e peso de um pacote contra as regras de transportadoras.
-
-    Retorna quais transportadoras sao compativeis e quais nao sao,
-    com motivos detalhados de rejeicao.
-
-    Body:
-    {
-        "height": 30,
-        "width": 25,
-        "length": 40,
-        "weight": 5.5
+        400: OpenApiResponse(description='Error fetching services from Melhor Envio API'),
+        503: OpenApiResponse(description='Melhor Envio API unavailable'),
     }
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_carrier_services(request):
     """
-    serializer = PackageValidationRequestSerializer(data=request.data)
+    Lista servicos de transportadoras disponiveis no Melhor Envio.
 
-    if not serializer.is_valid():
+    Chama GET /api/v2/me/shipment/services e retorna os servicos formatados.
+    Cada servico inclui id, name, type, range, restrictions e company.
+
+    Substitui os endpoints manuais de criacao/edicao de carrier rules.
+    Os dados vem diretamente da API do Melhor Envio em tempo real.
+    """
+    try:
+        melhor_envio = MelhorEnvioService()
+        services = melhor_envio.get_available_services()
+
+        return Response({
+            'services': services,
+            'count': len(services) if isinstance(services, list) else 0,
+        })
+
+    except Exception as e:
+        logger.error(f'Erro ao buscar servicos do Melhor Envio: {str(e)}')
         return Response(
-            serializer.errors,
+            {
+                'error': 'Erro ao buscar servicos do Melhor Envio',
+                'detail': str(e),
+            },
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    result = CarrierRuleService.validate_package(
-        height=serializer.validated_data['height'],
-        width=serializer.validated_data['width'],
-        length=serializer.validated_data['length'],
-        weight=serializer.validated_data['weight'],
-    )
 
-    return Response(result)
