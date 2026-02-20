@@ -102,6 +102,24 @@ class MelhorEnvioService:
                 f'Detalhe: {e}'
             )
 
+    def _sanitize_phone(self, phone: str) -> str:
+        """
+        Sanitiza número de telefone removendo todos os caracteres não-numéricos.
+
+        A API do Melhor Envio aceita somente dígitos no campo phone.
+        Formatos como '(24)9999-9999' ou '+55 11 99999-9999' causam erro 500
+        no servidor do ME (validação interna não tratada como 422).
+
+        Args:
+            phone: Telefone em qualquer formato
+
+        Returns:
+            str: Apenas dígitos do telefone
+        """
+        if not phone:
+            return ''
+        return only_digits(phone)
+
     def _validate_document(self, document, document_type='CPF'):
         """
         Valida CPF ou CNPJ
@@ -570,13 +588,14 @@ class MelhorEnvioService:
             raise ShippingValidationError('Comprador não possui CPF ou CNPJ cadastrado')
 
         # Preparar produtos
-        # Documentação Melhor Envio: quantity e unitary_value devem ser strings
+        # Documentação Melhor Envio: quantity e unitary_value devem ser strings.
+        # unitary_value deve ter sempre 2 casas decimais (ex: "525.50", não "525.5").
         products = []
         for item in seller_items:
             products.append({
                 'name': item.product_name,
                 'quantity': str(item.quantity),
-                'unitary_value': str(float(item.unit_price))
+                'unitary_value': f"{float(item.unit_price):.2f}",
             })
 
         # Preparar volume único consolidado
@@ -598,7 +617,7 @@ class MelhorEnvioService:
         seller_is_pj = len(validated_seller_doc) == 14
         from_block = {
             'name': seller.get_full_name() or seller.email,
-            'phone': seller_address.recipient_phone,
+            'phone': self._sanitize_phone(seller_address.recipient_phone),
             'email': seller.email,
             'document': validated_seller_doc,
             'postal_code': origin_zipcode.replace('-', ''),
@@ -622,7 +641,7 @@ class MelhorEnvioService:
             'from': from_block,
             'to': {
                 'name': order.shipping_address.get('recipient_name', ''),
-                'phone': order.shipping_address.get('recipient_phone', ''),
+                'phone': self._sanitize_phone(order.shipping_address.get('recipient_phone', '')),
                 'email': order.buyer.email,
                 'document': validated_buyer_doc,
                 'postal_code': destination_zipcode.replace('-', ''),
@@ -864,13 +883,15 @@ class MelhorEnvioService:
         validated_buyer_doc = self._validate_document(buyer_document, 'CPF/CNPJ do comprador')
 
         # Preparar produtos e calcular seguro
+        # A API do ME exige que quantity e unitary_value sejam strings.
+        # unitary_value deve ter sempre 2 casas decimais (ex: "525.50", não "525.5").
         products = []
         total_insurance = Decimal('0')
         for item_data in seller_validated_items:
             products.append({
                 'name': item_data['product_snapshot']['name'],
                 'quantity': str(item_data['quantity']),
-                'unitary_value': str(float(item_data['unit_price'])),
+                'unitary_value': f"{float(item_data['unit_price']):.2f}",
             })
             total_insurance += item_data['unit_price'] * item_data['quantity']
 
@@ -890,7 +911,9 @@ class MelhorEnvioService:
         seller_is_pj = len(validated_seller_doc) == 14
         from_block = {
             'name': seller.get_full_name() or seller.email,
-            'phone': seller_address.recipient_phone,
+            # Melhor Envio aceita somente dígitos no campo phone.
+            # Formatos como "(24)9999-9999" causam 500 no servidor ME.
+            'phone': self._sanitize_phone(seller_address.recipient_phone),
             'email': seller.email,
             'document': validated_seller_doc,
             'postal_code': origin_zipcode.replace('-', ''),
@@ -913,7 +936,8 @@ class MelhorEnvioService:
             'from': from_block,
             'to': {
                 'name': shipping_address_dict.get('recipient_name', ''),
-                'phone': shipping_address_dict.get('recipient_phone', ''),
+                # Sanitizar telefone do comprador — pode vir formatado com (, ), -
+                'phone': self._sanitize_phone(shipping_address_dict.get('recipient_phone', '')),
                 'email': buyer.email,
                 'document': validated_buyer_doc,
                 'postal_code': destination_zipcode.replace('-', ''),
