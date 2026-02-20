@@ -325,6 +325,15 @@ MELHOR_ENVIO_REDIRECT_URI = os.getenv(
 # Email para o User-Agent obrigatório nas chamadas à API
 MELHOR_ENVIO_USER_AGENT_EMAIL = os.getenv('MELHOR_ENVIO_USER_AGENT_EMAIL', 'contato@seuapp.com')
 
+# Credenciais do remetente (conta ME do marketplace).
+# O ME valida que from.document e from.email correspondem à conta OAuth autenticada.
+# Em modelos marketplace onde os vendedores não têm contas próprias no ME,
+# estes campos devem conter os dados da conta do marketplace, não do vendedor.
+MELHOR_ENVIO_SENDER_DOCUMENT = os.getenv('MELHOR_ENVIO_SENDER_DOCUMENT', '')
+MELHOR_ENVIO_SENDER_EMAIL = os.getenv('MELHOR_ENVIO_SENDER_EMAIL', '')
+MELHOR_ENVIO_SENDER_NAME = os.getenv('MELHOR_ENVIO_SENDER_NAME', '')
+MELHOR_ENVIO_PLATFORM_NAME = os.getenv('MELHOR_ENVIO_PLATFORM_NAME', 'Marketplace Academia')
+
 
 # =================== PAYMENT CONFIGURATION ===================
 # Taxa da plataforma (%)
