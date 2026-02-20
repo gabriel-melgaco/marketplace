@@ -107,10 +107,10 @@ class MelhorEnvioService:
         Retorna as informações da conta ME autenticada via OAuth.
         Útil para diagnóstico: verifica document, email, store name e estado da conta.
         """
-        url = f'{self.base_url}/me/user'
+        url = f'{self.base_url}/me'
         try:
             response = requests.get(url, headers=self._get_headers(require_oauth=True), timeout=15)
-            logger.info(f'ME /me/user status={response.status_code} body={response.text[:500]}')
+            logger.info(f'ME /me status={response.status_code} body={response.text[:500]}')
             response.raise_for_status()
             try:
                 return response.json()
@@ -123,7 +123,7 @@ class MelhorEnvioService:
                 detail = resp.json() if resp is not None else str(e)
             except Exception:
                 detail = resp.text if resp is not None else str(e)
-            raise Exception(f'Erro ao buscar dados da conta ME ({status_code}): {detail}')
+            raise Exception(f'Erro ao buscar dados da conta ME — GET /me ({status_code}): {detail}')
 
     def get_cart_items(self) -> dict:
         """
