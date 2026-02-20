@@ -52,4 +52,7 @@ urlpatterns = [
     # =================== Carrier Services ===================
     # GET: Fetches live carrier services from Melhor Envio API
     path('carrier-services/', views.get_carrier_services, name='carrier-services'),
+
+    # =================== Debug ===================
+    path('debug/me-account/', views.me_account_info, name='me-account-info'),
 ]

@@ -330,6 +330,33 @@ def get_shipping_quotes(request):
     return Response(serializer.data)
 
 
+@extend_schema(
+    tags=['Logistics - Debug'],
+    summary='ME account info (debug)',
+    description='Retorna as informações da conta Melhor Envio autenticada via OAuth. '
+                'Use para diagnóstico: verifica document, email e estado da conta.',
+    request=None,
+    responses={200: inline_serializer('MEAccountInfoResponse', fields={
+        'firstname': rf_serializers.CharField(),
+        'lastname': rf_serializers.CharField(),
+        'email': rf_serializers.CharField(),
+        'document': rf_serializers.CharField(),
+        'phone': rf_serializers.CharField(),
+        'company_name': rf_serializers.CharField(allow_null=True),
+    })},
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def me_account_info(request):
+    """Retorna dados da conta ME autenticada — para diagnóstico de erros de cart."""
+    try:
+        melhor_envio = MelhorEnvioService()
+        info = melhor_envio.get_account_info()
+        return Response(info)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
 # =================== Shipment Views ===================
 @extend_schema(
     tags=['Logistics - Shipping'],
