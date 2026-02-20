@@ -426,8 +426,15 @@ def me_cart_minimal_test(request):
     from_street = me_address.get('address') or 'Rua Teste'
     from_number = me_address.get('number') or '1'
     from_district = me_address.get('district') or 'Centro'
-    from_city = me_address.get('city') or 'São Paulo'
-    from_state = me_address.get('uf') or 'SP'
+    # city may be a nested dict {"id": ..., "city": "Taubaté", "state": {...}}
+    city_raw = me_address.get('city') or ''
+    from_city = city_raw.get('city') if isinstance(city_raw, dict) else (city_raw or 'São Paulo')
+    # state_abbr may be nested inside city.state or flat as "uf"
+    if isinstance(city_raw, dict):
+        state_obj = city_raw.get('state') or {}
+        from_state = state_obj.get('state_abbr') or me_address.get('uf') or 'SP'
+    else:
+        from_state = me_address.get('uf') or 'SP'
 
     payload = {
         'service': 1,  # Correios PAC
