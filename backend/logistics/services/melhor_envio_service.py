@@ -605,11 +605,31 @@ class MelhorEnvioService:
         max_width = max(float(item.width_cm) for item in seller_items)
         total_length = sum(float(item.length_cm) * item.quantity for item in seller_items)
 
+        # Convert dimensions to int as required by the Melhor Envio API documentation.
+        # Float values can cause unexpected 500 errors on the ME side.
+        vol_height = int(round(max_height))
+        vol_width = int(round(max_width))
+        vol_length = int(round(total_length))
+        vol_weight = round(total_weight, 3)  # weight can have decimals (kg)
+
+        # Warn if Correios girth formula is exceeded: major_side + 2*(side2 + side3) <= 200cm
+        dims_sorted = sorted([vol_height, vol_width, vol_length], reverse=True)
+        correios_girth = dims_sorted[0] + 2 * (dims_sorted[1] + dims_sorted[2])
+        if correios_girth > 200:
+            logger.warning(
+                f'AVISO: Dimensoes do pacote excedem o limite do Correios '
+                f'(maior lado + 2*(lado2 + lado3) = {correios_girth}cm > 200cm). '
+                f'height={vol_height}cm, width={vol_width}cm, length={vol_length}cm. '
+                f'O Correios (PAC/SEDEX) pode rejeitar este pacote. '
+                f'Verifique as dimensoes do produto no banco de dados. '
+                f'Pedido: {order.order_number}, vendedor: {seller.email}'
+            )
+
         volumes = [{
-            'height': max_height,
-            'width': max_width,
-            'length': total_length,
-            'weight': total_weight
+            'height': vol_height,
+            'width': vol_width,
+            'length': vol_length,
+            'weight': vol_weight
         }]
 
         # Montar bloco "from" do vendedor
@@ -635,6 +655,11 @@ class MelhorEnvioService:
             from_block['company_document'] = validated_seller_doc
         # Pessoa Física: company_document é omitido completamente (não enviar string vazia)
 
+        # Determine buyer document type to set state_register correctly.
+        # Per ME docs: PF -> state_register="ISENTO"; also acceptable for PJ non-commercial.
+        buyer_is_pj = len(validated_buyer_doc) == 14
+        buyer_state_register = 'ISENTO'
+
         # Montar payload com documentos validados
         payload = {
             'service': shipping_service_id,
@@ -644,6 +669,10 @@ class MelhorEnvioService:
                 'phone': self._sanitize_phone(order.shipping_address.get('recipient_phone', '')),
                 'email': order.buyer.email,
                 'document': validated_buyer_doc,
+                # country_id required by ME API (per official docs example)
+                'country_id': 'BR',
+                # state_register required per ME API docs: "ISENTO" for PF non-commercial
+                'state_register': buyer_state_register,
                 'postal_code': destination_zipcode.replace('-', ''),
                 'address': order.shipping_address['street'],
                 'number': order.shipping_address['number'],
@@ -661,7 +690,9 @@ class MelhorEnvioService:
                 ),
                 'receipt': False,
                 'own_hand': False,
-                # Adicionar tag com número do pedido para rastreamento no painel Melhor Envio
+                # platform identifies the originating application in ME dashboard
+                'platform': getattr(settings, 'MELHOR_ENVIO_PLATFORM_NAME', 'Marketplace Academia'),
+                # tag with order number for tracking in ME dashboard
                 'tags': [{'tag': str(order.order_number), 'url': ''}],
             }
         }
@@ -906,7 +937,29 @@ class MelhorEnvioService:
             float(i['dimensions']['length_cm']) * i['quantity']
             for i in seller_validated_items
         )
-        volumes = [{'height': max_height, 'width': max_width, 'length': total_length, 'weight': total_weight}]
+        # Convert dimensions to int as required by the Melhor Envio API documentation.
+        # The API expects integer values for height, width, length (cm) and weight (kg).
+        # Float values can cause unexpected 500 errors on the ME side.
+        vol_height = int(round(max_height))
+        vol_width = int(round(max_width))
+        vol_length = int(round(total_length))
+        vol_weight = round(total_weight, 3)  # weight can have decimals (kg)
+
+        # Warn if Correios girth formula is exceeded: major_side + 2*(side2 + side3) <= 200cm
+        # This is the most common cause of 500 errors for PAC/SEDEX with oversized packages.
+        dims_sorted = sorted([vol_height, vol_width, vol_length], reverse=True)
+        correios_girth = dims_sorted[0] + 2 * (dims_sorted[1] + dims_sorted[2])
+        if correios_girth > 200:
+            logger.warning(
+                f'AVISO: Dimensoes do pacote excedem o limite do Correios '
+                f'(maior lado + 2*(lado2 + lado3) = {correios_girth}cm > 200cm). '
+                f'height={vol_height}cm, width={vol_width}cm, length={vol_length}cm. '
+                f'O Correios (PAC/SEDEX) pode rejeitar este pacote. '
+                f'Verifique as dimensoes do produto no banco de dados. '
+                f'Vendedor: {seller.email}'
+            )
+
+        volumes = [{'height': vol_height, 'width': vol_width, 'length': vol_length, 'weight': vol_weight}]
 
         seller_is_pj = len(validated_seller_doc) == 14
         from_block = {
@@ -928,6 +981,11 @@ class MelhorEnvioService:
         if seller_is_pj:
             from_block['company_document'] = validated_seller_doc
 
+        # Determine buyer document type to set state_register correctly.
+        # Per ME docs: PF -> state_register="ISENTO"; PJ -> state_register="" (empty or ISENTO).
+        buyer_is_pj = len(validated_buyer_doc) == 14
+        buyer_state_register = 'ISENTO'  # default for PF; also acceptable for PJ non-commercial
+
         capped_insurance = min(float(total_insurance), settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE)
         insurance_capped = float(total_insurance) > settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE
 
@@ -940,6 +998,10 @@ class MelhorEnvioService:
                 'phone': self._sanitize_phone(shipping_address_dict.get('recipient_phone', '')),
                 'email': buyer.email,
                 'document': validated_buyer_doc,
+                # country_id required by ME API (per official docs example)
+                'country_id': 'BR',
+                # state_register required per ME API docs: "ISENTO" for PF non-commercial
+                'state_register': buyer_state_register,
                 'postal_code': destination_zipcode.replace('-', ''),
                 'address': shipping_address_dict['street'],
                 'number': shipping_address_dict['number'],
@@ -954,6 +1016,8 @@ class MelhorEnvioService:
                 'insurance_value': capped_insurance,
                 'receipt': False,
                 'own_hand': False,
+                # platform identifies the originating application in ME dashboard
+                'platform': getattr(settings, 'MELHOR_ENVIO_PLATFORM_NAME', 'Marketplace Academia'),
             },
         }
 
