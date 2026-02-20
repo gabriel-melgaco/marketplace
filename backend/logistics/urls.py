@@ -53,6 +53,9 @@ urlpatterns = [
     # GET: Fetches live carrier services from Melhor Envio API
     path('carrier-services/', views.get_carrier_services, name='carrier-services'),
 
+    # =================== ME Cart ===================
+    path('cart/me/', views.list_me_cart, name='me-cart-list'),
+
     # =================== Debug ===================
     path('debug/me-account/', views.me_account_info, name='me-account-info'),
 ]

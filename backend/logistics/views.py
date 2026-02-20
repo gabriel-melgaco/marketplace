@@ -331,6 +331,25 @@ def get_shipping_quotes(request):
 
 
 @extend_schema(
+    tags=['Logistics - Cart'],
+    summary='List Melhor Envio cart items',
+    description='Lista todas as etiquetas de frete inseridas no carrinho do Melhor Envio.',
+    request=None,
+    responses={200: OpenApiTypes.OBJECT},
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_me_cart(request):
+    """Lista todos os itens do carrinho ME via GET /api/v2/me/cart."""
+    try:
+        melhor_envio = MelhorEnvioService()
+        data = melhor_envio.get_cart_items()
+        return Response(data)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@extend_schema(
     tags=['Logistics - Debug'],
     summary='ME account info (debug)',
     description='Retorna as informações da conta Melhor Envio autenticada via OAuth. '

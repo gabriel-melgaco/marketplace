@@ -117,6 +117,27 @@ class MelhorEnvioService:
             detail = resp.json() if resp is not None else str(e)
             raise Exception(f'Erro ao buscar dados da conta ME: {detail}')
 
+    def get_cart_items(self) -> dict:
+        """
+        Lista todas as etiquetas inseridas no carrinho do Melhor Envio.
+        GET /api/v2/me/cart
+        """
+        url = f'{self.base_url}/me/cart'
+        try:
+            response = requests.get(url, headers=self._get_headers(require_oauth=True), timeout=15)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.HTTPError as e:
+            resp = e.response
+            status_code = resp.status_code if resp is not None else 'N/A'
+            detail = 'Resposta não disponível'
+            if resp is not None:
+                try:
+                    detail = resp.json()
+                except Exception:
+                    detail = resp.text
+            raise Exception(f'Erro ao listar carrinho ME ({status_code}): {detail}')
+
     def _sanitize_phone(self, phone: str) -> str:
         """
         Sanitiza número de telefone removendo todos os caracteres não-numéricos.
