@@ -355,32 +355,11 @@ class MelhorEnvioService:
                     options=options
                 )
 
-                # Calcular dimensoes consolidadas do pacote para validacao
+                # Calcular dimensoes consolidadas do pacote
                 package_weight = sum(p['weight'] * p['quantity'] for p in products)
                 package_height = max(p['height'] for p in products)
                 package_width = max(p['width'] for p in products)
                 package_length = sum(p['length'] * p['quantity'] for p in products)
-
-                # Filtrar cotacoes usando regras de transportadoras
-                from .carrier_rule_service import CarrierRuleService
-                filter_result = CarrierRuleService.filter_melhor_envio_quotes(
-                    quotes_data=quotes_data,
-                    height=package_height,
-                    width=package_width,
-                    length=package_length,
-                    weight=package_weight,
-                )
-
-                filtered_quotes = filter_result['filtered_quotes']
-                removed_quotes = filter_result['removed_quotes']
-                carrier_warnings = filter_result['warnings']
-
-                if removed_quotes:
-                    logger.info(
-                        f'Vendedor {seller.id}: {len(removed_quotes)} servico(s) removido(s) '
-                        f'por regras de transportadora: '
-                        f'{[q["company_name"] + " " + q["service_name"] for q in removed_quotes]}'
-                    )
 
                 # Salvar cotação no banco (com dados originais completos)
                 quote = ShippingQuote.objects.create(
@@ -399,8 +378,11 @@ class MelhorEnvioService:
                     expires_at=timezone.now() + timedelta(hours=24)
                 )
 
-                # Formatar servicos a partir das cotacoes FILTRADAS
-                formatted_services = self._format_services(filtered_quotes)
+                # Separar serviços disponíveis dos indisponíveis.
+                # A API do ME retorna erros inline para transportadoras que não
+                # aceitam o pacote (dimensões/peso excedidos, CEP não atendido).
+                formatted_services = self._format_services(quotes_data)
+                unavailable_services = self._format_unavailable_services(quotes_data)
 
                 seller_result = {
                     'quote_id': quote.id,
@@ -409,23 +391,15 @@ class MelhorEnvioService:
                     'seller_city': seller_address.city,
                     'seller_state': seller_address.state,
                     'services': formatted_services,
+                    'unavailable_services': unavailable_services,
                     'total_value': total_value,
                     'items_count': len(items),
                 }
 
-                # Incluir informacoes de transportadoras removidas
-                if removed_quotes:
-                    seller_result['removed_carriers'] = removed_quotes
-
-                # Incluir avisos (ex: taxa de nao mecanizavel)
-                if carrier_warnings:
-                    seller_result['carrier_warnings'] = carrier_warnings
-
-                # Se nenhum servico restou apos filtragem, informar o motivo
+                # Se nenhum serviço disponível, informar
                 if not formatted_services:
                     seller_result['error'] = (
-                        'Nenhuma transportadora disponivel para as dimensoes/peso '
-                        'deste pacote. Verifique as restricoes de cada transportadora.'
+                        'Nenhuma transportadora disponivel para este pacote.'
                     )
                     seller_result['no_eligible_carriers'] = True
 
@@ -471,16 +445,16 @@ class MelhorEnvioService:
         }
         """
         services = []
-        
+
         if not isinstance(quotes_data, list):
             return services
-        
+
         for quote in quotes_data:
             if isinstance(quote, dict) and 'error' not in quote:
                 # Usar valores customizados se disponíveis (recomendação da doc)
                 price = float(quote.get('custom_price', quote.get('price', 0)))
                 delivery_time = quote.get('custom_delivery_time', quote.get('delivery_time', 0))
-                
+
                 service = {
                     'id': quote.get('id'),
                     'name': quote.get('name'),
@@ -489,7 +463,7 @@ class MelhorEnvioService:
                     'delivery_time': delivery_time,
                     'currency': quote.get('currency', 'R$'),
                 }
-                
+
                 # Informações da transportadora
                 company = quote.get('company', {})
                 if isinstance(company, dict):
@@ -498,10 +472,44 @@ class MelhorEnvioService:
                 else:
                     service['company'] = ''
                     service['company_picture'] = ''
-                
+
                 services.append(service)
-        
+
         return services
+
+    def _format_unavailable_services(self, quotes_data):
+        """
+        Extrai serviços indisponíveis da resposta do Melhor Envio.
+
+        A API retorna erros inline para transportadoras que não aceitam o pacote
+        (dimensões excedidas, peso fora do range, CEP não atendido, etc.).
+        Este método coleta essas entradas e as formata para exibição ao comprador.
+
+        Returns:
+            list: Serviços indisponíveis com id, name, company e reason.
+        """
+        unavailable = []
+
+        if not isinstance(quotes_data, list):
+            return unavailable
+
+        for quote in quotes_data:
+            if not isinstance(quote, dict):
+                continue
+            error = quote.get('error')
+            if not error:
+                continue
+
+            company = quote.get('company', {})
+            unavailable.append({
+                'id': quote.get('id'),
+                'name': quote.get('name', ''),
+                'company': company.get('name', '') if isinstance(company, dict) else str(company),
+                'company_picture': company.get('picture', '') if isinstance(company, dict) else '',
+                'reason': error,
+            })
+
+        return unavailable
     
     def create_shipment_in_cart(self, order, seller, shipping_service_id):
         """
@@ -735,44 +743,35 @@ class MelhorEnvioService:
             logger.error(f'Erro de conexão no checkout: {str(e)}')
             raise Exception(f'Erro no checkout: {str(e)}')
     
-    def create_shipment(self, order, seller, shipping_service_id):
+    def create_shipment_record(self, order, seller, cart_data, sent_payload):
         """
-        Cria envio completo (adiciona ao carrinho + faz checkout)
+        Cria o registro de Shipment no banco de dados a partir da resposta do carrinho.
+
+        Separa a lógica de criação de DB da chamada à API para permitir
+        que o checkout seja feito em uma etapa posterior.
 
         Args:
             order: Pedido
             seller: Vendedor
-            shipping_service_id: ID do serviço de frete
+            cart_data: Resposta da API do carrinho (POST /api/v2/me/cart)
+            sent_payload: Payload enviado ao carrinho (para fallback de endereços)
 
         Returns:
-            tuple: (Shipment, warning_dict ou None)
+            tuple: (Shipment, insurance_warning ou None)
         """
-        # PASSO 1: Adicionar ao carrinho
-        cart_data, sent_payload = self.create_shipment_in_cart(order, seller, shipping_service_id)
         melhorenvio_order_id = cart_data.get('id')
-
         if not melhorenvio_order_id:
             raise Exception('ID do pedido não retornado ao adicionar no carrinho')
 
         # Extrair warning de insurance (se houver)
         insurance_warning = cart_data.pop('_insurance_warning', None)
 
-        # PASSO 2: Fazer checkout
-        checkout_result = self.checkout_cart([melhorenvio_order_id])
-
-        # Verificar se checkout foi bem-sucedido
-        purchase = checkout_result.get('purchase', {})
-        if purchase.get('status') != 'paid':
-            # Em sandbox, pagamento é aprovado em até 5 minutos
-            # Em produção, depende do método de pagamento
-            pass
-
         # Calcular dimensões a partir dos itens do vendedor
         seller_items = order.items.filter(seller=seller)
-        total_weight = sum(float(item.weight_kg) for item in seller_items)
+        total_weight = sum(float(item.weight_kg) * item.quantity for item in seller_items)
         max_height = max(float(item.height_cm) for item in seller_items)
         max_width = max(float(item.width_cm) for item in seller_items)
-        total_length = sum(float(item.length_cm) for item in seller_items)
+        total_length = sum(float(item.length_cm) * item.quantity for item in seller_items)
 
         # Extrair carrier info da resposta da API
         service_data = cart_data.get('service') or {}
@@ -796,7 +795,7 @@ class MelhorEnvioService:
         origin_address = cart_data.get('from') or sent_payload.get('from', {})
         destination_address = cart_data.get('to') or sent_payload.get('to', {})
 
-        # Criar registro de Shipment
+        # Criar registro de Shipment com status 'pending' (ainda sem checkout)
         shipment = Shipment.objects.create(
             order=order,
             seller=seller,
@@ -811,8 +810,238 @@ class MelhorEnvioService:
             length=total_length,
             origin_address=origin_address,
             destination_address=destination_address,
-            status='created'
+            status='pending'
         )
+
+        return shipment, insurance_warning
+
+    def add_to_cart_raw(self, buyer, seller, seller_validated_items, shipping_address_dict, service_id):
+        """
+        Adiciona ao carrinho do Melhor Envio usando dados brutos (sem order no banco).
+        Usado ANTES da criação do pedido no banco para falhar rapidamente.
+
+        Args:
+            buyer: Usuário comprador
+            seller: Usuário vendedor
+            seller_validated_items: Lista de validated_items filtrados para este vendedor
+            shipping_address_dict: Dict do endereço de entrega (resultado de Address.to_dict())
+            service_id: ID do serviço ME
+
+        Returns:
+            tuple: (cart_response_dict, sent_payload_dict)
+        """
+        from decimal import Decimal
+        url = f'{self.base_url}/me/cart'
+
+        if not seller_validated_items:
+            raise Exception(f'Nenhum item do vendedor {seller.email} fornecido')
+
+        # Buscar endereço de envio do listing (primeiro item)
+        first_item = seller_validated_items[0]
+        listing = first_item['listing']
+        from products.models import MarketplaceListing
+        listing_with_addr = MarketplaceListing.objects.select_related('shipping_address').get(
+            id=listing.id
+        )
+        seller_address = listing_with_addr.shipping_address
+        if not seller_address:
+            raise Exception('Produto não possui endereço de envio configurado')
+
+        # Validar CEPs
+        origin_zipcode = seller_address.zipcode
+        destination_zipcode = shipping_address_dict['zipcode']
+        self._validate_zipcodes(origin_zipcode, destination_zipcode)
+
+        # Validar documentos
+        seller_document = getattr(seller, 'cpf', '') or getattr(seller, 'cnpj', '')
+        if not seller_document:
+            raise ShippingValidationError('Vendedor não possui CPF ou CNPJ cadastrado')
+        validated_seller_doc = self._validate_document(seller_document, 'CPF/CNPJ do vendedor')
+
+        buyer_document = getattr(buyer, 'cpf', '') or getattr(buyer, 'cnpj', '')
+        if not buyer_document:
+            raise ShippingValidationError('Comprador não possui CPF ou CNPJ cadastrado')
+        validated_buyer_doc = self._validate_document(buyer_document, 'CPF/CNPJ do comprador')
+
+        # Preparar produtos e calcular seguro
+        products = []
+        total_insurance = Decimal('0')
+        for item_data in seller_validated_items:
+            products.append({
+                'name': item_data['product_snapshot']['name'],
+                'quantity': str(item_data['quantity']),
+                'unitary_value': str(float(item_data['unit_price'])),
+            })
+            total_insurance += item_data['unit_price'] * item_data['quantity']
+
+        # Volumes consolidados
+        total_weight = sum(
+            float(i['dimensions']['weight_kg']) * i['quantity']
+            for i in seller_validated_items
+        )
+        max_height = max(float(i['dimensions']['height_cm']) for i in seller_validated_items)
+        max_width = max(float(i['dimensions']['width_cm']) for i in seller_validated_items)
+        total_length = sum(
+            float(i['dimensions']['length_cm']) * i['quantity']
+            for i in seller_validated_items
+        )
+        volumes = [{'height': max_height, 'width': max_width, 'length': total_length, 'weight': total_weight}]
+
+        seller_is_pj = len(validated_seller_doc) == 14
+        from_block = {
+            'name': seller.get_full_name() or seller.email,
+            'phone': seller_address.recipient_phone,
+            'email': seller.email,
+            'document': validated_seller_doc,
+            'postal_code': origin_zipcode.replace('-', ''),
+            'address': seller_address.street,
+            'number': seller_address.number,
+            'complement': seller_address.complement or '',
+            'district': seller_address.neighborhood,
+            'city': seller_address.city,
+            'state_abbr': seller_address.state,
+            'state_register': 'ISENTO',
+        }
+        if seller_is_pj:
+            from_block['company_document'] = validated_seller_doc
+
+        capped_insurance = min(float(total_insurance), settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE)
+        insurance_capped = float(total_insurance) > settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE
+
+        payload = {
+            'service': service_id,
+            'from': from_block,
+            'to': {
+                'name': shipping_address_dict.get('recipient_name', ''),
+                'phone': shipping_address_dict.get('recipient_phone', ''),
+                'email': buyer.email,
+                'document': validated_buyer_doc,
+                'postal_code': destination_zipcode.replace('-', ''),
+                'address': shipping_address_dict['street'],
+                'number': shipping_address_dict['number'],
+                'complement': shipping_address_dict.get('complement', ''),
+                'district': shipping_address_dict['neighborhood'],
+                'city': shipping_address_dict['city'],
+                'state_abbr': shipping_address_dict['state'],
+            },
+            'products': products,
+            'volumes': volumes,
+            'options': {
+                'insurance_value': capped_insurance,
+                'receipt': False,
+                'own_hand': False,
+            },
+        }
+
+        if insurance_capped:
+            logger.warning(
+                f'Valor segurado limitado de R${float(total_insurance):.2f} para '
+                f'R${settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE:.2f}. '
+                f'Vendedor: {seller.email}'
+            )
+
+        try:
+            logger.info(
+                f'Adicionando ao carrinho ME (pré-order): vendedor {seller.email}, '
+                f'serviço {service_id}'
+            )
+            response = requests.post(
+                url, json=payload, headers=self._get_headers(require_oauth=True), timeout=30
+            )
+            response.raise_for_status()
+            result = response.json()
+            logger.info(
+                f'Adicionado ao carrinho ME: {json.dumps(result, default=str)[:500]}'
+            )
+            if insurance_capped:
+                result['_insurance_warning'] = {
+                    'original_value': float(total_insurance),
+                    'capped_value': settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE,
+                    'message': (
+                        f'Valor segurado limitado de R${float(total_insurance):.2f} para '
+                        f'R${settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE:.2f}.'
+                    ),
+                }
+            return result, payload
+        except requests.exceptions.HTTPError as e:
+            error_detail = 'Resposta não disponível'
+            if e.response is not None:
+                try:
+                    error_detail = e.response.json()
+                except Exception:
+                    error_detail = e.response.text
+            logger.error(
+                f'Erro HTTP ao adicionar ao carrinho ME: '
+                f'{e.response.status_code if e.response else "N/A"}\n'
+                f'URL: {url}\nPayload: {payload}\nResposta: {error_detail}'
+            )
+            raise Exception(f'Erro ao adicionar ao carrinho ME: {error_detail}')
+        except requests.exceptions.RequestException as e:
+            logger.error(f'Erro de conexão ao adicionar ao carrinho ME: {str(e)}')
+            raise Exception(f'Erro ao adicionar ao carrinho ME: {str(e)}')
+
+    def add_to_cart_and_create_shipment(self, order, seller, shipping_service_id):
+        """
+        ETAPA 1 do novo fluxo: Adiciona ao carrinho do Melhor Envio e cria
+        o registro de Shipment no banco de dados com status 'pending'.
+
+        O checkout deve ser realizado posteriormente via checkout_cart().
+
+        Args:
+            order: Pedido
+            seller: Vendedor
+            shipping_service_id: ID do serviço de frete escolhido
+
+        Returns:
+            tuple: (Shipment, insurance_warning ou None)
+
+        Raises:
+            ShippingValidationError: Se validação falhar
+            Exception: Se chamada à API falhar
+        """
+        # Chamar API do Melhor Envio para adicionar ao carrinho
+        cart_data, sent_payload = self.create_shipment_in_cart(order, seller, shipping_service_id)
+
+        # Criar registro no banco de dados
+        return self.create_shipment_record(order, seller, cart_data, sent_payload)
+
+    def create_shipment(self, order, seller, shipping_service_id):
+        """
+        Cria envio completo (adiciona ao carrinho + faz checkout).
+
+        ATENÇÃO: Este método combina as duas etapas em uma única chamada.
+        No novo fluxo separado, use:
+        - add_to_cart_and_create_shipment() na criação do pedido
+        - checkout_cart() no endpoint de criação de shipments
+
+        Args:
+            order: Pedido
+            seller: Vendedor
+            shipping_service_id: ID do serviço de frete
+
+        Returns:
+            tuple: (Shipment, warning_dict ou None)
+        """
+        # ETAPA 1: Adicionar ao carrinho e criar registro de Shipment
+        shipment, insurance_warning = self.add_to_cart_and_create_shipment(
+            order, seller, shipping_service_id
+        )
+
+        melhorenvio_order_id = shipment.melhorenvio_order_id
+
+        # ETAPA 2: Fazer checkout
+        checkout_result = self.checkout_cart([melhorenvio_order_id])
+
+        # Verificar se checkout foi bem-sucedido
+        purchase = checkout_result.get('purchase', {})
+        if purchase.get('status') != 'paid':
+            # Em sandbox, pagamento é aprovado em até 5 minutos
+            # Em produção, depende do método de pagamento
+            pass
+
+        # Atualizar status do Shipment para 'created' após o checkout
+        shipment.status = 'created'
+        shipment.save(update_fields=['status', 'updated_at'])
 
         return shipment, insurance_warning
     
@@ -996,6 +1225,49 @@ class MelhorEnvioService:
         }
         return status_map.get(melhorenvio_status, 'pending')
     
+    def get_available_services(self) -> list:
+        """
+        Retorna todos os servicos de frete disponiveis no Melhor Envio.
+
+        Chama GET /api/v2/me/shipment/services e retorna a lista de objetos
+        com id, name, type, range, restrictions e company.
+
+        Apenas requer User-Agent; usa fallback para token legado se OAuth
+        nao estiver configurado (operacao de leitura, nao cria etiqueta).
+
+        Returns:
+            list: Lista de servicos disponiveis
+
+        Raises:
+            Exception: Se a chamada a API falhar
+        """
+        url = f'{self.base_url}/me/shipment/services'
+
+        try:
+            logger.info('Buscando servicos disponiveis no Melhor Envio')
+            response = requests.get(url, headers=self._get_headers(), timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            logger.info(f'Servicos Melhor Envio obtidos com sucesso: {len(data)} servicos')
+            return data
+        except requests.exceptions.HTTPError as e:
+            error_detail = 'Resposta nao disponivel'
+            if e.response is not None:
+                try:
+                    error_detail = e.response.json()
+                except Exception:
+                    error_detail = e.response.text
+
+            logger.error(
+                f'Erro HTTP ao buscar servicos ME: '
+                f'{e.response.status_code if e.response else "N/A"}\n'
+                f'URL: {url}\nResposta: {error_detail}'
+            )
+            raise Exception(f'Erro ao buscar servicos Melhor Envio: {error_detail}')
+        except requests.exceptions.RequestException as e:
+            logger.error(f'Erro de conexao ao buscar servicos ME: {str(e)}')
+            raise Exception(f'Erro de conexao ao buscar servicos Melhor Envio: {str(e)}')
+
     def lookup_zipcode(self, zipcode):
         """
         Busca informações de um CEP via ViaCEP

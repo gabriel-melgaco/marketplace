@@ -1,12 +1,7 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
+from django.urls import path
 from . import views
 
 app_name = 'logistics'
-
-# Router para ViewSets
-router = DefaultRouter()
-router.register(r'carrier-rules', views.CarrierRuleViewSet, basename='carrier-rule')
 
 urlpatterns = [
     # =================== Addresses ===================
@@ -54,9 +49,7 @@ urlpatterns = [
     path('in-person/<int:pk>/cancel/', views.cancel_in_person_delivery, name='cancel-in-person-delivery'),
     path('in-person/', views.list_in_person_deliveries, name='list-in-person-deliveries'),
 
-    # =================== Package Validation ===================
-    path('carrier-rules/validate-package/', views.validate_package_against_rules, name='validate-package'),
-
-    # =================== Carrier Rules (ViewSet via Router) ===================
-    path('', include(router.urls)),
+    # =================== Carrier Services ===================
+    # GET: Fetches live carrier services from Melhor Envio API
+    path('carrier-services/', views.get_carrier_services, name='carrier-services'),
 ]

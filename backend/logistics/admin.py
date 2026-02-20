@@ -2,7 +2,7 @@ from django.contrib import admin
 from .models import (
     ShippingQuote, Shipment, ShipmentTracking, Address,
     OrderDelivery, InPersonDelivery, DeliveryStatusLog,
-    CarrierRule, MelhorEnvioOAuthToken,
+    MelhorEnvioOAuthToken,
 )
 
 
@@ -203,53 +203,6 @@ class DeliveryStatusLogAdmin(admin.ModelAdmin):
 
 
 admin.site.register(DeliveryStatusLog, DeliveryStatusLogAdmin)
-
-
-class CarrierRuleAdmin(admin.ModelAdmin):
-    list_display = (
-        'carrier_name',
-        'modality',
-        'max_height',
-        'max_width',
-        'max_length',
-        'max_weight',
-        'max_sum_dimensions',
-        'is_active',
-        'updated_at',
-    )
-    list_filter = ('carrier_name', 'is_active')
-    search_fields = ('carrier_name', 'modality', 'notes')
-    readonly_fields = ('created_at', 'updated_at')
-    fieldsets = (
-        ('Identificacao', {
-            'fields': ('carrier_name', 'modality', 'is_active', 'notes'),
-        }),
-        ('Dimensoes Minimas (cm)', {
-            'fields': ('min_height', 'min_width', 'min_length'),
-            'classes': ('collapse',),
-        }),
-        ('Dimensoes Maximas (cm)', {
-            'fields': ('max_height', 'max_width', 'max_length'),
-        }),
-        ('Peso (kg)', {
-            'fields': ('min_weight', 'max_weight'),
-        }),
-        ('Restricoes de Soma/Lado', {
-            'fields': ('min_sum_dimensions', 'max_sum_dimensions', 'max_single_side'),
-            'classes': ('collapse',),
-        }),
-        ('Taxa Nao Mecanizavel', {
-            'fields': ('non_mechanizable_threshold',),
-            'classes': ('collapse',),
-        }),
-        ('Timestamps', {
-            'fields': ('created_at', 'updated_at'),
-            'classes': ('collapse',),
-        }),
-    )
-
-
-admin.site.register(CarrierRule, CarrierRuleAdmin)
 
 
 @admin.register(MelhorEnvioOAuthToken)
