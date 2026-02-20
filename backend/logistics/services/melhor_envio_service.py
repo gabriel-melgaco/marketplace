@@ -632,14 +632,19 @@ class MelhorEnvioService:
             'weight': vol_weight
         }]
 
-        # Montar bloco "from" do vendedor
-        # CNPJ (14 dígitos) -> usar company_document; CPF (11 dígitos) -> omitir company_document
-        seller_is_pj = len(validated_seller_doc) == 14
+        # Montar bloco "from": credenciais da conta ME do marketplace + endereço físico do vendedor.
+        # O ME valida from.document e from.email contra a conta OAuth autenticada (marketplace).
+        # Em modelos onde vendedores não têm contas próprias no ME, usar os dados do marketplace.
+        sender_document = getattr(settings, 'MELHOR_ENVIO_SENDER_DOCUMENT', '') or validated_seller_doc
+        sender_email = getattr(settings, 'MELHOR_ENVIO_SENDER_EMAIL', '') or seller.email
+        sender_name = getattr(settings, 'MELHOR_ENVIO_SENDER_NAME', '') or seller.get_full_name() or seller.email
+
+        sender_is_pj = len(sender_document.replace('.', '').replace('/', '').replace('-', '')) == 14
         from_block = {
-            'name': seller.get_full_name() or seller.email,
+            'name': sender_name,
             'phone': self._sanitize_phone(seller_address.recipient_phone),
-            'email': seller.email,
-            'document': validated_seller_doc,
+            'email': sender_email,
+            'document': sender_document,
             'postal_code': origin_zipcode.replace('-', ''),
             'address': seller_address.street,
             'number': seller_address.number,
@@ -647,13 +652,10 @@ class MelhorEnvioService:
             'district': seller_address.neighborhood,
             'city': seller_address.city,
             'state_abbr': seller_address.state,
-            # Envios não comerciais (declaração de conteúdo): state_register = "ISENTO"
             'state_register': 'ISENTO',
         }
-        if seller_is_pj:
-            # Pessoa Jurídica: adicionar company_document com o CNPJ
-            from_block['company_document'] = validated_seller_doc
-        # Pessoa Física: company_document é omitido completamente (não enviar string vazia)
+        if sender_is_pj:
+            from_block['company_document'] = sender_document
 
         # Determine buyer document type to set state_register correctly.
         # Per ME docs: PF -> state_register="ISENTO"; also acceptable for PJ non-commercial.
@@ -961,14 +963,21 @@ class MelhorEnvioService:
 
         volumes = [{'height': vol_height, 'width': vol_width, 'length': vol_length, 'weight': vol_weight}]
 
-        seller_is_pj = len(validated_seller_doc) == 14
+        # Credenciais do remetente: usa a conta ME do marketplace (MELHOR_ENVIO_SENDER_*).
+        # O ME valida que from.document e from.email correspondem à conta OAuth autenticada.
+        # Em modelos onde os vendedores não têm contas individuais no ME, a conta do marketplace
+        # é a autenticada e deve ser usada como identidade do remetente.
+        # O endereço físico (postal_code, address, city...) ainda vem do vendedor para o label.
+        sender_document = getattr(settings, 'MELHOR_ENVIO_SENDER_DOCUMENT', '') or validated_seller_doc
+        sender_email = getattr(settings, 'MELHOR_ENVIO_SENDER_EMAIL', '') or seller.email
+        sender_name = getattr(settings, 'MELHOR_ENVIO_SENDER_NAME', '') or seller.get_full_name() or seller.email
+
+        sender_is_pj = len(sender_document.replace('.', '').replace('/', '').replace('-', '')) == 14
         from_block = {
-            'name': seller.get_full_name() or seller.email,
-            # Melhor Envio aceita somente dígitos no campo phone.
-            # Formatos como "(24)9999-9999" causam 500 no servidor ME.
+            'name': sender_name,
             'phone': self._sanitize_phone(seller_address.recipient_phone),
-            'email': seller.email,
-            'document': validated_seller_doc,
+            'email': sender_email,
+            'document': sender_document,
             'postal_code': origin_zipcode.replace('-', ''),
             'address': seller_address.street,
             'number': seller_address.number,
@@ -978,8 +987,8 @@ class MelhorEnvioService:
             'state_abbr': seller_address.state,
             'state_register': 'ISENTO',
         }
-        if seller_is_pj:
-            from_block['company_document'] = validated_seller_doc
+        if sender_is_pj:
+            from_block['company_document'] = sender_document
 
         # Determine buyer document type to set state_register correctly.
         # Per ME docs: PF -> state_register="ISENTO"; PJ -> state_register="" (empty or ISENTO).
@@ -1053,14 +1062,15 @@ class MelhorEnvioService:
             return result, payload
         except requests.exceptions.HTTPError as e:
             error_detail = 'Resposta não disponível'
-            if e.response is not None:
+            resp = e.response
+            status_code = resp.status_code if resp is not None else 'N/A'
+            if resp is not None:
                 try:
-                    error_detail = e.response.json()
+                    error_detail = resp.json()
                 except Exception:
-                    error_detail = e.response.text
+                    error_detail = resp.text
             logger.error(
-                f'Erro HTTP ao adicionar ao carrinho ME: '
-                f'{e.response.status_code if e.response else "N/A"}\n'
+                f'Erro HTTP ao adicionar ao carrinho ME: {status_code}\n'
                 f'URL: {url}\nPayload: {payload}\nResposta: {error_detail}'
             )
             raise Exception(f'Erro ao adicionar ao carrinho ME: {error_detail}')
