@@ -102,6 +102,21 @@ class MelhorEnvioService:
                 f'Detalhe: {e}'
             )
 
+    def get_account_info(self) -> dict:
+        """
+        Retorna as informações da conta ME autenticada via OAuth.
+        Útil para diagnóstico: verifica document, email, store name e estado da conta.
+        """
+        url = f'{self.base_url}/me/user'
+        try:
+            response = requests.get(url, headers=self._get_headers(require_oauth=True), timeout=15)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.HTTPError as e:
+            resp = e.response
+            detail = resp.json() if resp is not None else str(e)
+            raise Exception(f'Erro ao buscar dados da conta ME: {detail}')
+
     def _sanitize_phone(self, phone: str) -> str:
         """
         Sanitiza número de telefone removendo todos os caracteres não-numéricos.
@@ -572,20 +587,19 @@ class MelhorEnvioService:
         destination_zipcode = order.shipping_address['zipcode']
         self._validate_zipcodes(origin_zipcode, destination_zipcode)
 
-        # VALIDAÇÃO 2: Documentos (CPF/CNPJ)
-        # Validar documento do vendedor
-        seller_document = getattr(seller, 'cpf', '') or getattr(seller, 'cnpj', '')
+        # VALIDAÇÃO 2: CPF do vendedor e do comprador (apenas PF suportado)
+        seller_document = getattr(seller, 'cpf', '')
         if seller_document:
-            validated_seller_doc = self._validate_document(seller_document, 'CPF/CNPJ do vendedor')
+            validated_seller_doc = self._validate_document(seller_document, 'CPF do vendedor')
         else:
-            raise ShippingValidationError('Vendedor não possui CPF ou CNPJ cadastrado')
+            raise ShippingValidationError('Vendedor não possui CPF cadastrado')
 
-        # Validar documento do comprador (buscar do modelo de usuário)
-        buyer_document = getattr(order.buyer, 'cpf', '') or getattr(order.buyer, 'cnpj', '')
+        # Validar CPF do comprador (buscar do modelo de usuário)
+        buyer_document = getattr(order.buyer, 'cpf', '')
         if buyer_document:
-            validated_buyer_doc = self._validate_document(buyer_document, 'CPF/CNPJ do comprador')
+            validated_buyer_doc = self._validate_document(buyer_document, 'CPF do comprador')
         else:
-            raise ShippingValidationError('Comprador não possui CPF ou CNPJ cadastrado')
+            raise ShippingValidationError('Comprador não possui CPF cadastrado')
 
         # Preparar produtos
         # Documentação Melhor Envio: quantity e unitary_value devem ser strings.
@@ -632,19 +646,22 @@ class MelhorEnvioService:
             'weight': vol_weight
         }]
 
-        # Montar bloco "from": credenciais da conta ME do marketplace + endereço físico do vendedor.
-        # O ME valida from.document e from.email contra a conta OAuth autenticada (marketplace).
-        # Em modelos onde vendedores não têm contas próprias no ME, usar os dados do marketplace.
         sender_document = getattr(settings, 'MELHOR_ENVIO_SENDER_DOCUMENT', '') or validated_seller_doc
         sender_email = getattr(settings, 'MELHOR_ENVIO_SENDER_EMAIL', '') or seller.email
         sender_name = getattr(settings, 'MELHOR_ENVIO_SENDER_NAME', '') or seller.get_full_name() or seller.email
 
-        sender_is_pj = len(sender_document.replace('.', '').replace('/', '').replace('-', '')) == 14
+        sender_digits = sender_document.replace('.', '').replace('/', '').replace('-', '')
+        if len(sender_digits) == 14:
+            raise ShippingValidationError(
+                'Envio via Melhor Envio para vendedores PJ (CNPJ) não é suportado. '
+                'Configure o remetente como CPF (Pessoa Física).'
+            )
+
         from_block = {
             'name': sender_name,
             'phone': self._sanitize_phone(seller_address.recipient_phone),
             'email': sender_email,
-            'document': sender_document,
+            'document': sender_digits,
             'postal_code': origin_zipcode.replace('-', ''),
             'address': seller_address.street,
             'number': seller_address.number,
@@ -652,37 +669,29 @@ class MelhorEnvioService:
             'district': seller_address.neighborhood,
             'city': seller_address.city,
             'state_abbr': seller_address.state,
-            'state_register': 'ISENTO',
         }
-        if sender_is_pj:
-            from_block['company_document'] = sender_document
 
-        # Determine buyer document type to set state_register correctly.
-        # Per ME docs: PF -> state_register="ISENTO"; also acceptable for PJ non-commercial.
-        buyer_is_pj = len(validated_buyer_doc) == 14
-        buyer_state_register = 'ISENTO'
+        buyer_digits = validated_buyer_doc.replace('.', '').replace('/', '').replace('-', '')
 
-        # Montar payload com documentos validados
+        to_block = {
+            'name': order.shipping_address.get('recipient_name', ''),
+            'phone': self._sanitize_phone(order.shipping_address.get('recipient_phone', '')),
+            'email': order.buyer.email,
+            'document': buyer_digits,
+            'country_id': 'BR',
+            'postal_code': destination_zipcode.replace('-', ''),
+            'address': order.shipping_address['street'],
+            'number': order.shipping_address['number'],
+            'complement': order.shipping_address.get('complement', ''),
+            'district': order.shipping_address['neighborhood'],
+            'city': order.shipping_address['city'],
+            'state_abbr': order.shipping_address['state'],
+        }
+
         payload = {
             'service': shipping_service_id,
             'from': from_block,
-            'to': {
-                'name': order.shipping_address.get('recipient_name', ''),
-                'phone': self._sanitize_phone(order.shipping_address.get('recipient_phone', '')),
-                'email': order.buyer.email,
-                'document': validated_buyer_doc,
-                # country_id required by ME API (per official docs example)
-                'country_id': 'BR',
-                # state_register required per ME API docs: "ISENTO" for PF non-commercial
-                'state_register': buyer_state_register,
-                'postal_code': destination_zipcode.replace('-', ''),
-                'address': order.shipping_address['street'],
-                'number': order.shipping_address['number'],
-                'complement': order.shipping_address.get('complement', ''),
-                'district': order.shipping_address['neighborhood'],
-                'city': order.shipping_address['city'],
-                'state_abbr': order.shipping_address['state'],
-            },
+            'to': to_block,
             'products': products,
             'volumes': volumes,
             'options': {
@@ -904,16 +913,16 @@ class MelhorEnvioService:
         destination_zipcode = shipping_address_dict['zipcode']
         self._validate_zipcodes(origin_zipcode, destination_zipcode)
 
-        # Validar documentos
-        seller_document = getattr(seller, 'cpf', '') or getattr(seller, 'cnpj', '')
+        # Validar CPFs do vendedor e do comprador (apenas PF suportado)
+        seller_document = getattr(seller, 'cpf', '')
         if not seller_document:
-            raise ShippingValidationError('Vendedor não possui CPF ou CNPJ cadastrado')
-        validated_seller_doc = self._validate_document(seller_document, 'CPF/CNPJ do vendedor')
+            raise ShippingValidationError('Vendedor não possui CPF cadastrado')
+        validated_seller_doc = self._validate_document(seller_document, 'CPF do vendedor')
 
-        buyer_document = getattr(buyer, 'cpf', '') or getattr(buyer, 'cnpj', '')
+        buyer_document = getattr(buyer, 'cpf', '')
         if not buyer_document:
-            raise ShippingValidationError('Comprador não possui CPF ou CNPJ cadastrado')
-        validated_buyer_doc = self._validate_document(buyer_document, 'CPF/CNPJ do comprador')
+            raise ShippingValidationError('Comprador não possui CPF cadastrado')
+        validated_buyer_doc = self._validate_document(buyer_document, 'CPF do comprador')
 
         # Preparar produtos e calcular seguro
         # A API do ME exige que quantity e unitary_value sejam strings.
@@ -963,21 +972,22 @@ class MelhorEnvioService:
 
         volumes = [{'height': vol_height, 'width': vol_width, 'length': vol_length, 'weight': vol_weight}]
 
-        # Credenciais do remetente: usa a conta ME do marketplace (MELHOR_ENVIO_SENDER_*).
-        # O ME valida que from.document e from.email correspondem à conta OAuth autenticada.
-        # Em modelos onde os vendedores não têm contas individuais no ME, a conta do marketplace
-        # é a autenticada e deve ser usada como identidade do remetente.
-        # O endereço físico (postal_code, address, city...) ainda vem do vendedor para o label.
         sender_document = getattr(settings, 'MELHOR_ENVIO_SENDER_DOCUMENT', '') or validated_seller_doc
         sender_email = getattr(settings, 'MELHOR_ENVIO_SENDER_EMAIL', '') or seller.email
         sender_name = getattr(settings, 'MELHOR_ENVIO_SENDER_NAME', '') or seller.get_full_name() or seller.email
 
-        sender_is_pj = len(sender_document.replace('.', '').replace('/', '').replace('-', '')) == 14
+        sender_digits = sender_document.replace('.', '').replace('/', '').replace('-', '')
+        if len(sender_digits) == 14:
+            raise ShippingValidationError(
+                'Envio via Melhor Envio para vendedores PJ (CNPJ) não é suportado. '
+                'Configure o remetente como CPF (Pessoa Física).'
+            )
+
         from_block = {
             'name': sender_name,
             'phone': self._sanitize_phone(seller_address.recipient_phone),
             'email': sender_email,
-            'document': sender_document,
+            'document': sender_digits,
             'postal_code': origin_zipcode.replace('-', ''),
             'address': seller_address.street,
             'number': seller_address.number,
@@ -985,40 +995,32 @@ class MelhorEnvioService:
             'district': seller_address.neighborhood,
             'city': seller_address.city,
             'state_abbr': seller_address.state,
-            'state_register': 'ISENTO',
         }
-        if sender_is_pj:
-            from_block['company_document'] = sender_document
 
-        # Determine buyer document type to set state_register correctly.
-        # Per ME docs: PF -> state_register="ISENTO"; PJ -> state_register="" (empty or ISENTO).
-        buyer_is_pj = len(validated_buyer_doc) == 14
-        buyer_state_register = 'ISENTO'  # default for PF; also acceptable for PJ non-commercial
+        buyer_digits = validated_buyer_doc.replace('.', '').replace('/', '').replace('-', '')
 
         capped_insurance = min(float(total_insurance), settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE)
         insurance_capped = float(total_insurance) > settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE
 
+        to_block = {
+            'name': shipping_address_dict.get('recipient_name', ''),
+            'phone': self._sanitize_phone(shipping_address_dict.get('recipient_phone', '')),
+            'email': buyer.email,
+            'document': buyer_digits,
+            'country_id': 'BR',
+            'postal_code': destination_zipcode.replace('-', ''),
+            'address': shipping_address_dict['street'],
+            'number': shipping_address_dict['number'],
+            'complement': shipping_address_dict.get('complement', ''),
+            'district': shipping_address_dict['neighborhood'],
+            'city': shipping_address_dict['city'],
+            'state_abbr': shipping_address_dict['state'],
+        }
+
         payload = {
             'service': service_id,
             'from': from_block,
-            'to': {
-                'name': shipping_address_dict.get('recipient_name', ''),
-                # Sanitizar telefone do comprador — pode vir formatado com (, ), -
-                'phone': self._sanitize_phone(shipping_address_dict.get('recipient_phone', '')),
-                'email': buyer.email,
-                'document': validated_buyer_doc,
-                # country_id required by ME API (per official docs example)
-                'country_id': 'BR',
-                # state_register required per ME API docs: "ISENTO" for PF non-commercial
-                'state_register': buyer_state_register,
-                'postal_code': destination_zipcode.replace('-', ''),
-                'address': shipping_address_dict['street'],
-                'number': shipping_address_dict['number'],
-                'complement': shipping_address_dict.get('complement', ''),
-                'district': shipping_address_dict['neighborhood'],
-                'city': shipping_address_dict['city'],
-                'state_abbr': shipping_address_dict['state'],
-            },
+            'to': to_block,
             'products': products,
             'volumes': volumes,
             'options': {
