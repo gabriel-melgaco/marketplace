@@ -413,7 +413,12 @@ def me_cart_minimal_test(request):
     me_document = (account.get('document') or '').replace('.', '').replace('-', '').replace('/', '')
     me_email = account.get('email', '')
     me_firstname = account.get('firstname', 'Test')
-    me_phone = (account.get('phone') or '').replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
+
+    # phone may be a dict {"phone": "...", "country_code": "55"} or a plain string
+    raw_phone = account.get('phone') or ''
+    if isinstance(raw_phone, dict):
+        raw_phone = raw_phone.get('phone') or ''
+    me_phone = ''.join(c for c in str(raw_phone) if c.isdigit())
     if not me_phone:
         me_phone = '11999999999'  # fallback phone
 
