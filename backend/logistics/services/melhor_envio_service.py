@@ -110,12 +110,20 @@ class MelhorEnvioService:
         url = f'{self.base_url}/me/user'
         try:
             response = requests.get(url, headers=self._get_headers(require_oauth=True), timeout=15)
+            logger.info(f'ME /me/user status={response.status_code} body={response.text[:500]}')
             response.raise_for_status()
-            return response.json()
+            try:
+                return response.json()
+            except Exception:
+                return {'raw': response.text, 'status_code': response.status_code}
         except requests.exceptions.HTTPError as e:
             resp = e.response
-            detail = resp.json() if resp is not None else str(e)
-            raise Exception(f'Erro ao buscar dados da conta ME: {detail}')
+            status_code = resp.status_code if resp is not None else 'N/A'
+            try:
+                detail = resp.json() if resp is not None else str(e)
+            except Exception:
+                detail = resp.text if resp is not None else str(e)
+            raise Exception(f'Erro ao buscar dados da conta ME ({status_code}): {detail}')
 
     def get_cart_items(self) -> dict:
         """
