@@ -1320,11 +1320,22 @@ class MelhorEnvioService:
             sender_document = seller_me_token.me_document
             sender_email = seller_me_token.me_email or seller.email
             sender_name = seller_me_token.me_firstname or seller.get_full_name() or seller.email
+            logger.info(
+                f'[add_to_cart_raw] Usando credenciais da conta ME cacheada: '
+                f'me_email={seller_me_token.me_email!r}, me_document={seller_me_token.me_document[:4]}*** '
+                f'(vendedor marketplace: {seller.email})'
+            )
         else:
             # Fallback para CPF do vendedor no marketplace
             sender_document = validated_seller_doc
             sender_email = seller.email
             sender_name = seller.get_full_name() or seller.email
+            logger.warning(
+                f'[add_to_cart_raw] ATENÇÃO: me_document vazio no SellerMelhorEnvioToken de {seller.email}. '
+                f'Usando dados do marketplace como fallback. '
+                f'O token ME pode ter sido salvo sem cachear os dados da conta. '
+                f'Reconecte a conta ME em /api/logistics/me/connect/'
+            )
 
         sender_digits = sender_document.replace('.', '').replace('/', '').replace('-', '')
 
