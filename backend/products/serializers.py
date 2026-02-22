@@ -143,7 +143,7 @@ class MarketplaceListingCreateSerializer(serializers.ModelSerializer):
         fields = [
             'product', 'title', 'price', 'brand', 'quantity',
             'description', 'condition', 'weight_kg',
-            'height_cm', 'width_cm', 'length_cm', 'shipping_address'
+            'height_cm', 'width_cm', 'length_cm',
         ]
     
     def validate_title(self, value):
@@ -214,44 +214,29 @@ class MarketplaceListingCreateSerializer(serializers.ModelSerializer):
                 'Você precisa cadastrar um CPF válido antes de criar produtos.'
             )
 
-        # Validate Melhor Envio connection
+        # Validate Melhor Envio connection and auto-assign shipping address
         from django.conf import settings as django_settings
         from logistics.models import SellerMelhorEnvioToken
         environment = 'sandbox' if getattr(django_settings, 'MELHOR_ENVIO_SANDBOX', True) else 'production'
-        has_me_token = SellerMelhorEnvioToken.objects.filter(
-            seller=user,
-            environment=environment,
-            is_active=True,
-        ).exists()
-        if not has_me_token:
+        try:
+            me_token = SellerMelhorEnvioToken.objects.get(
+                seller=user,
+                environment=environment,
+                is_active=True,
+            )
+        except SellerMelhorEnvioToken.DoesNotExist:
             raise serializers.ValidationError(
                 'Você precisa conectar uma conta do Melhor Envio antes de criar um anúncio. '
                 'Acesse /api/logistics/me/connect/ para autorizar.'
             )
 
-        # Validate shipping_address
-        shipping_address = data.get('shipping_address')
-        if not shipping_address:
-            raise serializers.ValidationError({
-                'shipping_address': 'Endereço de envio é obrigatório.'
-            })
+        if not me_token.me_address or not me_token.me_address.is_active:
+            raise serializers.ValidationError(
+                'Seu endereço de envio não foi sincronizado com a conta Melhor Envio. '
+                'Reconecte sua conta em /api/logistics/me/connect/ para sincronizar.'
+            )
 
-        # Validate address belongs to user and is a shipping address
-        if shipping_address.user != user:
-            raise serializers.ValidationError({
-                'shipping_address': 'Este endereço não pertence a você.'
-            })
-
-        if not shipping_address.is_shipping_address:
-            raise serializers.ValidationError({
-                'shipping_address': 'Este endereço não é um endereço de envio.'
-            })
-
-        if not shipping_address.is_active:
-            raise serializers.ValidationError({
-                'shipping_address': 'Este endereço está inativo.'
-            })
-
+        data['shipping_address'] = me_token.me_address
         return data
     
     def create(self, validated_data):

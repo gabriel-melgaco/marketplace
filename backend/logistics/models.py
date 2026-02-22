@@ -604,6 +604,16 @@ class SellerMelhorEnvioToken(models.Model):
         help_text='Indica se esta conexão está ativa para o vendedor'
     )
 
+    # Endereço do vendedor sincronizado da conta ME (criado automaticamente ao conectar)
+    me_address = models.ForeignKey(
+        'Address',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='me_token',
+        help_text='Endereço de envio criado automaticamente a partir da conta ME do vendedor',
+    )
+
     # Informações da conta ME do vendedor (cacheadas para uso no from block)
     me_user_id = models.CharField(
         max_length=100,

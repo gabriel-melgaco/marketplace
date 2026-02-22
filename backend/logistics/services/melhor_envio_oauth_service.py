@@ -954,12 +954,100 @@ class MelhorEnvioOAuthService:
         token_record.me_email = account_data.get('email') or ''
         token_record.me_document = clean_doc
         token_record.me_firstname = account_data.get('firstname') or ''
-        token_record.save(update_fields=['me_user_id', 'me_email', 'me_document', 'me_firstname', 'updated_at'])
+
+        # Tentar criar/atualizar o Address de envio a partir da conta ME
+        try:
+            address_record = self._sync_seller_me_address(token_record.seller, account_data)
+            token_record.me_address = address_record
+        except Exception as exc:
+            logger.warning(
+                f'Não foi possível sincronizar endereço ME para vendedor '
+                f'{token_record.seller.email}: {exc}'
+            )
+
+        token_record.save(update_fields=[
+            'me_user_id', 'me_email', 'me_document', 'me_firstname', 'me_address', 'updated_at',
+        ])
 
         logger.info(
             f'Dados ME cacheados para vendedor {token_record.seller.email}: '
             f'email={token_record.me_email}, doc={clean_doc[:4]}***'
         )
+
+    def _sync_seller_me_address(self, seller, account_data: dict):
+        """
+        Cria ou atualiza o endereço de envio do vendedor com os dados da conta ME.
+
+        Args:
+            seller: Instância de CustomUser
+            account_data: Resposta completa de GET /api/v2/me
+
+        Returns:
+            Address: Instância criada ou atualizada
+        """
+        from ..models import Address
+
+        addr = account_data.get('address') or {}
+
+        # Extrair zipcode — ME retorna "12086-000", normalizar para "12086000"
+        raw_zip = addr.get('postal_code') or ''
+        zipcode = ''.join(c for c in str(raw_zip) if c.isdigit())
+
+        # Extrair cidade — pode ser dict {"city": "Taubaté", "state": {...}} ou string
+        city_raw = addr.get('city') or ''
+        if isinstance(city_raw, dict):
+            city = city_raw.get('city') or ''
+            state_raw = city_raw.get('state') or {}
+            state = state_raw.get('state_abbr') or '' if isinstance(state_raw, dict) else ''
+        else:
+            city = str(city_raw)
+            state = ''
+
+        # Extrair telefone — pode ser dict {"phone": "12996...", "country_code": "55"} ou string
+        phone_raw = account_data.get('phone') or ''
+        if isinstance(phone_raw, dict):
+            phone = phone_raw.get('phone') or ''
+        else:
+            phone = str(phone_raw)
+        phone = ''.join(c for c in phone if c.isdigit())[:20]
+
+        firstname = account_data.get('firstname') or ''
+        lastname = account_data.get('lastname') or ''
+        recipient_name = f'{firstname} {lastname}'.strip() or seller.get_full_name() or seller.email
+
+        street = addr.get('address') or ''
+        number = addr.get('number') or 's/n'
+        complement = addr.get('complement') or ''
+        neighborhood = addr.get('district') or ''
+
+        if not zipcode or not city:
+            raise ValueError('Conta ME não possui endereço completo (zipcode ou city ausente)')
+
+        address, _ = Address.objects.update_or_create(
+            user=seller,
+            address_type='shipping',
+            defaults={
+                'nickname': 'Endereço Melhor Envio',
+                'is_shipping_address': True,
+                'is_active': True,
+                'recipient_name': recipient_name,
+                'recipient_phone': phone,
+                'zipcode': zipcode,
+                'street': street,
+                'number': number,
+                'complement': complement,
+                'neighborhood': neighborhood,
+                'city': city,
+                'state': state,
+                'country': 'BR',
+            }
+        )
+
+        logger.info(
+            f'Endereço ME sincronizado para vendedor {seller.email}: '
+            f'{zipcode} - {city}/{state}'
+        )
+        return address
 
     def get_token_status(self) -> dict:
         """
