@@ -53,7 +53,7 @@ class MelhorEnvioService:
 
         # Contact email para User-Agent
         self._contact_email = getattr(
-            settings, 'MELHOR_ENVIO_USER_AGENT_EMAIL', 'contato@seuapp.com'
+            settings, 'MELHOR_ENVIO_USER_AGENT_EMAIL', 'gabrielmelgacom@gmail.com'
         )
 
     def _get_headers(self, seller=None, require_oauth: bool = False) -> dict:
