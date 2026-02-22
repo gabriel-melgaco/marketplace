@@ -232,7 +232,7 @@ class MelhorEnvioService:
                 'Para entregas no mesmo CEP, utilize a opção de entrega presencial.'
             )
     
-    def calculate_shipping(self, from_zipcode, to_zipcode, products=None, package=None, options=None):
+    def calculate_shipping(self, from_zipcode, to_zipcode, products=None, package=None, options=None, seller=None):
         """
         Calcula frete usando API v2 do Melhor Envio
 
@@ -269,12 +269,16 @@ class MelhorEnvioService:
                     "own_hand": false,     # Mão própria
                     "collect": false       # Coleta
                 }
+            seller: Instância de CustomUser do vendedor (opcional). Quando fornecido,
+                usa o token OAuth do vendedor para a cotação, garantindo que apenas
+                serviços disponíveis para a conta do vendedor sejam retornados.
+                Se None, usa token da plataforma (fallback para retro-compatibilidade).
 
         Returns:
             list: Lista de cotações das transportadoras
 
         Raises:
-            ShippingValidationError: Se validação falhar
+            ShippingValidationError: Se validação falhar ou vendedor não tiver ME conectado
             Exception: Se chamada à API falhar
         """
         # VALIDAÇÃO 1: Verificar se CEPs de origem e destino são diferentes
@@ -301,8 +305,9 @@ class MelhorEnvioService:
             payload['options'] = options
 
         try:
-            logger.info(f'Calculando frete: {from_zipcode} → {to_zipcode}')
-            response = requests.post(url, json=payload, headers=self._get_headers(), timeout=30)
+            logger.info(f'Calculando frete: {from_zipcode} → {to_zipcode}' +
+                        (f' (vendedor: {seller.email})' if seller else ''))
+            response = requests.post(url, json=payload, headers=self._get_headers(seller=seller), timeout=30)
             response.raise_for_status()
             logger.info(f'Frete calculado com sucesso: {from_zipcode} → {to_zipcode}')
             return response.json()
@@ -435,12 +440,14 @@ class MelhorEnvioService:
             }
 
             try:
-                # Calcular frete usando API
+                # Calcular frete usando token OAuth do vendedor (garante só serviços
+                # disponíveis na conta do vendedor apareçam para o comprador).
                 quotes_data = self.calculate_shipping(
                     from_zipcode=seller_address.zipcode,
                     to_zipcode=destination_zipcode,
                     products=products,
-                    options=options
+                    options=options,
+                    seller=seller,
                 )
 
                 # Calcular dimensoes consolidadas do pacote (para armazenamento no ShippingQuote)
