@@ -1027,7 +1027,7 @@ class MelhorEnvioOAuthService:
 
         street = addr.get('address') or ''
         number = addr.get('number') or 's/n'
-        complement = addr.get('complement') or None
+        complement = addr.get('complement') or ''
         neighborhood = addr.get('district') or ''
 
         if not zipcode or not city:

@@ -872,11 +872,19 @@ class MelhorEnvioService:
                     error_detail = e.response.json()
                 except Exception:
                     error_detail = e.response.text
+            status_code = e.response.status_code if e.response is not None else 'N/A'
             logger.error(
                 f'Erro HTTP ao adicionar volume ao carrinho ME: '
-                f'{e.response.status_code if e.response else "N/A"} — volume={volume} — {error_detail}\n'
+                f'{status_code} — service={service_id_int} — volume={volume} — {error_detail}\n'
                 f'Payload enviado: {json.dumps(payload, default=str, indent=2)}'
             )
+            # Mensagem amigável para o erro genérico do ME (500)
+            if status_code == 500 or (isinstance(error_detail, dict) and 'Houve um erro' in str(error_detail)):
+                raise Exception(
+                    f'O Melhor Envio rejeitou o serviço {service_id_int} para este vendedor. '
+                    f'Verifique se o vendedor tem o serviço/transportadora configurado e ativo '
+                    f'em sua conta Melhor Envio. Detalhe: {error_detail}'
+                )
             raise Exception(f'Erro ao adicionar envio ao carrinho: {error_detail}')
         except requests.exceptions.RequestException as e:
             logger.error(f'Erro de conexão ao adicionar volume ao carrinho ME: {e}')
