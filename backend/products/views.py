@@ -241,7 +241,18 @@ class MarketplaceListingDetailView(generics.RetrieveAPIView):
     permission_classes = [AllowAny]
 
 
-@extend_schema(tags=['Products'], summary='Create listing', description='Create a new marketplace listing. Authenticated sellers only.')
+@extend_schema(
+    tags=['Products'],
+    summary='Create listing',
+    description=(
+        'Create a new marketplace listing. Authenticated sellers only.\n\n'
+        '**Prerequisites:**\n'
+        '- Seller must have a connected Melhor Envio account '
+        '(`GET /api/logistics/me/connect/`).\n\n'
+        '**Shipping address:** automatically assigned from the seller\'s connected '
+        'Melhor Envio account. No need to provide `shipping_address` in the request.'
+    ),
+)
 class MarketplaceListingCreateView(generics.CreateAPIView):
     """Criar nova listagem"""
     serializer_class = MarketplaceListingCreateSerializer

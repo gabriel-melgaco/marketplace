@@ -39,18 +39,30 @@ class AddressCreateSerializer(serializers.ModelSerializer):
         user = self.context['request'].user
         address_type = data.get('address_type')
 
-        # 🔒 Regra de negócio: shipping => is_shipping_address = True
-        if address_type == 'shipping':
-            data['is_shipping_address'] = True
-        else:
-            data['is_shipping_address'] = False
+        # Endereços de envio são gerenciados exclusivamente via integração ME OAuth.
+        # Bloquear tanto criação quanto edição manual.
+        if self.instance and self.instance.is_shipping_address:
+            raise serializers.ValidationError(
+                'Endereços de envio são gerenciados automaticamente pela integração com o '
+                'Melhor Envio. Para atualizar, reconecte sua conta em '
+                '/api/logistics/me/connect/.'
+            )
 
-        # Shipping permite múltiplos; outros tipos são únicos
-        if address_type != 'shipping' and Address.objects.filter(
+        if address_type == 'shipping' or data.get('is_shipping_address'):
+            raise serializers.ValidationError(
+                'Endereços do tipo shipping são gerenciados automaticamente pela integração '
+                'com o Melhor Envio. Conecte sua conta em /api/logistics/me/connect/ para '
+                'sincronizar seu endereço de envio.'
+            )
+
+        data['is_shipping_address'] = False
+
+        # Outros tipos são únicos por usuário
+        if Address.objects.filter(
             user=user,
             address_type=address_type,
             is_active=True
-        ).exists():
+        ).exclude(pk=self.instance.pk if self.instance else None).exists():
             raise serializers.ValidationError({
                 "address_type": "Você já possui um endereço deste tipo cadastrado."
             })
