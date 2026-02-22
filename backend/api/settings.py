@@ -307,6 +307,8 @@ MELHOR_ENVIO_TOKEN = os.getenv('MELHOR_ENVIO_TOKEN', '')
 MELHOR_ENVIO_SANDBOX = os.getenv('MELHOR_ENVIO_SANDBOX', 'True').lower() not in ('false', '0', 'no')
 MELHOR_ENVIO_WEBHOOK_SECRET = os.getenv('MELHOR_ENVIO_WEBHOOK_SECRET', '')
 MELHOR_ENVIO_MAX_INSURANCE_VALUE = float(os.getenv('MELHOR_ENVIO_MAX_INSURANCE_VALUE', '1000.00'))
+# Envios não comerciais (CPF/pessoa física). Obrigatório para Correios sem contrato comercial.
+MELHOR_ENVIO_NON_COMMERCIAL = os.getenv('MELHOR_ENVIO_NON_COMMERCIAL', 'True').lower() not in ('false', '0', 'no')
 
 # Melhor Envio OAuth 2.0 — Credenciais do aplicativo (plataforma)
 # Obtenha em: https://melhorenvio.com.br/painel/gerenciar/aplicativos
