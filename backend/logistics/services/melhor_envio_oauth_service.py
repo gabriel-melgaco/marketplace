@@ -994,14 +994,24 @@ class MelhorEnvioOAuthService:
         zipcode = ''.join(c for c in str(raw_zip) if c.isdigit())
 
         # Extrair cidade — pode ser dict {"city": "Taubaté", "state": {...}} ou string
+        # Melhor Envio retorna city como dict aninhado quando usa /api/v2/me
         city_raw = addr.get('city') or ''
         if isinstance(city_raw, dict):
             city = city_raw.get('city') or ''
             state_raw = city_raw.get('state') or {}
-            state = state_raw.get('state_abbr') or '' if isinstance(state_raw, dict) else ''
+            state = (state_raw.get('state_abbr') or '') if isinstance(state_raw, dict) else ''
         else:
             city = str(city_raw)
             state = ''
+
+        # Fallback para campo flat 'uf' quando state não foi extraído do dict aninhado
+        # me_cart_minimal_test usa me_address.get('uf') como fallback — replicar aqui
+        if not state:
+            state = addr.get('uf') or addr.get('state_abbr') or ''
+
+        # Normalizar state_abbr para maiúsculas (ME pode retornar 'Pr', 'sp', etc.)
+        # A API do ME exige siglas em maiúsculas: 'SP', 'PR', 'MG', etc.
+        state = state.upper().strip()
 
         # Extrair telefone — pode ser dict {"phone": "12996...", "country_code": "55"} ou string
         phone_raw = account_data.get('phone') or ''

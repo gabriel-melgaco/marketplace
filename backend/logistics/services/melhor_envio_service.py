@@ -807,14 +807,48 @@ class MelhorEnvioService:
             Exception: Se a chamada HTTP falhar
         """
         url = f'{self.base_url}/me/cart'
+
+        # Garantir que service_id seja inteiro (ME rejeita strings)
+        try:
+            service_id_int = int(service_id)
+        except (TypeError, ValueError):
+            logger.error(f'[_post_to_cart] service_id inválido: {service_id!r} (tipo {type(service_id)})')
+            raise Exception(f'service_id inválido para o carrinho ME: {service_id!r}')
+
+        # Validar campos críticos do bloco from antes de enviar
+        from_phone = from_block.get('phone', '')
+        if not from_phone:
+            logger.warning(
+                '[_post_to_cart] from.phone está VAZIO — ME pode retornar 500. '
+                'Verifique se o endereço do vendedor possui telefone cadastrado.'
+            )
+        elif len(from_phone) < 10:
+            logger.warning(
+                f'[_post_to_cart] from.phone={from_phone!r} tem menos de 10 dígitos — '
+                'ME pode rejeitar o payload. Formato esperado: DDD + número (10 ou 11 dígitos).'
+            )
+
+        from_state = from_block.get('state_abbr', '')
+        if not from_state:
+            logger.warning(
+                '[_post_to_cart] from.state_abbr está VAZIO — ME pode retornar 500. '
+                'Verifique o campo state no endereço do vendedor.'
+            )
+
         payload = {
-            'service': service_id,
+            'service': service_id_int,
             'from': from_block,
             'to': to_block,
             'products': products,
             'volumes': [volume],
             'options': options,
         }
+
+        logger.info(
+            f'[_post_to_cart] Payload COMPLETO enviado ao ME cart:\n'
+            f'{json.dumps(payload, default=str, indent=2)}'
+        )
+
         try:
             response = requests.post(
                 url,
@@ -833,7 +867,8 @@ class MelhorEnvioService:
                     error_detail = e.response.text
             logger.error(
                 f'Erro HTTP ao adicionar volume ao carrinho ME: '
-                f'{e.response.status_code if e.response else "N/A"} — volume={volume} — {error_detail}'
+                f'{e.response.status_code if e.response else "N/A"} — volume={volume} — {error_detail}\n'
+                f'Payload enviado: {json.dumps(payload, default=str, indent=2)}'
             )
             raise Exception(f'Erro ao adicionar envio ao carrinho: {error_detail}')
         except requests.exceptions.RequestException as e:
@@ -955,7 +990,8 @@ class MelhorEnvioService:
             'complement': seller_address.complement or '',
             'district': seller_address.neighborhood,
             'city': seller_address.city,
-            'state_abbr': seller_address.state,
+            # Normalizar state para maiúsculas — ME exige 'SP', 'PR', etc. (não 'Pr' ou 'sp')
+            'state_abbr': (seller_address.state or '').upper().strip(),
             'country_id': 'BR',
         }
 
@@ -973,7 +1009,8 @@ class MelhorEnvioService:
             'complement': order.shipping_address.get('complement', ''),
             'district': order.shipping_address['neighborhood'],
             'city': order.shipping_address['city'],
-            'state_abbr': order.shipping_address['state'],
+            # Normalizar state para maiúsculas
+            'state_abbr': (order.shipping_address.get('state', '') or '').upper().strip(),
         }
 
         original_value = float(sum(item.subtotal for item in seller_items))
@@ -1305,7 +1342,8 @@ class MelhorEnvioService:
             'complement': seller_address.complement or '',
             'district': seller_address.neighborhood,
             'city': seller_address.city,
-            'state_abbr': seller_address.state,
+            # Normalizar state para maiúsculas — ME exige 'SP', 'PR', etc. (não 'Pr' ou 'sp')
+            'state_abbr': (seller_address.state or '').upper().strip(),
             'country_id': 'BR',
         }
 
@@ -1326,7 +1364,8 @@ class MelhorEnvioService:
             'complement': shipping_address_dict.get('complement', ''),
             'district': shipping_address_dict['neighborhood'],
             'city': shipping_address_dict['city'],
-            'state_abbr': shipping_address_dict['state'],
+            # Normalizar state para maiúsculas
+            'state_abbr': (shipping_address_dict.get('state', '') or '').upper().strip(),
         }
 
         if insurance_capped:
