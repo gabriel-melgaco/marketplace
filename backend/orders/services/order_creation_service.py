@@ -227,23 +227,36 @@ class OrderCreationService:
             seller = seller_items[0]['seller']
 
             try:
-                cart_response, sent_payload = melhor_envio.add_to_cart_raw(
+                # add_to_cart_raw retorna (cart_results: list, base_payload: dict)
+                # cart_results é uma lista de respostas — uma por volume/pacote
+                cart_results, sent_payload = melhor_envio.add_to_cart_raw(
                     buyer=user,
                     seller=seller,
                     seller_validated_items=seller_items,
                     shipping_address_dict=shipping_address_dict,
                     service_id=service_id,
                 )
-                insurance_warning = cart_response.pop('_insurance_warning', None)
+                # Extrair insurance_warning da lista (injetado no primeiro item quando presente)
+                insurance_warning = None
+                if isinstance(cart_results, list) and cart_results:
+                    insurance_warning = cart_results[0].pop('_insurance_warning', None)
+                    first_cart_id = cart_results[0].get('id')
+                elif isinstance(cart_results, dict):
+                    # Retrocompatibilidade: se por algum motivo retornar dict
+                    insurance_warning = cart_results.pop('_insurance_warning', None)
+                    first_cart_id = cart_results.get('id')
+                else:
+                    first_cart_id = None
+
                 me_cart_results[seller_id] = {
-                    'cart_response': cart_response,
+                    'cart_response': cart_results,
                     'sent_payload': sent_payload,
                     'insurance_warning': insurance_warning,
                     'seller': seller,
                 }
                 logger.info(
                     f'Frete adicionado ao carrinho ME para vendedor {seller.email}: '
-                    f'cart_id={cart_response.get("id")}'
+                    f'cart_ids={[r.get("id") for r in cart_results] if isinstance(cart_results, list) else first_cart_id}'
                 )
             except (ShippingValidationError, Exception) as e:
                 logger.error(
@@ -277,9 +290,13 @@ class OrderCreationService:
             sent_payload = data['sent_payload']
             insurance_warning = data['insurance_warning']
 
-            # Reinjeta o warning temporariamente para create_shipment_record() limpá-lo
+            # cart_response pode ser lista (multi-pacote) ou dict (retrocompat)
+            # Reinjeta o warning no primeiro item para create_shipment_record() limpá-lo
             if insurance_warning:
-                cart_response['_insurance_warning'] = insurance_warning
+                if isinstance(cart_response, list) and cart_response:
+                    cart_response[0]['_insurance_warning'] = insurance_warning
+                elif isinstance(cart_response, dict):
+                    cart_response['_insurance_warning'] = insurance_warning
 
             shipment, _ = me_service.create_shipment_record(
                 order=order,
