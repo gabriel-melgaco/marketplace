@@ -2,7 +2,7 @@ from django.contrib import admin
 from .models import (
     ShippingQuote, Shipment, ShipmentTracking, Address,
     OrderDelivery, InPersonDelivery, DeliveryStatusLog,
-    MelhorEnvioOAuthToken,
+    MelhorEnvioOAuthToken, SellerMelhorEnvioToken,
 )
 
 
@@ -260,6 +260,96 @@ class MelhorEnvioOAuthTokenAdmin(admin.ModelAdmin):
         return obj.is_expired()
     is_expired_display.short_description = 'Expirado?'
     is_expired_display.boolean = True
+
+    def access_token_preview(self, obj):
+        if obj.access_token:
+            return f'{obj.access_token[:20]}...'
+        return '(vazio)'
+    access_token_preview.short_description = 'Access Token (preview)'
+
+    def refresh_token_preview(self, obj):
+        if obj.refresh_token:
+            return f'{obj.refresh_token[:20]}...'
+        return '(vazio)'
+    refresh_token_preview.short_description = 'Refresh Token (preview)'
+
+    def has_add_permission(self, request):
+        # Tokens são criados apenas via fluxo OAuth, não manualmente
+        return False
+
+
+@admin.register(SellerMelhorEnvioToken)
+class SellerMelhorEnvioTokenAdmin(admin.ModelAdmin):
+    """
+    Admin para gerenciar tokens OAuth 2.0 por vendedor.
+
+    Permite visualizar qual conta ME está vinculada a cada vendedor
+    e diagnosticar problemas de autenticação (ex: me_document vazio).
+    """
+
+    list_display = (
+        'seller',
+        'environment',
+        'me_email',
+        'me_document_preview',
+        'me_firstname',
+        'is_active',
+        'is_expired_display',
+        'expires_at',
+        'created_at',
+    )
+    list_filter = ('environment', 'is_active')
+    search_fields = ('seller__email', 'me_email', 'me_firstname')
+    readonly_fields = (
+        'expires_at',
+        'refresh_token_expires_at',
+        'scope',
+        'last_refreshed_at',
+        'created_at',
+        'updated_at',
+        'access_token_preview',
+        'refresh_token_preview',
+        'me_email',
+        'me_document_preview',
+        'me_firstname',
+    )
+
+    # Nunca mostrar tokens completos no admin
+    exclude = ('access_token', 'refresh_token')
+
+    fieldsets = (
+        ('Vendedor', {
+            'fields': ('seller', 'environment', 'is_active'),
+        }),
+        ('Conta Melhor Envio vinculada', {
+            'fields': ('me_email', 'me_document_preview', 'me_firstname'),
+            'description': (
+                'Dados da conta ME conectada via OAuth. '
+                'Se me_document estiver vazio, o vendedor precisa reconectar a conta ME.'
+            ),
+        }),
+        ('Tokens (somente leitura - primeiros 20 caracteres)', {
+            'fields': ('access_token_preview', 'refresh_token_preview'),
+        }),
+        ('Expiração', {
+            'fields': ('expires_at', 'refresh_token_expires_at'),
+        }),
+        ('Metadata', {
+            'fields': ('scope', 'last_refreshed_at', 'created_at', 'updated_at'),
+            'classes': ('collapse',),
+        }),
+    )
+
+    def is_expired_display(self, obj):
+        return obj.is_expired()
+    is_expired_display.short_description = 'Expirado?'
+    is_expired_display.boolean = True
+
+    def me_document_preview(self, obj):
+        if obj.me_document:
+            return f'{obj.me_document[:3]}***{obj.me_document[-2:]}'
+        return '⚠ VAZIO - reconectar conta ME'
+    me_document_preview.short_description = 'CPF/CNPJ ME'
 
     def access_token_preview(self, obj):
         if obj.access_token:

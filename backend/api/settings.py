@@ -332,7 +332,7 @@ MELHOR_ENVIO_SELLER_REDIRECT_URI = os.getenv(
 MELHOR_ENVIO_STATE_SECRET = os.getenv('MELHOR_ENVIO_STATE_SECRET', '')
 
 # Email para o User-Agent obrigatório nas chamadas à API
-MELHOR_ENVIO_USER_AGENT_EMAIL = os.getenv('MELHOR_ENVIO_USER_AGENT_EMAIL', 'contato@seuapp.com')
+MELHOR_ENVIO_USER_AGENT_EMAIL = os.getenv('MELHOR_ENVIO_USER_AGENT_EMAIL', 'gabrielmelgacom@gmail.com')
 
 MELHOR_ENVIO_PLATFORM_NAME = os.getenv('MELHOR_ENVIO_PLATFORM_NAME', 'Marketplace Academia')
 
