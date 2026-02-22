@@ -131,22 +131,30 @@ class MarketplaceListing(models.Model):
     weight_kg = models.DecimalField(
         max_digits=6,
         decimal_places=2,
-        help_text="Peso em kg"
+        null=True,
+        blank=True,
+        help_text="Peso em kg (legado — use packages)"
     )
     height_cm = models.DecimalField(
         max_digits=6,
         decimal_places=2,
-        help_text="Altura em cm"
+        null=True,
+        blank=True,
+        help_text="Altura em cm (legado — use packages)"
     )
     width_cm = models.DecimalField(
         max_digits=6,
         decimal_places=2,
-        help_text="Largura em cm"
+        null=True,
+        blank=True,
+        help_text="Largura em cm (legado — use packages)"
     )
     length_cm = models.DecimalField(
         max_digits=6,
         decimal_places=2,
-        help_text="Comprimento em cm"
+        null=True,
+        blank=True,
+        help_text="Comprimento em cm (legado — use packages)"
     )
 
     shipping_address = models.ForeignKey(
@@ -193,3 +201,60 @@ class MarketplaceListingImages(models.Model):
 
     def __str__(self):
         return f'Imagem - {self.listing.product.name}'
+
+
+class ListingPackage(models.Model):
+    """
+    Representa um pacote físico de um anúncio (MarketplaceListing).
+
+    Um anúncio pode ter múltiplos pacotes — por exemplo, um equipamento de
+    academia que vem desmontado em duas caixas de tamanhos diferentes.
+
+    Cada pacote gera um volume separado no payload do Melhor Envio, permitindo
+    cálculo de frete mais preciso e eliminando a necessidade de consolidação
+    manual de dimensões.
+
+    Migração de legado: Listings criados antes desta feature têm as dimensões
+    nos campos weight_kg / height_cm / width_cm / length_cm do próprio listing.
+    O serviço ME faz fallback para esses campos quando não há pacotes.
+    """
+
+    listing = models.ForeignKey(
+        MarketplaceListing,
+        on_delete=models.CASCADE,
+        related_name='packages'
+    )
+    weight_kg = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        help_text="Peso do pacote em kg"
+    )
+    height_cm = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        help_text="Altura do pacote em cm"
+    )
+    width_cm = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        help_text="Largura do pacote em cm"
+    )
+    length_cm = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        help_text="Comprimento do pacote em cm"
+    )
+    description = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Descrição opcional do pacote (ex: 'Caixa grande')"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Pacote do Anúncio'
+        verbose_name_plural = 'Pacotes do Anúncio'
+        ordering = ['id']
+
+    def __str__(self):
+        return f'Pacote {self.id} - {self.listing.title} ({self.weight_kg}kg)'

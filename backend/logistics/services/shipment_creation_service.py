@@ -224,16 +224,21 @@ class ShipmentCreationService:
         from collections import defaultdict
         shipments_by_seller = defaultdict(list)
         for shipment in pending_shipments:
-            if not shipment.melhorenvio_order_id:
+            has_ids = bool(shipment.melhorenvio_order_ids or shipment.melhorenvio_order_id)
+            if not has_ids:
                 raise ShipmentCreationError(
                     f'Shipment {shipment.id} não possui melhorenvio_order_id. '
                     f'O carrinho não foi adicionado corretamente.'
                 )
             shipments_by_seller[shipment.seller].append(shipment)
 
-        all_cart_ids = [s.melhorenvio_order_id for s in pending_shipments]
+        def _all_me_ids(shipment):
+            """Retorna todos os IDs ME do shipment (suporte a multi-pacote)."""
+            return shipment.melhorenvio_order_ids or [shipment.melhorenvio_order_id]
+
+        all_cart_ids = [mid for s in pending_shipments for mid in _all_me_ids(s)]
         logger.info(
-            f'Fazendo checkout de {len(all_cart_ids)} envio(s) para pedido '
+            f'Fazendo checkout de {len(all_cart_ids)} ID(s) ME para pedido '
             f'{order.order_number}: {all_cart_ids}'
         )
 
@@ -242,7 +247,7 @@ class ShipmentCreationService:
         checkout_result = {}
         try:
             for seller, seller_shipments in shipments_by_seller.items():
-                seller_cart_ids = [s.melhorenvio_order_id for s in seller_shipments]
+                seller_cart_ids = [mid for s in seller_shipments for mid in _all_me_ids(s)]
                 logger.info(
                     f'Checkout para vendedor {seller.email}: '
                     f'cart_ids={seller_cart_ids}'

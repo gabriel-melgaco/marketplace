@@ -342,7 +342,7 @@ class MelhorEnvioService:
         
         # Agrupar itens por vendedor
         items_by_seller = defaultdict(list)
-        for item in cart.items.select_related('listing__seller', 'listing').all():
+        for item in cart.items.select_related('listing__seller', 'listing').prefetch_related('listing__packages').all():
             items_by_seller[item.listing.seller].append(item)
         
         quotes_by_seller = {}
@@ -387,23 +387,42 @@ class MelhorEnvioService:
                 }
                 continue
 
-            # Preparar produtos para API (OPÇÃO 1 - Recomendada)
+            # Preparar produtos para API (OPÇÃO 1 - Recomendada).
+            # Para o endpoint de cálculo de frete, o ME aceita o formato "products"
+            # onde cada entrada representa um item com suas dimensões. Quando o listing
+            # tem múltiplos pacotes, expandimos cada pacote como um produto separado.
             products = []
             total_value = 0
 
             for item in items:
                 listing = item.listing
+                packages = list(listing.packages.all())
                 product_insurance = min(float(listing.price), settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE)
-                product_data = {
-                    'id': str(listing.id),
-                    'width': float(listing.width_cm),
-                    'height': float(listing.height_cm),
-                    'length': float(listing.length_cm),
-                    'weight': float(listing.weight_kg),
-                    'insurance_value': product_insurance,
-                    'quantity': item.quantity
-                }
-                products.append(product_data)
+
+                if packages:
+                    # Cada pacote do listing vira um produto no cálculo de frete
+                    for pkg in packages:
+                        products.append({
+                            'id': f'{listing.id}-pkg{pkg.id}',
+                            'width': int(round(float(pkg.width_cm))),
+                            'height': int(round(float(pkg.height_cm))),
+                            'length': int(round(float(pkg.length_cm))),
+                            'weight': round(float(pkg.weight_kg), 3),
+                            'insurance_value': product_insurance,
+                            'quantity': item.quantity,
+                        })
+                else:
+                    # Fallback: campos legados do listing
+                    products.append({
+                        'id': str(listing.id),
+                        'width': float(listing.width_cm or 0),
+                        'height': float(listing.height_cm or 0),
+                        'length': float(listing.length_cm or 0),
+                        'weight': float(listing.weight_kg or 0),
+                        'insurance_value': product_insurance,
+                        'quantity': item.quantity,
+                    })
+
                 total_value += float(listing.price) * item.quantity
 
             # Opções adicionais (cap no limite de envios não comerciais)
@@ -424,7 +443,7 @@ class MelhorEnvioService:
                     options=options
                 )
 
-                # Calcular dimensoes consolidadas do pacote
+                # Calcular dimensoes consolidadas do pacote (para armazenamento no ShippingQuote)
                 package_weight = sum(p['weight'] * p['quantity'] for p in products)
                 package_height = max(p['height'] for p in products)
                 package_width = max(p['width'] for p in products)
@@ -580,6 +599,247 @@ class MelhorEnvioService:
 
         return unavailable
     
+    def _build_volumes_for_items(self, seller_items) -> list:
+        """
+        Constrói a lista de volumes para o payload ME a partir dos OrderItems do vendedor.
+
+        Estratégia:
+        - Se o listing do item tiver ListingPackages, cada pacote multiplicado pela
+          quantidade do OrderItem vira um volume separado no payload.
+        - Caso contrário, faz fallback para os campos legados do listing/item,
+          criando um volume por unidade do OrderItem.
+
+        Validação de girth dos Correios (PAC/SEDEX):
+        Cada volume é validado individualmente contra o limite de perímetro
+        dos Correios: maior_lado + 2 * (lado2 + lado3) <= 200 cm.
+        Volumes que excedem o limite recebem um aviso no log, mas não bloqueiam
+        o envio (para não impedir o uso de outras transportadoras como JADLOG,
+        J&T, Loggi).
+
+        Args:
+            seller_items: QuerySet ou lista de OrderItem do vendedor.
+
+        Returns:
+            list: Lista de dicts com height, width, length (int, cm) e weight (float, kg).
+
+        Raises:
+            ShipmentCreationError: Se nenhum volume puder ser calculado.
+        """
+        from orders.models import OrderItem  # evitar import circular no top
+
+        volumes = []
+
+        for item in seller_items:
+            listing = item.listing
+            packages = list(listing.packages.all())
+
+            if packages:
+                # Novo caminho: cada pacote × quantidade vira um volume separado
+                for pkg in packages:
+                    for _ in range(item.quantity):
+                        vol_height = int(round(float(pkg.height_cm)))
+                        vol_width = int(round(float(pkg.width_cm)))
+                        vol_length = int(round(float(pkg.length_cm)))
+                        vol_weight = round(float(pkg.weight_kg), 3)
+
+                        # Warn on Correios girth violation per individual volume
+                        dims_sorted = sorted([vol_height, vol_width, vol_length], reverse=True)
+                        girth = dims_sorted[0] + 2 * (dims_sorted[1] + dims_sorted[2])
+                        if girth > 200:
+                            logger.warning(
+                                f'Volume do pacote {pkg.id} (listing {listing.id}) excede o '
+                                f'limite de girth dos Correios: {girth}cm > 200cm. '
+                                f'h={vol_height}, w={vol_width}, l={vol_length}. '
+                                f'Correios (PAC/SEDEX) pode rejeitar. Verifique os dados no DB.'
+                            )
+
+                        volumes.append({
+                            'height': vol_height,
+                            'width': vol_width,
+                            'length': vol_length,
+                            'weight': vol_weight,
+                        })
+            else:
+                # Fallback: campos legados do item (snapshot) ou do listing
+                weight = float(item.weight_kg) if item.weight_kg else float(listing.weight_kg or 0)
+                height = float(item.height_cm) if item.height_cm else float(listing.height_cm or 0)
+                width = float(item.width_cm) if item.width_cm else float(listing.width_cm or 0)
+                length = float(item.length_cm) if item.length_cm else float(listing.length_cm or 0)
+
+                for _ in range(item.quantity):
+                    vol_height = int(round(height))
+                    vol_width = int(round(width))
+                    vol_length = int(round(length))
+                    vol_weight = round(weight, 3)
+
+                    dims_sorted = sorted([vol_height, vol_width, vol_length], reverse=True)
+                    girth = dims_sorted[0] + 2 * (dims_sorted[1] + dims_sorted[2])
+                    if girth > 200:
+                        logger.warning(
+                            f'Volume legado do item (listing {listing.id}) excede o '
+                            f'limite de girth dos Correios: {girth}cm > 200cm. '
+                            f'h={vol_height}, w={vol_width}, l={vol_length}. '
+                            f'Correios (PAC/SEDEX) pode rejeitar. Verifique os dados no DB.'
+                        )
+
+                    volumes.append({
+                        'height': vol_height,
+                        'width': vol_width,
+                        'length': vol_length,
+                        'weight': vol_weight,
+                    })
+
+        if not volumes:
+            raise Exception('Nenhum volume encontrado para criar o envio. '
+                            'Verifique se os itens possuem dimensões configuradas.')
+
+        return volumes
+
+    def _build_volumes_for_raw_items(self, seller_validated_items) -> list:
+        """
+        Versão de _build_volumes_for_items para o fluxo `add_to_cart_raw`,
+        onde os items ainda não existem no banco como OrderItem — são dicts
+        com chaves: listing, quantity, dimensions (weight_kg, height_cm, etc.).
+
+        Estratégia igual à de _build_volumes_for_items: prefere ListingPackages
+        e faz fallback para o dict de dimensions.
+
+        Args:
+            seller_validated_items: Lista de dicts com:
+                - listing: instância de MarketplaceListing
+                - quantity: int
+                - dimensions: dict com weight_kg, height_cm, width_cm, length_cm
+
+        Returns:
+            list: Lista de dicts com height, width, length (int, cm) e weight (float, kg).
+
+        Raises:
+            Exception: Se nenhum volume puder ser calculado.
+        """
+        volumes = []
+
+        for item_data in seller_validated_items:
+            listing = item_data['listing']
+            quantity = item_data['quantity']
+            dimensions = item_data.get('dimensions', {})
+
+            packages = list(listing.packages.all())
+
+            if packages:
+                for pkg in packages:
+                    for _ in range(quantity):
+                        vol_height = int(round(float(pkg.height_cm)))
+                        vol_width = int(round(float(pkg.width_cm)))
+                        vol_length = int(round(float(pkg.length_cm)))
+                        vol_weight = round(float(pkg.weight_kg), 3)
+
+                        dims_sorted = sorted([vol_height, vol_width, vol_length], reverse=True)
+                        girth = dims_sorted[0] + 2 * (dims_sorted[1] + dims_sorted[2])
+                        if girth > 200:
+                            logger.warning(
+                                f'Volume do pacote {pkg.id} (listing {listing.id}) excede o '
+                                f'limite de girth dos Correios: {girth}cm > 200cm. '
+                                f'h={vol_height}, w={vol_width}, l={vol_length}. '
+                                f'Vendedor: {listing.seller_id}'
+                            )
+
+                        volumes.append({
+                            'height': vol_height,
+                            'width': vol_width,
+                            'length': vol_length,
+                            'weight': vol_weight,
+                        })
+            else:
+                # Fallback para dimensions dict
+                weight = float(dimensions.get('weight_kg', 0))
+                height = float(dimensions.get('height_cm', 0))
+                width = float(dimensions.get('width_cm', 0))
+                length = float(dimensions.get('length_cm', 0))
+
+                for _ in range(quantity):
+                    vol_height = int(round(height))
+                    vol_width = int(round(width))
+                    vol_length = int(round(length))
+                    vol_weight = round(weight, 3)
+
+                    dims_sorted = sorted([vol_height, vol_width, vol_length], reverse=True)
+                    girth = dims_sorted[0] + 2 * (dims_sorted[1] + dims_sorted[2])
+                    if girth > 200:
+                        logger.warning(
+                            f'Volume legado (listing {listing.id}) excede o '
+                            f'limite de girth dos Correios: {girth}cm > 200cm. '
+                            f'h={vol_height}, w={vol_width}, l={vol_length}.'
+                        )
+
+                    volumes.append({
+                        'height': vol_height,
+                        'width': vol_width,
+                        'length': vol_length,
+                        'weight': vol_weight,
+                    })
+
+        if not volumes:
+            raise Exception('Nenhum volume encontrado para criar o envio. '
+                            'Verifique se os itens possuem dimensões configuradas.')
+
+        return volumes
+
+    def _post_to_cart(self, service_id, from_block, to_block, products, volume, options, seller):
+        """
+        Faz UMA chamada POST /api/v2/me/cart com um único volume.
+
+        Cada ListingPackage gera uma chamada separada para que cada pacote
+        seja tratado como um envio independente no Melhor Envio.
+
+        Args:
+            service_id: ID do serviço ME (ex: '1' para Correios PAC)
+            from_block: Dict com dados do remetente
+            to_block: Dict com dados do destinatário
+            products: Lista de produtos (mesma para todos os volumes)
+            volume: Dict com height, width, length (int) e weight (float)
+            options: Dict com insurance_value, receipt, own_hand, platform, tags
+            seller: Instância de CustomUser do vendedor (para token OAuth)
+
+        Returns:
+            tuple: (response_dict, payload_dict)
+
+        Raises:
+            Exception: Se a chamada HTTP falhar
+        """
+        url = f'{self.base_url}/me/cart'
+        payload = {
+            'service': service_id,
+            'from': from_block,
+            'to': to_block,
+            'products': products,
+            'volumes': [volume],
+            'options': options,
+        }
+        try:
+            response = requests.post(
+                url,
+                json=payload,
+                headers=self._get_headers(seller=seller, require_oauth=True),
+                timeout=30,
+            )
+            response.raise_for_status()
+            return response.json(), payload
+        except requests.exceptions.HTTPError as e:
+            error_detail = 'Resposta não disponível'
+            if e.response is not None:
+                try:
+                    error_detail = e.response.json()
+                except Exception:
+                    error_detail = e.response.text
+            logger.error(
+                f'Erro HTTP ao adicionar volume ao carrinho ME: '
+                f'{e.response.status_code if e.response else "N/A"} — volume={volume} — {error_detail}'
+            )
+            raise Exception(f'Erro ao adicionar envio ao carrinho: {error_detail}')
+        except requests.exceptions.RequestException as e:
+            logger.error(f'Erro de conexão ao adicionar volume ao carrinho ME: {e}')
+            raise Exception(f'Erro ao adicionar envio ao carrinho: {e}')
+
     def create_shipment_in_cart(self, order, seller, shipping_service_id):
         """
         PASSO 1: Adiciona envio ao carrinho do Melhor Envio
@@ -648,39 +908,11 @@ class MelhorEnvioService:
                 'unitary_value': f"{float(item.unit_price):.2f}",
             })
 
-        # Preparar volume único consolidado
-        # Correios, J&T e Loggi não aceitam múltiplos volumes em uma única requisição
-        total_weight = sum(float(item.weight_kg) * item.quantity for item in seller_items)
-        max_height = max(float(item.height_cm) for item in seller_items)
-        max_width = max(float(item.width_cm) for item in seller_items)
-        total_length = sum(float(item.length_cm) * item.quantity for item in seller_items)
-
-        # Convert dimensions to int as required by the Melhor Envio API documentation.
-        # Float values can cause unexpected 500 errors on the ME side.
-        vol_height = int(round(max_height))
-        vol_width = int(round(max_width))
-        vol_length = int(round(total_length))
-        vol_weight = round(total_weight, 3)  # weight can have decimals (kg)
-
-        # Warn if Correios girth formula is exceeded: major_side + 2*(side2 + side3) <= 200cm
-        dims_sorted = sorted([vol_height, vol_width, vol_length], reverse=True)
-        correios_girth = dims_sorted[0] + 2 * (dims_sorted[1] + dims_sorted[2])
-        if correios_girth > 200:
-            logger.warning(
-                f'AVISO: Dimensoes do pacote excedem o limite do Correios '
-                f'(maior lado + 2*(lado2 + lado3) = {correios_girth}cm > 200cm). '
-                f'height={vol_height}cm, width={vol_width}cm, length={vol_length}cm. '
-                f'O Correios (PAC/SEDEX) pode rejeitar este pacote. '
-                f'Verifique as dimensoes do produto no banco de dados. '
-                f'Pedido: {order.order_number}, vendedor: {seller.email}'
-            )
-
-        volumes = [{
-            'height': vol_height,
-            'width': vol_width,
-            'length': vol_length,
-            'weight': vol_weight
-        }]
+        # Construir volumes a partir dos ListingPackages (ou fallback legado)
+        # Cada pacote × quantidade vira um volume separado no payload ME.
+        # Validação de girth dos Correios é feita por volume em _build_volumes_for_items.
+        seller_items_list = list(seller_items.select_related('listing').prefetch_related('listing__packages'))
+        volumes = self._build_volumes_for_items(seller_items_list)
 
         # Resolver identidade do remetente: usar dados da conta ME do vendedor se disponível
         from ..models import SellerMelhorEnvioToken
@@ -744,27 +976,6 @@ class MelhorEnvioService:
             'state_abbr': order.shipping_address['state'],
         }
 
-        payload = {
-            'service': shipping_service_id,
-            'from': from_block,
-            'to': to_block,
-            'products': products,
-            'volumes': volumes,
-            'options': {
-                'insurance_value': min(
-                    float(sum(item.subtotal for item in seller_items)),
-                    settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE
-                ),
-                'receipt': False,
-                'own_hand': False,
-                # platform identifies the originating application in ME dashboard
-                'platform': getattr(settings, 'MELHOR_ENVIO_PLATFORM_NAME', 'Marketplace Academia'),
-                # tag with order number for tracking in ME dashboard
-                'tags': [{'tag': str(order.order_number), 'url': ''}],
-            }
-        }
-
-        # Registrar warning se valor segurado foi limitado
         original_value = float(sum(item.subtotal for item in seller_items))
         insurance_capped = original_value > settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE
         if insurance_capped:
@@ -774,51 +985,47 @@ class MelhorEnvioService:
                 f'Pedido: {order.order_number}, vendedor: {seller.email}'
             )
 
-        try:
+        options = {
+            'insurance_value': min(original_value, settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE),
+            'receipt': False,
+            'own_hand': False,
+            'platform': getattr(settings, 'MELHOR_ENVIO_PLATFORM_NAME', 'Marketplace Academia'),
+            'tags': [{'tag': str(order.order_number), 'url': ''}],
+        }
+
+        # Uma chamada ao carrinho por volume (= por ListingPackage).
+        # Isso cria N envios independentes no ME — um por caixa física.
+        logger.info(
+            f'Adicionando {len(volumes)} volume(s) ao carrinho ME: pedido {order.order_number}, '
+            f'vendedor {seller.email}, serviço {shipping_service_id}'
+        )
+        cart_results = []
+        base_payload = None
+        for idx, volume in enumerate(volumes):
+            result, sent = self._post_to_cart(
+                shipping_service_id, from_block, to_block, products, volume, options, seller
+            )
+            if base_payload is None:
+                base_payload = sent
             logger.info(
-                f'Adicionando envio ao carrinho: pedido {order.order_number}, '
-                f'vendedor {seller.email}, serviço {shipping_service_id}'
+                f'Volume {idx + 1}/{len(volumes)} adicionado ao carrinho: '
+                f'me_id={result.get("id")}, pedido {order.order_number}'
             )
-            response = requests.post(url, json=payload, headers=self._get_headers(seller=seller, require_oauth=True), timeout=30)
-            response.raise_for_status()
-            logger.info(f'Envio adicionado ao carrinho com sucesso: pedido {order.order_number}')
-            result = response.json()
+            cart_results.append(result)
 
-            logger.info(
-                f'Resposta do carrinho Melhor Envio: {json.dumps(result, default=str)[:2000]}'
-            )
+        if insurance_capped:
+            cart_results[0]['_insurance_warning'] = {
+                'original_value': original_value,
+                'capped_value': settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE,
+                'message': (
+                    f'O valor segurado foi limitado de R${original_value:.2f} para '
+                    f'R${settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE:.2f}. '
+                    'Envios não comerciais possuem limite máximo de seguro de R$1.000,00.'
+                ),
+            }
 
-            if insurance_capped:
-                result['_insurance_warning'] = {
-                    'original_value': original_value,
-                    'capped_value': settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE,
-                    'message': (
-                        f'O valor segurado foi limitado de R${original_value:.2f} para '
-                        f'R${settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE:.2f}. Envios não comerciais possuem '
-                        f'limite máximo de seguro de R$1.000,00.'
-                    )
-                }
-            return result, payload
-        except requests.exceptions.HTTPError as e:
-            # MELHORIA: Capturar corpo completo da resposta para debug
-            error_detail = 'Resposta não disponível'
-            if e.response is not None:
-                try:
-                    error_detail = e.response.json()
-                except:
-                    error_detail = e.response.text
+        return cart_results, base_payload
 
-            logger.error(
-                f'Erro HTTP ao adicionar envio ao carrinho: {e.response.status_code if e.response else "N/A"}\n'
-                f'URL: {url}\n'
-                f'Payload: {payload}\n'
-                f'Resposta: {error_detail}'
-            )
-            raise Exception(f'Erro ao adicionar envio ao carrinho: {error_detail}')
-        except requests.exceptions.RequestException as e:
-            logger.error(f'Erro de conexão ao adicionar envio ao carrinho: {str(e)}')
-            raise Exception(f'Erro ao adicionar envio ao carrinho: {str(e)}')
-    
     def checkout_cart(self, order_ids, seller=None):
         """
         PASSO 2: Compra/Checkout dos envios do carrinho
@@ -863,36 +1070,72 @@ class MelhorEnvioService:
     
     def create_shipment_record(self, order, seller, cart_data, sent_payload):
         """
-        Cria o registro de Shipment no banco de dados a partir da resposta do carrinho.
+        Cria o registro de Shipment no banco de dados a partir da(s) resposta(s) do carrinho.
 
-        Separa a lógica de criação de DB da chamada à API para permitir
-        que o checkout seja feito em uma etapa posterior.
+        Quando o listing possui múltiplos pacotes, `cart_data` é uma lista de respostas
+        (uma por volume/pacote). Também aceita um único dict para retrocompatibilidade.
 
         Args:
             order: Pedido
             seller: Vendedor
-            cart_data: Resposta da API do carrinho (POST /api/v2/me/cart)
-            sent_payload: Payload enviado ao carrinho (para fallback de endereços)
+            cart_data: Lista de respostas do carrinho ME ou único dict (retrocompat)
+            sent_payload: Payload base enviado ao carrinho (para fallback de endereços)
 
         Returns:
             tuple: (Shipment, insurance_warning ou None)
         """
-        melhorenvio_order_id = cart_data.get('id')
+        # Normalizar: aceitar tanto lista quanto dict único
+        if isinstance(cart_data, dict):
+            cart_data_list = [cart_data]
+        else:
+            cart_data_list = list(cart_data)
+
+        if not cart_data_list:
+            raise Exception('Nenhuma resposta do carrinho recebida')
+
+        first = cart_data_list[0]
+        melhorenvio_order_id = first.get('id')
         if not melhorenvio_order_id:
             raise Exception('ID do pedido não retornado ao adicionar no carrinho')
 
-        # Extrair warning de insurance (se houver)
-        insurance_warning = cart_data.pop('_insurance_warning', None)
+        all_me_ids = [r['id'] for r in cart_data_list if r.get('id')]
 
-        # Calcular dimensões a partir dos itens do vendedor
-        seller_items = order.items.filter(seller=seller)
-        total_weight = sum(float(item.weight_kg) * item.quantity for item in seller_items)
-        max_height = max(float(item.height_cm) for item in seller_items)
-        max_width = max(float(item.width_cm) for item in seller_items)
-        total_length = sum(float(item.length_cm) * item.quantity for item in seller_items)
+        # Extrair warning de insurance (presente apenas no primeiro item quando limitado)
+        insurance_warning = None
+        for r in cart_data_list:
+            w = r.pop('_insurance_warning', None)
+            if w:
+                insurance_warning = w
+                break
 
-        # Extrair carrier info da resposta da API
-        service_data = cart_data.get('service') or {}
+        # Calcular dimensões consolidadas para armazenamento no Shipment
+        # (usamos agregação para os campos legados do Shipment — não afeta o payload ME)
+        seller_items = order.items.filter(seller=seller).select_related('listing').prefetch_related('listing__packages')
+        total_weight = 0.0
+        max_height = 0.0
+        max_width = 0.0
+        total_length = 0.0
+        for item in seller_items:
+            listing = item.listing
+            packages = list(listing.packages.all())
+            if packages:
+                for pkg in packages:
+                    total_weight += float(pkg.weight_kg) * item.quantity
+                    max_height = max(max_height, float(pkg.height_cm))
+                    max_width = max(max_width, float(pkg.width_cm))
+                    total_length += float(pkg.length_cm) * item.quantity
+            else:
+                w = float(item.weight_kg) if item.weight_kg else float(listing.weight_kg or 0)
+                h = float(item.height_cm) if item.height_cm else float(listing.height_cm or 0)
+                wi = float(item.width_cm) if item.width_cm else float(listing.width_cm or 0)
+                le = float(item.length_cm) if item.length_cm else float(listing.length_cm or 0)
+                total_weight += w * item.quantity
+                max_height = max(max_height, h)
+                max_width = max(max_width, wi)
+                total_length += le * item.quantity
+
+        # Extrair carrier info da primeira resposta
+        service_data = first.get('service') or {}
         company_data = service_data.get('company') or {}
         carrier_name = company_data.get('name', '')
         carrier_service = service_data.get('name', '')
@@ -901,7 +1144,6 @@ class MelhorEnvioService:
         if not carrier_name or not carrier_service:
             seller_shipping = (order.shipping_services or {}).get(str(seller.id), {})
             if isinstance(seller_shipping, dict):
-                # 'company' pode ser string ou dict (objeto da API Melhor Envio)
                 company = seller_shipping.get('company', '')
                 if isinstance(company, dict):
                     carrier_name = carrier_name or company.get('name', '')
@@ -909,19 +1151,24 @@ class MelhorEnvioService:
                     carrier_name = carrier_name or str(company)
                 carrier_service = carrier_service or seller_shipping.get('service_name', '')
 
-        # Extrair endereços da resposta (com fallback para o payload enviado)
-        origin_address = cart_data.get('from') or sent_payload.get('from', {})
-        destination_address = cart_data.get('to') or sent_payload.get('to', {})
+        # Somar custos e seguros de todos os volumes (cada chamada retorna price individual)
+        total_shipping_cost = sum(float(r.get('price', 0) or 0) for r in cart_data_list)
+        total_insurance_value = sum(float(r.get('insurance_value', 0) or 0) for r in cart_data_list)
+
+        # Extrair endereços da primeira resposta (com fallback para o payload enviado)
+        origin_address = first.get('from') or sent_payload.get('from', {})
+        destination_address = first.get('to') or sent_payload.get('to', {})
 
         # Criar registro de Shipment com status 'pending' (ainda sem checkout)
         shipment = Shipment.objects.create(
             order=order,
             seller=seller,
             melhorenvio_order_id=melhorenvio_order_id,
+            melhorenvio_order_ids=all_me_ids,
             carrier_name=carrier_name,
             carrier_service=carrier_service,
-            shipping_cost=cart_data.get('price', 0) or 0,
-            insurance_value=cart_data.get('insurance_value', 0) or 0,
+            shipping_cost=total_shipping_cost,
+            insurance_value=total_insurance_value,
             weight=total_weight,
             height=max_height,
             width=max_width,
@@ -994,40 +1241,15 @@ class MelhorEnvioService:
             })
             total_insurance += item_data['unit_price'] * item_data['quantity']
 
-        # Volumes consolidados
-        total_weight = sum(
-            float(i['dimensions']['weight_kg']) * i['quantity']
-            for i in seller_validated_items
-        )
-        max_height = max(float(i['dimensions']['height_cm']) for i in seller_validated_items)
-        max_width = max(float(i['dimensions']['width_cm']) for i in seller_validated_items)
-        total_length = sum(
-            float(i['dimensions']['length_cm']) * i['quantity']
-            for i in seller_validated_items
-        )
-        # Convert dimensions to int as required by the Melhor Envio API documentation.
-        # The API expects integer values for height, width, length (cm) and weight (kg).
-        # Float values can cause unexpected 500 errors on the ME side.
-        vol_height = int(round(max_height))
-        vol_width = int(round(max_width))
-        vol_length = int(round(total_length))
-        vol_weight = round(total_weight, 3)  # weight can have decimals (kg)
-
-        # Warn if Correios girth formula is exceeded: major_side + 2*(side2 + side3) <= 200cm
-        # This is the most common cause of 500 errors for PAC/SEDEX with oversized packages.
-        dims_sorted = sorted([vol_height, vol_width, vol_length], reverse=True)
-        correios_girth = dims_sorted[0] + 2 * (dims_sorted[1] + dims_sorted[2])
-        if correios_girth > 200:
-            logger.warning(
-                f'AVISO: Dimensoes do pacote excedem o limite do Correios '
-                f'(maior lado + 2*(lado2 + lado3) = {correios_girth}cm > 200cm). '
-                f'height={vol_height}cm, width={vol_width}cm, length={vol_length}cm. '
-                f'O Correios (PAC/SEDEX) pode rejeitar este pacote. '
-                f'Verifique as dimensoes do produto no banco de dados. '
-                f'Vendedor: {seller.email}'
-            )
-
-        volumes = [{'height': vol_height, 'width': vol_width, 'length': vol_length, 'weight': vol_weight}]
+        # Construir volumes a partir dos ListingPackages (ou fallback para dimensions dict)
+        # Enriquece cada item com a instância do listing para consulta aos packages
+        for item_data in seller_validated_items:
+            if 'listing' not in item_data or not hasattr(item_data['listing'], 'packages'):
+                from products.models import MarketplaceListing as _ML
+                item_data['listing'] = _ML.objects.prefetch_related('packages').get(
+                    id=item_data['listing'].id
+                )
+        volumes = self._build_volumes_for_raw_items(seller_validated_items)
 
         # Resolver identidade do remetente: usar dados da conta ME do vendedor se disponível
         from ..models import SellerMelhorEnvioToken
@@ -1107,21 +1329,6 @@ class MelhorEnvioService:
             'state_abbr': shipping_address_dict['state'],
         }
 
-        payload = {
-            'service': service_id,
-            'from': from_block,
-            'to': to_block,
-            'products': products,
-            'volumes': volumes,
-            'options': {
-                'insurance_value': capped_insurance,
-                'receipt': False,
-                'own_hand': False,
-                # platform identifies the originating application in ME dashboard
-                'platform': getattr(settings, 'MELHOR_ENVIO_PLATFORM_NAME', 'Marketplace Academia'),
-            },
-        }
-
         if insurance_capped:
             logger.warning(
                 f'Valor segurado limitado de R${float(total_insurance):.2f} para '
@@ -1129,46 +1336,43 @@ class MelhorEnvioService:
                 f'Vendedor: {seller.email}'
             )
 
-        try:
+        options = {
+            'insurance_value': capped_insurance,
+            'receipt': False,
+            'own_hand': False,
+            'platform': getattr(settings, 'MELHOR_ENVIO_PLATFORM_NAME', 'Marketplace Academia'),
+        }
+
+        # Uma chamada ao carrinho por volume (= por ListingPackage).
+        logger.info(
+            f'Adicionando {len(volumes)} volume(s) ao carrinho ME (pré-order): '
+            f'vendedor {seller.email}, serviço {service_id}'
+        )
+        cart_results = []
+        base_payload = None
+        for idx, volume in enumerate(volumes):
+            result, sent = self._post_to_cart(
+                service_id, from_block, to_block, products, volume, options, seller
+            )
+            if base_payload is None:
+                base_payload = sent
             logger.info(
-                f'Adicionando ao carrinho ME (pré-order): vendedor {seller.email}, '
-                f'serviço {service_id}'
+                f'Volume {idx + 1}/{len(volumes)} adicionado ao carrinho ME (pré-order): '
+                f'me_id={result.get("id")}'
             )
-            response = requests.post(
-                url, json=payload, headers=self._get_headers(seller=seller, require_oauth=True), timeout=30
-            )
-            response.raise_for_status()
-            result = response.json()
-            logger.info(
-                f'Adicionado ao carrinho ME: {json.dumps(result, default=str)[:500]}'
-            )
-            if insurance_capped:
-                result['_insurance_warning'] = {
-                    'original_value': float(total_insurance),
-                    'capped_value': settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE,
-                    'message': (
-                        f'Valor segurado limitado de R${float(total_insurance):.2f} para '
-                        f'R${settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE:.2f}.'
-                    ),
-                }
-            return result, payload
-        except requests.exceptions.HTTPError as e:
-            error_detail = 'Resposta não disponível'
-            resp = e.response
-            status_code = resp.status_code if resp is not None else 'N/A'
-            if resp is not None:
-                try:
-                    error_detail = resp.json()
-                except Exception:
-                    error_detail = resp.text
-            logger.error(
-                f'Erro HTTP ao adicionar ao carrinho ME: {status_code}\n'
-                f'URL: {url}\nPayload: {payload}\nResposta: {error_detail}'
-            )
-            raise Exception(f'Erro ao adicionar ao carrinho ME: {error_detail}')
-        except requests.exceptions.RequestException as e:
-            logger.error(f'Erro de conexão ao adicionar ao carrinho ME: {str(e)}')
-            raise Exception(f'Erro ao adicionar ao carrinho ME: {str(e)}')
+            cart_results.append(result)
+
+        if insurance_capped:
+            cart_results[0]['_insurance_warning'] = {
+                'original_value': float(total_insurance),
+                'capped_value': settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE,
+                'message': (
+                    f'Valor segurado limitado de R${float(total_insurance):.2f} para '
+                    f'R${settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE:.2f}.'
+                ),
+            }
+
+        return cart_results, base_payload
 
     def add_to_cart_and_create_shipment(self, order, seller, shipping_service_id):
         """
@@ -1251,16 +1455,19 @@ class MelhorEnvioService:
         if seller is None:
             seller = getattr(shipment, 'seller', None)
 
+        # Todos os IDs ME do shipment (um por pacote quando listing tem múltiplos pacotes)
+        all_me_ids = shipment.melhorenvio_order_ids or [shipment.melhorenvio_order_id]
+
         # Gerar etiqueta
         generate_url = f'{self.base_url}/me/shipment/generate'
-        generate_payload = {'orders': [shipment.melhorenvio_order_id]}
+        generate_payload = {'orders': all_me_ids}
 
         # Etiquetas DEVEM ser geradas com token OAuth para que o webhook seja acionado.
         # Usa o token do vendedor se disponível; caso contrário usa token da plataforma.
         oauth_headers = self._get_headers(seller=seller, require_oauth=True)
 
         try:
-            logger.info(f'Gerando etiqueta para envio {shipment.melhorenvio_order_id}')
+            logger.info(f'Gerando etiqueta para envio(s) {all_me_ids}')
             response = requests.post(
                 generate_url,
                 json=generate_payload,
@@ -1268,7 +1475,7 @@ class MelhorEnvioService:
                 timeout=30
             )
             response.raise_for_status()
-            logger.info(f'Etiqueta gerada com sucesso: {shipment.melhorenvio_order_id}')
+            logger.info(f'Etiqueta(s) gerada(s) com sucesso: {all_me_ids}')
         except requests.exceptions.HTTPError as e:
             error_detail = 'Resposta não disponível'
             if e.response is not None:
@@ -1292,11 +1499,11 @@ class MelhorEnvioService:
         print_url = f'{self.base_url}/me/shipment/print'
         print_payload = {
             'mode': 'private',
-            'orders': [shipment.melhorenvio_order_id]
+            'orders': all_me_ids,
         }
 
         try:
-            logger.info(f'Obtendo URL de impressão da etiqueta: {shipment.melhorenvio_order_id}')
+            logger.info(f'Obtendo URL de impressão da etiqueta: {all_me_ids}')
             print_response = requests.post(
                 print_url,
                 json=print_payload,
@@ -1345,17 +1552,18 @@ class MelhorEnvioService:
             dict: Dados de rastreamento
         """
         url = f'{self.base_url}/me/shipment/tracking'
-        payload = {'orders': [shipment.melhorenvio_order_id]}
+        all_ids = shipment.melhorenvio_order_ids or [shipment.melhorenvio_order_id]
+        payload = {'orders': all_ids}
 
         try:
-            logger.info(f'Rastreando envio: {shipment.melhorenvio_order_id}')
+            logger.info(f'Rastreando envio: {all_ids}')
             response = requests.post(url, json=payload, headers=self._get_headers(), timeout=30)
             response.raise_for_status()
             data = response.json()
 
-            # Processar dados de rastreamento
+            # Processar dados de rastreamento (usar primeiro ID disponível)
             if data and isinstance(data, dict):
-                tracking_data = data.get(shipment.melhorenvio_order_id, {})
+                tracking_data = data.get(all_ids[0], {})
 
                 # Atualizar código de rastreamento
                 if tracking_data.get('tracking'):

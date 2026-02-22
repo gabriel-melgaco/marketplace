@@ -11,15 +11,16 @@ from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiParam
 from rest_framework import serializers as rf_serializers
 
 from .models import (
-    Category, Series, Products, Brand, 
-    Condition, MarketplaceListing, MarketplaceListingImages
+    Category, Series, Products, Brand,
+    Condition, MarketplaceListing, MarketplaceListingImages, ListingPackage,
 )
 from .serializers import (
     CategorySerializer, SeriesSerializer, ProductSerializer,
-    BrandSerializer, ConditionSerializer, 
+    BrandSerializer, ConditionSerializer,
     MarketplaceListingSerializer, MarketplaceListingCreateSerializer,
     MarketplaceListingUpdateSerializer, MarketplaceListingDetailSerializer,
-    MarketplaceListingImageSerializer, MarketplaceListingImageCreateSerializer
+    MarketplaceListingImageSerializer, MarketplaceListingImageCreateSerializer,
+    ListingPackageSerializer,
 )
 
 
@@ -263,11 +264,16 @@ class MarketplaceListingCreateView(generics.CreateAPIView):
 
     def create(self, request, *args, **kwargs):
         response = super().create(request, *args, **kwargs)
-        weight = request.data.get('weight_kg')
-        if weight is not None and float(weight) > 30:
+        # Check if any package exceeds 30kg and warn the seller
+        packages = request.data.get('packages', [])
+        if any(
+            float(pkg.get('weight_kg', 0)) > 30
+            for pkg in packages
+            if isinstance(pkg, dict)
+        ):
             response.data['warning'] = (
-                "Este produto pesa mais de 30kg. A maioria das transportadoras "
-                "não aceita encomendas acima desse peso. Recomendamos que a "
+                "Este produto possui um ou mais pacotes acima de 30kg. A maioria das "
+                "transportadoras não aceita encomendas acima desse peso. Recomendamos que a "
                 "entrega seja realizada presencialmente (in-person)."
             )
         return response
@@ -608,3 +614,103 @@ def recent_listings(request):
 
     serializer = MarketplaceListingSerializer(listings, many=True)
     return Response(serializer.data)
+
+
+# =================== Listing Package Views ===================
+@extend_schema(
+    tags=['Products'],
+    summary='List / add packages for a listing',
+    description=(
+        'GET: List all packages of a marketplace listing.\n\n'
+        'POST: Add a new package to an existing listing. '
+        'Only the seller who owns the listing can add packages.'
+    ),
+    responses={200: ListingPackageSerializer(many=True)},
+)
+class ListingPackageListView(generics.ListCreateAPIView):
+    """
+    GET  /api/products/listings/<listing_id>/packages/ — lista pacotes
+    POST /api/products/listings/<listing_id>/packages/ — adiciona pacote
+    """
+
+    serializer_class = ListingPackageSerializer
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        listing_id = self.kwargs.get('listing_id')
+        # For GET requests, anyone can view packages of a listing
+        get_object_or_404(MarketplaceListing, pk=listing_id)
+        return ListingPackage.objects.filter(listing_id=listing_id)
+
+    def perform_create(self, serializer):
+        listing_id = self.kwargs.get('listing_id')
+        listing = get_object_or_404(
+            MarketplaceListing, pk=listing_id, seller=self.request.user
+        )
+        serializer.save(listing=listing)
+
+
+@extend_schema(
+    tags=['Products'],
+    summary='Retrieve / update / delete a listing package',
+    description=(
+        'Manage a single package of a marketplace listing.\n\n'
+        'GET: Retrieve package details (public).\n'
+        'PUT / PATCH: Update package dimensions (seller only).\n'
+        'DELETE: Remove a package from the listing (seller only). '
+        'Cannot delete the last package — a listing must always have at least one.'
+    ),
+)
+class ListingPackageDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    GET    /api/products/listings/<listing_id>/packages/<pk>/ — detalhes
+    PUT    /api/products/listings/<listing_id>/packages/<pk>/ — substituição completa
+    PATCH  /api/products/listings/<listing_id>/packages/<pk>/ — atualização parcial
+    DELETE /api/products/listings/<listing_id>/packages/<pk>/ — remoção
+    """
+
+    serializer_class = ListingPackageSerializer
+
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [AllowAny()]
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        listing_id = self.kwargs.get('listing_id')
+        return ListingPackage.objects.filter(listing_id=listing_id)
+
+    def get_object(self):
+        listing_id = self.kwargs.get('listing_id')
+        pk = self.kwargs.get('pk')
+
+        if self.request.method == 'GET':
+            # Any user can retrieve package details
+            return get_object_or_404(ListingPackage, pk=pk, listing_id=listing_id)
+
+        # Write operations: verify ownership
+        return get_object_or_404(
+            ListingPackage,
+            pk=pk,
+            listing_id=listing_id,
+            listing__seller=self.request.user,
+        )
+
+    def perform_destroy(self, instance):
+        """
+        Impede a remoção do último pacote do listing.
+        Um anúncio deve ter sempre pelo menos 1 pacote para que o cálculo de
+        frete funcione corretamente.
+        """
+        remaining = ListingPackage.objects.filter(listing=instance.listing).count()
+        if remaining <= 1:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError(
+                'Não é possível remover o último pacote do anúncio. '
+                'O anúncio deve ter pelo menos 1 pacote com dimensões válidas.'
+            )
+        instance.delete()

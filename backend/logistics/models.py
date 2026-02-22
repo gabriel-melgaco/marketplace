@@ -93,6 +93,14 @@ class Shipment(models.Model):
     
     # IDs do Melhor Envio
     melhorenvio_order_id = models.CharField(max_length=255, unique=True)
+    # Quando o listing tem múltiplos pacotes, cada pacote gera uma chamada
+    # separada ao /api/v2/me/cart. Todos os IDs retornados ficam aqui.
+    # melhorenvio_order_id mantém o primeiro ID para retrocompatibilidade.
+    melhorenvio_order_ids = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Lista de IDs ME quando o listing possui múltiplos pacotes (1 chamada por pacote).',
+    )
     melhorenvio_tracking_code = models.CharField(max_length=255, blank=True)
     
     # Informações da transportadora

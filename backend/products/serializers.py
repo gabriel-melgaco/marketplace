@@ -2,7 +2,8 @@ from rest_framework import serializers
 from drf_spectacular.utils import extend_schema_field
 from .models import (
     Category, Series, Products, Brand,
-    Condition, MarketplaceListing, MarketplaceListingImages
+    Condition, MarketplaceListing, MarketplaceListingImages,
+    ListingPackage,
 )
 from logistics.models import Address
 from logistics.serializers import AddressSerializer
@@ -105,6 +106,42 @@ class MarketplaceListingImageCreateSerializer(serializers.ModelSerializer):
         fields = ['image_url', 'object_name', 'is_primary', 'order']
 
 
+# =================== Listing Package Serializers ===================
+class ListingPackageSerializer(serializers.ModelSerializer):
+    """
+    Serializer para pacotes de um anúncio (ListingPackage).
+
+    Valida que todas as dimensões e peso são maiores que zero.
+    Usado como nested serializer em criação/atualização de listings
+    e como serializer standalone nos endpoints /packages/.
+    """
+
+    class Meta:
+        model = ListingPackage
+        fields = ['id', 'weight_kg', 'height_cm', 'width_cm', 'length_cm', 'description']
+        read_only_fields = ['id']
+
+    def validate_weight_kg(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('O peso deve ser maior que zero.')
+        return value
+
+    def validate_height_cm(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('A altura deve ser maior que zero.')
+        return value
+
+    def validate_width_cm(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('A largura deve ser maior que zero.')
+        return value
+
+    def validate_length_cm(self, value):
+        if value <= 0:
+            raise serializers.ValidationError('O comprimento deve ser maior que zero.')
+        return value
+
+
 # =================== Marketplace Listing Serializers ===================
 class MarketplaceListingSerializer(serializers.ModelSerializer):
     """Serializer completo de listagem para listagem"""
@@ -112,6 +149,7 @@ class MarketplaceListingSerializer(serializers.ModelSerializer):
     brand = BrandSimpleSerializer(read_only=True)
     condition = ConditionSerializer(read_only=True)
     images = MarketplaceListingImageSerializer(many=True, read_only=True)
+    packages = ListingPackageSerializer(many=True, read_only=True)
     seller_name = serializers.CharField(source='seller.get_full_name', read_only=True)
     primary_image = serializers.SerializerMethodField()
     shipping_address = AddressSerializer(read_only=True)
@@ -123,7 +161,7 @@ class MarketplaceListingSerializer(serializers.ModelSerializer):
             'quantity', 'is_active', 'description', 'condition',
             'views_count', 'weight_kg', 'height_cm', 'width_cm',
             'length_cm', 'created_at', 'updated_at', 'sold_at',
-            'images', 'primary_image', 'shipping_address'
+            'images', 'primary_image', 'packages', 'shipping_address'
         ]
         read_only_fields = ['seller', 'views_count', 'created_at', 'updated_at', 'sold_at']
 
@@ -137,15 +175,27 @@ class MarketplaceListingSerializer(serializers.ModelSerializer):
 
 
 class MarketplaceListingCreateSerializer(serializers.ModelSerializer):
-    """Serializer para criar listagem"""
+    """
+    Serializer para criar listagem.
+
+    O campo `packages` é obrigatório e deve conter pelo menos 1 pacote com
+    as dimensões físicas do produto. Os campos legados weight_kg / height_cm /
+    width_cm / length_cm foram removidos da criação — use packages.
+    """
+
+    packages = ListingPackageSerializer(
+        many=True,
+        write_only=True,
+        help_text='Lista de pacotes físicos do produto. Deve conter pelo menos 1 pacote.',
+    )
+
     class Meta:
         model = MarketplaceListing
         fields = [
             'product', 'title', 'price', 'brand', 'quantity',
-            'description', 'condition', 'weight_kg',
-            'height_cm', 'width_cm', 'length_cm',
+            'description', 'condition', 'packages',
         ]
-    
+
     def validate_title(self, value):
         """Valida título do anúncio"""
         if len(value) < 5:
@@ -163,38 +213,18 @@ class MarketplaceListingCreateSerializer(serializers.ModelSerializer):
         if len(value) < 30:
             raise serializers.ValidationError('Sua Descrição deve ter mais que 30 caracteres')
         return value
-    
+
     def validate_quantity(self, value):
         """Valida quantidade em estoque"""
         if value <= 0:
             raise serializers.ValidationError('Você deve ter pelo menos 1(um) item a venda')
         return value
-    
-    def validate_weight_kg(self, value):
-        if value <= 0:
-            raise serializers.ValidationError(
-                "O peso deve ser maior que zero."
-            )
-        return value
 
-    def validate_height_cm(self, value):
-        if value <= 0:
+    def validate_packages(self, value):
+        """Garante que ao menos 1 pacote seja fornecido."""
+        if not value:
             raise serializers.ValidationError(
-                "A altura deve ser maior que zero."
-            )
-        return value
-
-    def validate_width_cm(self, value):
-        if value <= 0:
-            raise serializers.ValidationError(
-                "A largura deve ser maior que zero."
-            )
-        return value
-
-    def validate_length_cm(self, value):
-        if value <= 0:
-            raise serializers.ValidationError(
-                "O comprimento deve ser maior que zero."
+                'É necessário fornecer pelo menos 1 pacote com as dimensões do produto.'
             )
         return value
 
@@ -238,20 +268,41 @@ class MarketplaceListingCreateSerializer(serializers.ModelSerializer):
 
         data['shipping_address'] = me_token.me_address
         return data
-    
+
     def create(self, validated_data):
-        # O seller será adicionado na view
-        return super().create(validated_data)
+        """Cria o listing e seus pacotes em bulk dentro de uma única operação."""
+        packages_data = validated_data.pop('packages')
+        listing = super().create(validated_data)
+        ListingPackage.objects.bulk_create([
+            ListingPackage(listing=listing, **pkg) for pkg in packages_data
+        ])
+        return listing
 
 
 class MarketplaceListingUpdateSerializer(serializers.ModelSerializer):
-    """Serializer para atualizar listagem"""
+    """
+    Serializer para atualizar listagem.
+
+    O campo `packages` é opcional. Quando fornecido, substitui completamente
+    os pacotes existentes do listing (delete + bulk_create).
+    Os campos legados de dimensão foram removidos da atualização.
+    """
+
+    packages = ListingPackageSerializer(
+        many=True,
+        required=False,
+        write_only=True,
+        help_text=(
+            'Lista de pacotes físicos. Quando fornecido, substitui todos os '
+            'pacotes existentes do anúncio.'
+        ),
+    )
+
     class Meta:
         model = MarketplaceListing
         fields = [
             'title', 'price', 'quantity', 'description',
-            'condition', 'weight_kg', 'height_cm',
-            'width_cm', 'length_cm', 'is_active', 'shipping_address'
+            'condition', 'is_active', 'shipping_address', 'packages',
         ]
 
     def validate_title(self, value):
@@ -274,31 +325,12 @@ class MarketplaceListingUpdateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError('Quantidade não pode ser negativa')
         return value
 
-    def validate_weight_kg(self, value):
-        if value <= 0:
+    def validate_packages(self, value):
+        """Se packages for fornecido, garante que não seja uma lista vazia."""
+        if value is not None and len(value) == 0:
             raise serializers.ValidationError(
-                "O peso deve ser maior que zero."
-            )
-        return value
-
-    def validate_height_cm(self, value):
-        if value <= 0:
-            raise serializers.ValidationError(
-                "A altura deve ser maior que zero."
-            )
-        return value
-
-    def validate_width_cm(self, value):
-        if value <= 0:
-            raise serializers.ValidationError(
-                "A largura deve ser maior que zero."
-            )
-        return value
-
-    def validate_length_cm(self, value):
-        if value <= 0:
-            raise serializers.ValidationError(
-                "O comprimento deve ser maior que zero."
+                'A lista de pacotes não pode ser vazia. '
+                'Forneça pelo menos 1 pacote ou omita o campo para manter os pacotes atuais.'
             )
         return value
 
@@ -333,6 +365,20 @@ class MarketplaceListingUpdateSerializer(serializers.ModelSerializer):
 
         return data
 
+    def update(self, instance, validated_data):
+        """Substitui pacotes se fornecidos; caso contrário mantém os existentes."""
+        packages_data = validated_data.pop('packages', None)
+        instance = super().update(instance, validated_data)
+
+        if packages_data is not None:
+            # Substituição completa: remove os pacotes antigos e cria os novos
+            instance.packages.all().delete()
+            ListingPackage.objects.bulk_create([
+                ListingPackage(listing=instance, **pkg) for pkg in packages_data
+            ])
+
+        return instance
+
 
 class MarketplaceListingDetailSerializer(serializers.ModelSerializer):
     """Serializer detalhado de listagem"""
@@ -340,6 +386,7 @@ class MarketplaceListingDetailSerializer(serializers.ModelSerializer):
     brand = BrandSerializer(read_only=True)
     condition = ConditionSerializer(read_only=True)
     images = MarketplaceListingImageSerializer(many=True, read_only=True)
+    packages = ListingPackageSerializer(many=True, read_only=True)
     seller_name = serializers.CharField(source='seller.get_full_name', read_only=True)
     seller_email = serializers.EmailField(source='seller.email', read_only=True)
     shipping_address = AddressSerializer(read_only=True)

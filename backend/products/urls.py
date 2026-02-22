@@ -45,6 +45,10 @@ urlpatterns = [
     path('listings/<int:listing_id>/images/<int:pk>/', views.ListingImageUpdateView.as_view(), name='listing-image-update'),
     path('listings/<int:listing_id>/images/<int:pk>/delete/', views.ListingImageDeleteView.as_view(), name='listing-image-delete'),
     path('listings/<int:listing_id>/images/<int:pk>/set-primary/', views.set_primary_image, name='listing-image-set-primary'),
+
+    # =================== Listing Packages ===================
+    path('listings/<int:listing_id>/packages/', views.ListingPackageListView.as_view(), name='listing-package-list'),
+    path('listings/<int:listing_id>/packages/<int:pk>/', views.ListingPackageDetailView.as_view(), name='listing-package-detail'),
     
     # =================== Search and Filters ===================
     path('search/', views.search_products, name='search'),
