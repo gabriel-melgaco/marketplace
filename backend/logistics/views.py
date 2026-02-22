@@ -708,8 +708,8 @@ def generate_shipping_label(request, pk):
     
     try:
         melhor_envio = MelhorEnvioService()
-        label_url = melhor_envio.generate_label(shipment)
-        
+        label_url = melhor_envio.generate_label(shipment, seller=shipment.seller)
+
         return Response({
             'label_url': label_url,
             'shipment_id': shipment.id,
@@ -2187,6 +2187,262 @@ def melhor_envio_oauth_token_status(request):
     oauth_service = MelhorEnvioOAuthService()
     token_status = oauth_service.get_token_status()
     return Response(token_status)
+
+
+# =================== Per-Seller Melhor Envio OAuth Views ===================
+
+@extend_schema(
+    tags=['Logistics - Seller ME OAuth'],
+    summary='Get Melhor Envio authorization URL for seller',
+    description=(
+        'Gera a URL de autorização OAuth2 do Melhor Envio para o vendedor autenticado.\n\n'
+        'Fluxo:\n'
+        '1. Vendedor chama este endpoint para obter a URL de autorização\n'
+        '2. Frontend redireciona o vendedor para a URL\n'
+        '3. Vendedor autoriza o aplicativo no Melhor Envio\n'
+        '4. Melhor Envio redireciona ao callback `/api/logistics/me/callback/` com `code` e `state`\n'
+        '5. O callback salva o token automaticamente associado ao vendedor\n\n'
+        'Requer autenticação JWT (vendedor logado).'
+    ),
+    request=None,
+    responses={
+        200: inline_serializer(
+            name='SellerMEConnectResponse',
+            fields={
+                'authorization_url': rf_serializers.URLField(),
+                'message': rf_serializers.CharField(),
+                'environment': rf_serializers.CharField(),
+            }
+        ),
+        500: OpenApiResponse(description='OAuth não configurado corretamente'),
+    }
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def seller_me_connect(request):
+    """
+    Retorna a URL OAuth2 para o vendedor autorizar a integração com o Melhor Envio.
+    """
+    from .services.melhor_envio_oauth_service import MelhorEnvioOAuthService, MelhorEnvioOAuthError
+
+    try:
+        oauth_service = MelhorEnvioOAuthService()
+        authorization_url = oauth_service.get_seller_authorization_url(seller=request.user)
+
+        return Response({
+            'authorization_url': authorization_url,
+            'message': (
+                'Acesse a URL para autorizar o Melhor Envio. '
+                'Após autorizar, você será redirecionado automaticamente.'
+            ),
+            'environment': oauth_service.environment,
+        })
+
+    except MelhorEnvioOAuthError as e:
+        return Response(
+            {
+                'error': 'OAuth não configurado corretamente',
+                'detail': str(e),
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@extend_schema(
+    tags=['Logistics - Seller ME OAuth'],
+    summary='Melhor Envio OAuth callback for seller',
+    description=(
+        'Endpoint de callback OAuth2 do Melhor Envio para vendedores.\n\n'
+        'O Melhor Envio redireciona para este endpoint após o vendedor autorizar o aplicativo.\n\n'
+        'Parâmetros de query:\n'
+        '- `code`: Código de autorização\n'
+        '- `state`: ID do vendedor (definido ao gerar a URL de autorização)\n\n'
+        'Não requer autenticação — o Melhor Envio redireciona sem cookie de sessão.'
+    ),
+    request=None,
+    responses={
+        200: inline_serializer(
+            name='SellerMECallbackResponse',
+            fields={
+                'message': rf_serializers.CharField(),
+                'me_email': rf_serializers.EmailField(allow_null=True),
+                'environment': rf_serializers.CharField(),
+            }
+        ),
+        400: OpenApiResponse(description='Parâmetros inválidos ou vendedor não encontrado'),
+        500: OpenApiResponse(description='Falha ao trocar código OAuth'),
+    }
+)
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def seller_me_callback(request):
+    """
+    Callback OAuth2 do Melhor Envio para vendedores.
+
+    Recebe o código de autorização e o state (seller.id), troca pelos tokens
+    e persiste em SellerMelhorEnvioToken.
+    """
+    from .services.melhor_envio_oauth_service import MelhorEnvioOAuthService, MelhorEnvioOAuthError
+    from authentication.models import CustomUser
+
+    code = request.query_params.get('code')
+    state = request.query_params.get('state')
+
+    if not code:
+        logger.info('seller_me_callback: requisição sem código (teste de conexão)')
+        return Response({
+            'message': 'Callback ativo. Aguardando código de autorização.',
+        })
+
+    if not state:
+        return Response(
+            {'error': 'Parâmetro state ausente. Não foi possível identificar o vendedor.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Verificar assinatura HMAC do state antes de confiar no seller_id embutido.
+    # Isso previne ataques onde um invasor forja o state com um seller_id arbitrário.
+    try:
+        seller_id = MelhorEnvioOAuthService.verify_seller_state(state)
+    except MelhorEnvioOAuthError as exc:
+        logger.warning(f'seller_me_callback: state inválido ou expirado — {exc}')
+        return Response(
+            {'error': 'State OAuth inválido ou expirado. Solicite uma nova URL de autorização.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Resolver o vendedor a partir do seller_id validado pelo HMAC
+    try:
+        seller = CustomUser.objects.get(id=seller_id)
+    except CustomUser.DoesNotExist:
+        logger.error(f'seller_me_callback: vendedor não encontrado para seller_id={seller_id}')
+        return Response(
+            {'error': f'Vendedor não encontrado (id={seller_id})'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    logger.info(
+        f'seller_me_callback: recebendo código para vendedor {seller.email} '
+        f'(code={code[:10]}...)'
+    )
+
+    try:
+        oauth_service = MelhorEnvioOAuthService()
+        token_record = oauth_service.exchange_seller_code_for_token(code=code, seller=seller)
+
+        return Response({
+            'message': (
+                f'Conta Melhor Envio conectada com sucesso para {seller.email}. '
+                'A integração de frete está ativa.'
+            ),
+            'me_email': token_record.me_email or None,
+            'environment': token_record.environment,
+        })
+
+    except MelhorEnvioOAuthError as e:
+        logger.error(
+            f'seller_me_callback: erro ao trocar código OAuth para {seller.email}: {e}'
+        )
+        return Response(
+            {
+                'error': 'Falha ao processar autorização OAuth do vendedor',
+                'detail': str(e),
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@extend_schema(
+    tags=['Logistics - Seller ME OAuth'],
+    summary='Check seller Melhor Envio connection status',
+    description=(
+        'Retorna o status atual da conexão do vendedor com o Melhor Envio.\n\n'
+        'Use este endpoint para:\n'
+        '- Verificar se a conta está conectada\n'
+        '- Checar validade do token\n'
+        '- Obter informações da conta ME do vendedor\n\n'
+        'Requer autenticação JWT (vendedor logado).'
+    ),
+    request=None,
+    responses={
+        200: inline_serializer(
+            name='SellerMEStatusResponse',
+            fields={
+                'connected': rf_serializers.BooleanField(),
+                'environment': rf_serializers.CharField(),
+                'me_email': rf_serializers.EmailField(allow_null=True, required=False),
+                'is_expired': rf_serializers.BooleanField(allow_null=True, required=False),
+                'expires_at': rf_serializers.CharField(allow_null=True, required=False),
+                'expires_in_seconds': rf_serializers.IntegerField(allow_null=True, required=False),
+                'is_refresh_token_expired': rf_serializers.BooleanField(allow_null=True, required=False),
+                'last_refreshed_at': rf_serializers.CharField(allow_null=True, required=False),
+                'message': rf_serializers.CharField(required=False),
+            }
+        ),
+    }
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def seller_me_status(request):
+    """
+    Retorna o status atual da conexão Melhor Envio do vendedor autenticado.
+    """
+    from .services.melhor_envio_oauth_service import MelhorEnvioOAuthService
+
+    oauth_service = MelhorEnvioOAuthService()
+    token_status = oauth_service.get_seller_token_status(seller=request.user)
+
+    return Response(token_status)
+
+
+@extend_schema(
+    tags=['Logistics - Seller ME OAuth'],
+    summary='Disconnect seller Melhor Envio account',
+    description=(
+        'Desconecta a conta Melhor Envio do vendedor, revogando o token ativo.\n\n'
+        'Após a desconexão, operações de frete para este vendedor falharão até '
+        'que ele reconecte via `/api/logistics/me/connect/`.\n\n'
+        'Requer autenticação JWT (vendedor logado).'
+    ),
+    request=None,
+    responses={
+        200: inline_serializer(
+            name='SellerMEDisconnectResponse',
+            fields={
+                'message': rf_serializers.CharField(),
+                'disconnected': rf_serializers.BooleanField(),
+            }
+        ),
+        404: OpenApiResponse(description='Nenhuma conexão ativa encontrada'),
+    }
+)
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def seller_me_disconnect(request):
+    """
+    Desconecta a conta Melhor Envio do vendedor autenticado.
+    """
+    from .services.melhor_envio_oauth_service import MelhorEnvioOAuthService
+
+    oauth_service = MelhorEnvioOAuthService()
+    deactivated = oauth_service.deactivate_seller_token(seller=request.user)
+
+    if not deactivated:
+        return Response(
+            {
+                'message': 'Nenhuma conexão Melhor Envio ativa encontrada para desconectar.',
+                'disconnected': False,
+            },
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    return Response({
+        'message': (
+            'Conta Melhor Envio desconectada com sucesso. '
+            'Para reconectar, acesse /api/logistics/me/connect/'
+        ),
+        'disconnected': True,
+    })
 
 
 # =================== Carrier Services Views ===================
