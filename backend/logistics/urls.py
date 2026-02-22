@@ -49,6 +49,12 @@ urlpatterns = [
     path('in-person/<int:pk>/cancel/', views.cancel_in_person_delivery, name='cancel-in-person-delivery'),
     path('in-person/', views.list_in_person_deliveries, name='list-in-person-deliveries'),
 
+    # =================== Per-Seller Melhor Envio OAuth ===================
+    path('me/connect/', views.seller_me_connect, name='seller-me-connect'),
+    path('me/callback/', views.seller_me_callback, name='seller-me-callback'),
+    path('me/status/', views.seller_me_status, name='seller-me-status'),
+    path('me/disconnect/', views.seller_me_disconnect, name='seller-me-disconnect'),
+
     # =================== Carrier Services ===================
     # GET: Fetches live carrier services from Melhor Envio API
     path('carrier-services/', views.get_carrier_services, name='carrier-services'),

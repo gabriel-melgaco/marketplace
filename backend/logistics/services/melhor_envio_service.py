@@ -56,18 +56,20 @@ class MelhorEnvioService:
             settings, 'MELHOR_ENVIO_USER_AGENT_EMAIL', 'contato@seuapp.com'
         )
 
-    def _get_headers(self, require_oauth: bool = False) -> dict:
+    def _get_headers(self, seller=None, require_oauth: bool = False) -> dict:
         """
         Retorna os headers HTTP para chamadas à API.
 
-        Tenta usar o token OAuth 2.0. Se não disponível:
-        - Se require_oauth=True: levanta exceção (operações que dependem do webhook)
+        Se seller for fornecido, usa o token OAuth do vendedor (per-seller).
+        Caso contrário, usa o token da plataforma (comportamento legado).
+
+        Se seller=None e token OAuth da plataforma não disponível:
+        - Se require_oauth=True: levanta exceção
         - Se require_oauth=False: usa MELHOR_ENVIO_TOKEN como fallback
 
         Args:
+            seller: Instância de CustomUser (vendedor). Se fornecido, usa token do vendedor.
             require_oauth: Se True, falha se token OAuth não estiver disponível.
-                           Deve ser True para operações de criação de etiqueta,
-                           checkout e criação de shipment.
 
         Returns:
             dict: Headers com Authorization Bearer
@@ -76,6 +78,11 @@ class MelhorEnvioService:
 
         oauth_service = MelhorEnvioOAuthService()
 
+        # Per-seller: usa token OAuth do vendedor
+        if seller is not None:
+            return oauth_service.get_seller_oauth_headers(seller)
+
+        # Plataforma: usa token OAuth da conta compartilhada
         try:
             return oauth_service.get_oauth_headers()
         except MelhorEnvioOAuthError as e:
@@ -675,9 +682,28 @@ class MelhorEnvioService:
             'weight': vol_weight
         }]
 
-        sender_document = getattr(settings, 'MELHOR_ENVIO_SENDER_DOCUMENT', '') or validated_seller_doc
-        sender_email = getattr(settings, 'MELHOR_ENVIO_SENDER_EMAIL', '') or seller.email
-        sender_name = getattr(settings, 'MELHOR_ENVIO_SENDER_NAME', '') or seller.get_full_name() or seller.email
+        # Resolver identidade do remetente: usar dados da conta ME do vendedor se disponível
+        from ..models import SellerMelhorEnvioToken
+        from .melhor_envio_oauth_service import MelhorEnvioOAuthService
+
+        oauth_service = MelhorEnvioOAuthService()
+        environment = oauth_service.environment
+
+        seller_me_token = SellerMelhorEnvioToken.objects.filter(
+            seller=seller,
+            environment=environment,
+            is_active=True
+        ).first()
+
+        if seller_me_token and seller_me_token.me_document:
+            sender_document = seller_me_token.me_document
+            sender_email = seller_me_token.me_email or seller.email
+            sender_name = seller_me_token.me_firstname or seller.get_full_name() or seller.email
+        else:
+            # Fallback para CPF do vendedor no marketplace
+            sender_document = validated_seller_doc
+            sender_email = seller.email
+            sender_name = seller.get_full_name() or seller.email
 
         sender_digits = sender_document.replace('.', '').replace('/', '').replace('-', '')
         if len(sender_digits) == 14:
@@ -753,7 +779,7 @@ class MelhorEnvioService:
                 f'Adicionando envio ao carrinho: pedido {order.order_number}, '
                 f'vendedor {seller.email}, serviço {shipping_service_id}'
             )
-            response = requests.post(url, json=payload, headers=self._get_headers(require_oauth=True), timeout=30)
+            response = requests.post(url, json=payload, headers=self._get_headers(seller=seller, require_oauth=True), timeout=30)
             response.raise_for_status()
             logger.info(f'Envio adicionado ao carrinho com sucesso: pedido {order.order_number}')
             result = response.json()
@@ -793,12 +819,13 @@ class MelhorEnvioService:
             logger.error(f'Erro de conexão ao adicionar envio ao carrinho: {str(e)}')
             raise Exception(f'Erro ao adicionar envio ao carrinho: {str(e)}')
     
-    def checkout_cart(self, order_ids):
+    def checkout_cart(self, order_ids, seller=None):
         """
         PASSO 2: Compra/Checkout dos envios do carrinho
 
         Args:
             order_ids: Lista de IDs dos pedidos no Melhor Envio (não confundir com Order do Django)
+            seller: Vendedor cujo token OAuth deve ser utilizado (opcional)
 
         Returns:
             dict: Resultado do checkout
@@ -811,7 +838,7 @@ class MelhorEnvioService:
 
         try:
             logger.info(f'Fazendo checkout dos envios: {order_ids}')
-            response = requests.post(url, json=payload, headers=self._get_headers(require_oauth=True), timeout=30)
+            response = requests.post(url, json=payload, headers=self._get_headers(seller=seller, require_oauth=True), timeout=30)
             response.raise_for_status()
             logger.info(f'Checkout realizado com sucesso: {order_ids}')
             return response.json()
@@ -1002,9 +1029,28 @@ class MelhorEnvioService:
 
         volumes = [{'height': vol_height, 'width': vol_width, 'length': vol_length, 'weight': vol_weight}]
 
-        sender_document = getattr(settings, 'MELHOR_ENVIO_SENDER_DOCUMENT', '') or validated_seller_doc
-        sender_email = getattr(settings, 'MELHOR_ENVIO_SENDER_EMAIL', '') or seller.email
-        sender_name = getattr(settings, 'MELHOR_ENVIO_SENDER_NAME', '') or seller.get_full_name() or seller.email
+        # Resolver identidade do remetente: usar dados da conta ME do vendedor se disponível
+        from ..models import SellerMelhorEnvioToken
+        from .melhor_envio_oauth_service import MelhorEnvioOAuthService
+
+        oauth_service = MelhorEnvioOAuthService()
+        environment = oauth_service.environment
+
+        seller_me_token = SellerMelhorEnvioToken.objects.filter(
+            seller=seller,
+            environment=environment,
+            is_active=True
+        ).first()
+
+        if seller_me_token and seller_me_token.me_document:
+            sender_document = seller_me_token.me_document
+            sender_email = seller_me_token.me_email or seller.email
+            sender_name = seller_me_token.me_firstname or seller.get_full_name() or seller.email
+        else:
+            # Fallback para CPF do vendedor no marketplace
+            sender_document = validated_seller_doc
+            sender_email = seller.email
+            sender_name = seller.get_full_name() or seller.email
 
         sender_digits = sender_document.replace('.', '').replace('/', '').replace('-', '')
 
@@ -1023,7 +1069,7 @@ class MelhorEnvioService:
         if not sender_digits:
             raise ShippingValidationError(
                 'Documento do remetente não configurado. '
-                'Configure MELHOR_ENVIO_SENDER_DOCUMENT no .env ou garanta que o vendedor tem CPF cadastrado.'
+                'Garanta que o vendedor possui CPF cadastrado ou conecte sua conta Melhor Envio.'
             )
 
         from_block = {
@@ -1089,7 +1135,7 @@ class MelhorEnvioService:
                 f'serviço {service_id}'
             )
             response = requests.post(
-                url, json=payload, headers=self._get_headers(require_oauth=True), timeout=30
+                url, json=payload, headers=self._get_headers(seller=seller, require_oauth=True), timeout=30
             )
             response.raise_for_status()
             result = response.json()
@@ -1189,23 +1235,29 @@ class MelhorEnvioService:
 
         return shipment, insurance_warning
     
-    def generate_label(self, shipment):
+    def generate_label(self, shipment, seller=None):
         """
         PASSO 3: Gera etiqueta de envio (após pagamento confirmado)
 
         Args:
             shipment: Instância do Shipment
+            seller: Instância de CustomUser (vendedor). Se fornecido, usa token do vendedor.
+                    Se None, tenta inferir o seller a partir do shipment.
 
         Returns:
             str: URL da etiqueta
         """
+        # Resolver o seller a partir do shipment se não fornecido
+        if seller is None:
+            seller = getattr(shipment, 'seller', None)
+
         # Gerar etiqueta
         generate_url = f'{self.base_url}/me/shipment/generate'
         generate_payload = {'orders': [shipment.melhorenvio_order_id]}
 
         # Etiquetas DEVEM ser geradas com token OAuth para que o webhook seja acionado.
-        # require_oauth=True garante que não haverá fallback silencioso aqui.
-        oauth_headers = self._get_headers(require_oauth=True)
+        # Usa o token do vendedor se disponível; caso contrário usa token da plataforma.
+        oauth_headers = self._get_headers(seller=seller, require_oauth=True)
 
         try:
             logger.info(f'Gerando etiqueta para envio {shipment.melhorenvio_order_id}')

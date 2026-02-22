@@ -214,6 +214,21 @@ class MarketplaceListingCreateSerializer(serializers.ModelSerializer):
                 'Você precisa cadastrar um CPF válido antes de criar produtos.'
             )
 
+        # Validate Melhor Envio connection
+        from django.conf import settings as django_settings
+        from logistics.models import SellerMelhorEnvioToken
+        environment = 'sandbox' if getattr(django_settings, 'MELHOR_ENVIO_SANDBOX', True) else 'production'
+        has_me_token = SellerMelhorEnvioToken.objects.filter(
+            seller=user,
+            environment=environment,
+            is_active=True,
+        ).exists()
+        if not has_me_token:
+            raise serializers.ValidationError(
+                'Você precisa conectar uma conta do Melhor Envio antes de criar um anúncio. '
+                'Acesse /api/logistics/me/connect/ para autorizar.'
+            )
+
         # Validate shipping_address
         shipping_address = data.get('shipping_address')
         if not shipping_address:

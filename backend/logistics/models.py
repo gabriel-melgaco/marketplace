@@ -538,6 +538,125 @@ class DeliveryStatusLog(models.Model):
         return f'{self.order_delivery} - {self.from_status} → {self.to_status}'
 
 
+class SellerMelhorEnvioToken(models.Model):
+    """
+    Armazena os tokens OAuth 2.0 do Melhor Envio por vendedor.
+
+    Cada vendedor precisa conectar a sua própria conta do Melhor Envio via OAuth2.
+    As operações de carrinho, checkout e etiqueta são feitas com o token do vendedor,
+    garantindo que o webhook seja acionado na conta correta.
+
+    Ciclo de vida dos tokens:
+    - access_token: validade de 30 dias
+    - refresh_token: validade de 45 dias
+    - O sistema renova o access_token automaticamente antes de expirar
+    """
+
+    seller = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='me_tokens',
+        help_text='Vendedor dono desta credencial ME'
+    )
+
+    environment = models.CharField(
+        max_length=20,
+        choices=[('sandbox', 'Sandbox'), ('production', 'Production')],
+        default='sandbox',
+    )
+
+    access_token = models.TextField(
+        help_text='Token de acesso OAuth 2.0 (validade 30 dias)'
+    )
+
+    refresh_token = models.TextField(
+        help_text='Token de atualização OAuth 2.0 (validade 45 dias)'
+    )
+
+    token_type = models.CharField(
+        max_length=50,
+        default='Bearer',
+    )
+
+    expires_at = models.DateTimeField(
+        help_text='Data/hora de expiração do access_token'
+    )
+
+    refresh_token_expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='Data/hora de expiração do refresh_token (45 dias após emissão)'
+    )
+
+    last_refreshed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='Última vez que o token foi renovado automaticamente'
+    )
+
+    scope = models.TextField(
+        blank=True,
+        help_text='Escopos autorizados'
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        help_text='Indica se esta conexão está ativa para o vendedor'
+    )
+
+    # Informações da conta ME do vendedor (cacheadas para uso no from block)
+    me_user_id = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text='ID da conta Melhor Envio do vendedor'
+    )
+
+    me_email = models.EmailField(
+        blank=True,
+        help_text='Email da conta Melhor Envio do vendedor (para exibição)'
+    )
+
+    me_document = models.CharField(
+        max_length=20,
+        blank=True,
+        help_text='CPF/CNPJ registrado na conta ME do vendedor (apenas dígitos)'
+    )
+
+    me_firstname = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text='Nome registrado na conta ME do vendedor'
+    )
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Token OAuth ME (Vendedor)'
+        verbose_name_plural = 'Tokens OAuth ME (Vendedores)'
+        unique_together = [('seller', 'environment')]
+        indexes = [
+            models.Index(fields=['seller', 'environment', 'is_active']),
+        ]
+
+    def __str__(self):
+        return f'ME Token - {self.seller.email} ({self.environment}) expires {self.expires_at}'
+
+    def is_expired(self):
+        """Verifica se o access_token está expirado (com margem de 5 minutos)."""
+        from django.utils import timezone
+        from datetime import timedelta
+        return timezone.now() >= (self.expires_at - timedelta(minutes=5))
+
+    def is_refresh_token_expired(self):
+        """Verifica se o refresh_token está expirado."""
+        from django.utils import timezone
+        if not self.refresh_token_expires_at:
+            return False
+        return timezone.now() >= self.refresh_token_expires_at
+
+
 class MelhorEnvioOAuthToken(models.Model):
     """
     Armazena os tokens OAuth 2.0 do Melhor Envio de forma persistente.

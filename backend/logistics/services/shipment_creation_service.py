@@ -220,25 +220,35 @@ class ShipmentCreationService:
                 f'Verifique se os shipments foram criados durante a criação do pedido.'
             )
 
-        # Coletar IDs do carrinho do Melhor Envio
-        cart_ids = []
+        # Agrupar shipments pendentes por vendedor para chamar checkout com o token correto
+        from collections import defaultdict
+        shipments_by_seller = defaultdict(list)
         for shipment in pending_shipments:
             if not shipment.melhorenvio_order_id:
                 raise ShipmentCreationError(
                     f'Shipment {shipment.id} não possui melhorenvio_order_id. '
                     f'O carrinho não foi adicionado corretamente.'
                 )
-            cart_ids.append(shipment.melhorenvio_order_id)
+            shipments_by_seller[shipment.seller].append(shipment)
 
+        all_cart_ids = [s.melhorenvio_order_id for s in pending_shipments]
         logger.info(
-            f'Fazendo checkout de {len(cart_ids)} envio(s) para pedido '
-            f'{order.order_number}: {cart_ids}'
+            f'Fazendo checkout de {len(all_cart_ids)} envio(s) para pedido '
+            f'{order.order_number}: {all_cart_ids}'
         )
 
-        # Chamar checkout do Melhor Envio
+        # Chamar checkout do Melhor Envio por vendedor (usa token OAuth do vendedor)
         melhor_envio = MelhorEnvioService()
+        checkout_result = {}
         try:
-            checkout_result = melhor_envio.checkout_cart(cart_ids)
+            for seller, seller_shipments in shipments_by_seller.items():
+                seller_cart_ids = [s.melhorenvio_order_id for s in seller_shipments]
+                logger.info(
+                    f'Checkout para vendedor {seller.email}: '
+                    f'cart_ids={seller_cart_ids}'
+                )
+                result = melhor_envio.checkout_cart(seller_cart_ids, seller=seller)
+                checkout_result[str(seller.id)] = result
         except Exception as e:
             raise ShipmentCreationError(
                 f'Erro no checkout do Melhor Envio para pedido {order.order_number}: {e}'

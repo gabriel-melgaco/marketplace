@@ -301,37 +301,39 @@ STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', 'whsec_...')
 
 # =================== MELHOR ENVIO CONFIGURATION ===================
 
-# Token legado (usado como fallback para cálculo de frete se OAuth não estiver configurado)
+# Token legado (usado como fallback para cálculo de frete se OAuth por vendedor não estiver ativo)
 # ATENÇÃO: Etiquetas criadas com este token NÃO acionam o webhook!
-# Para o webhook funcionar, use o fluxo OAuth 2.0 abaixo.
 MELHOR_ENVIO_TOKEN = os.getenv('MELHOR_ENVIO_TOKEN', '')
 MELHOR_ENVIO_SANDBOX = os.getenv('MELHOR_ENVIO_SANDBOX', 'True').lower() not in ('false', '0', 'no')
 MELHOR_ENVIO_WEBHOOK_SECRET = os.getenv('MELHOR_ENVIO_WEBHOOK_SECRET', '')
 MELHOR_ENVIO_MAX_INSURANCE_VALUE = float(os.getenv('MELHOR_ENVIO_MAX_INSURANCE_VALUE', '1000.00'))
 
-# Melhor Envio OAuth 2.0 Application Credentials
+# Melhor Envio OAuth 2.0 — Credenciais do aplicativo (plataforma)
 # Obtenha em: https://melhorenvio.com.br/painel/gerenciar/aplicativos
-# OBRIGATÓRIO para que o webhook seja acionado nas etiquetas geradas.
 MELHOR_ENVIO_CLIENT_ID = os.getenv('MELHOR_ENVIO_CLIENT_ID', '')
 MELHOR_ENVIO_CLIENT_SECRET = os.getenv('MELHOR_ENVIO_CLIENT_SECRET', '')
 
-# URL de callback configurada no aplicativo Melhor Envio
+# URL de callback OAuth da plataforma (admin)
 # Deve apontar para /api/logistics/webhooks/melhor-envio/callback/
 MELHOR_ENVIO_REDIRECT_URI = os.getenv(
     'MELHOR_ENVIO_REDIRECT_URI',
     'https://api.megdev.com.br/api/logistics/webhooks/melhor-envio/callback/'
 )
 
+# URL de callback OAuth por vendedor
+# Deve apontar para /api/logistics/me/callback/
+MELHOR_ENVIO_SELLER_REDIRECT_URI = os.getenv(
+    'MELHOR_ENVIO_SELLER_REDIRECT_URI',
+    'https://api.megdev.com.br/api/logistics/me/callback/'
+)
+
+# Segredo para assinar o parâmetro state do OAuth (HMAC-SHA256, prevenção de CSRF)
+# Gere com: python -c "import secrets; print(secrets.token_hex(32))"
+MELHOR_ENVIO_STATE_SECRET = os.getenv('MELHOR_ENVIO_STATE_SECRET', '')
+
 # Email para o User-Agent obrigatório nas chamadas à API
 MELHOR_ENVIO_USER_AGENT_EMAIL = os.getenv('MELHOR_ENVIO_USER_AGENT_EMAIL', 'contato@seuapp.com')
 
-# Credenciais do remetente (conta ME do marketplace).
-# O ME valida que from.document e from.email correspondem à conta OAuth autenticada.
-# Em modelos marketplace onde os vendedores não têm contas próprias no ME,
-# estes campos devem conter os dados da conta do marketplace, não do vendedor.
-MELHOR_ENVIO_SENDER_DOCUMENT = os.getenv('MELHOR_ENVIO_SENDER_DOCUMENT', '')
-MELHOR_ENVIO_SENDER_EMAIL = os.getenv('MELHOR_ENVIO_SENDER_EMAIL', '')
-MELHOR_ENVIO_SENDER_NAME = os.getenv('MELHOR_ENVIO_SENDER_NAME', '')
 MELHOR_ENVIO_PLATFORM_NAME = os.getenv('MELHOR_ENVIO_PLATFORM_NAME', 'Marketplace Academia')
 
 
