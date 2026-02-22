@@ -59,8 +59,12 @@ logger = logging.getLogger(__name__)
     Address Types:
     - 'home': Residential
     - 'work': Commercial
-    - 'shipping': Seller shipping address
     - 'other': Other
+
+    **Note:** Addresses of type `shipping` are managed exclusively by the Melhor Envio
+    integration. They are created and updated automatically when the seller connects their
+    ME account via `GET /api/logistics/me/connect/`. Manual creation or modification of
+    shipping addresses is not allowed.
     """
 )
 class AddressListView(generics.ListCreateAPIView):
@@ -93,7 +97,14 @@ class AddressListView(generics.ListCreateAPIView):
 @extend_schema(
     tags=['Logistics - Addresses'],
     summary='Retrieve, update, or delete an address',
-    description='Get details, update, or soft-delete a specific address. Cannot delete shipping address if active listings exist.'
+    description=(
+        'Get details, update, or soft-delete a specific address.\n\n'
+        '**Restrictions:**\n'
+        '- Shipping addresses (`is_shipping_address=True`) cannot be updated manually. '
+        'They are synced automatically via the Melhor Envio OAuth integration '
+        '(`GET /api/logistics/me/connect/`).\n'
+        '- Cannot delete a shipping address while the seller has active listings.'
+    )
 )
 class AddressDetailView(generics.RetrieveUpdateDestroyAPIView):
     """Detalhes, atualizar e deletar endereço"""
