@@ -1285,13 +1285,24 @@ class MelhorEnvioService:
         # unitary_value deve ter sempre 2 casas decimais (ex: "525.50", não "525.5").
         products = []
         total_insurance = Decimal('0')
+        raw_unit_prices = []
         for item_data in seller_validated_items:
+            raw_price = float(item_data['unit_price'])
+            raw_unit_prices.append(raw_price)
             products.append({
                 'name': item_data['product_snapshot']['name'],
                 'quantity': str(item_data['quantity']),
-                'unitary_value': f"{float(item_data['unit_price']):.2f}",
             })
             total_insurance += item_data['unit_price'] * item_data['quantity']
+
+        # O unitary_value precisa ser proporcional ao insurance_value capeado.
+        # ME valida que insurance_value >= sum(unitary_value * quantity) e rejeita com 500
+        # se o produto declara valor maior do que o seguro cobre.
+        max_insurance = float(settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE)
+        total_float = float(total_insurance)
+        insurance_ratio = min(1.0, max_insurance / total_float) if total_float > 0 else 1.0
+        for p, raw_price in zip(products, raw_unit_prices):
+            p['unitary_value'] = f"{raw_price * insurance_ratio:.2f}"
 
         # Construir volumes a partir dos ListingPackages (ou fallback para dimensions dict)
         # Enriquece cada item com a instância do listing para consulta aos packages
