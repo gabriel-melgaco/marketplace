@@ -21,7 +21,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from authentication.models import CustomUser
-from logistics.models import SellerMelhorEnvioToken
+from logistics.models import SellerMelhorEnvioToken, Address
 from logistics.services.melhor_envio_oauth_service import MelhorEnvioOAuthService
 
 
@@ -39,8 +39,33 @@ def _make_seller(email='seller@test.com', password='pass1234', cpf='111.444.777-
     )
 
 
-def _make_token(seller, environment='sandbox', is_active=True, me_email='seller@me.com'):
-    """Create a SellerMelhorEnvioToken for testing."""
+def _make_me_address(seller):
+    """Create an active shipping Address tied to the seller (simulates ME sync)."""
+    return Address.objects.create(
+        user=seller,
+        recipient_name='Test Seller',
+        recipient_phone='11999999999',
+        zipcode='01310100',
+        street='Avenida Paulista',
+        number='1000',
+        neighborhood='Bela Vista',
+        city='São Paulo',
+        state='SP',
+        is_shipping_address=True,
+        is_active=True,
+    )
+
+
+def _make_token(seller, environment='sandbox', is_active=True, me_email='seller@me.com',
+                with_address=True):
+    """
+    Create a SellerMelhorEnvioToken for testing.
+
+    If with_address=True (default), also creates and attaches a synced me_address
+    so that the listing-creation serializer does not reject the token due to
+    missing/inactive shipping address.
+    """
+    me_address = _make_me_address(seller) if with_address else None
     return SellerMelhorEnvioToken.objects.create(
         seller=seller,
         environment=environment,
@@ -51,6 +76,7 @@ def _make_token(seller, environment='sandbox', is_active=True, me_email='seller@
         refresh_token_expires_at=timezone.now() + timezone.timedelta(days=45),
         is_active=is_active,
         me_email=me_email,
+        me_address=me_address,
     )
 
 
@@ -345,11 +371,15 @@ class TestProductsListingMERequirement(TestCase):
             'quantity': 1,
             'description': 'Haltere de ferro 10kg em perfeito estado, pouco uso.',
             'condition': self.condition.id,
-            'weight_kg': '10.00',
-            'height_cm': '20.00',
-            'width_cm': '15.00',
-            'length_cm': '25.00',
-            'shipping_address': self.address.id,
+            'packages': [
+                {
+                    'weight_kg': '10.00',
+                    'height_cm': '20.00',
+                    'width_cm': '15.00',
+                    'length_cm': '25.00',
+                    'description': 'Caixa principal',
+                }
+            ],
         }
 
     def test_create_listing_without_me_connection_fails(self):
