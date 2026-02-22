@@ -1041,6 +1041,7 @@ class MelhorEnvioService:
             'insurance_value': min(original_value, settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE),
             'receipt': False,
             'own_hand': False,
+            'non_commercial': getattr(settings, 'MELHOR_ENVIO_NON_COMMERCIAL', True),
             'platform': getattr(settings, 'MELHOR_ENVIO_PLATFORM_NAME', 'Marketplace Academia'),
             'tags': [{'tag': str(order.order_number), 'url': ''}],
         }
@@ -1416,6 +1417,7 @@ class MelhorEnvioService:
             'insurance_value': capped_insurance,
             'receipt': False,
             'own_hand': False,
+            'non_commercial': getattr(settings, 'MELHOR_ENVIO_NON_COMMERCIAL', True),
             'platform': getattr(settings, 'MELHOR_ENVIO_PLATFORM_NAME', 'Marketplace Academia'),
         }
 
