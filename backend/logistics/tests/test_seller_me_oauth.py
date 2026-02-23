@@ -256,6 +256,26 @@ class TestSellerMEStatus(TestCase):
         self.assertTrue(response.data['connected'])
         self.assertEqual(response.data.get('me_email'), 'active@me.com')
 
+    def test_status_returns_access_token_when_connected(self):
+        """Seller with active ME token: response includes the access_token field."""
+        _make_token(self.seller, me_email='active@me.com')
+
+        self.client.force_authenticate(user=self.seller)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data['connected'])
+        self.assertEqual(response.data.get('access_token'), 'access_test_token')
+
+    def test_status_does_not_return_access_token_when_not_connected(self):
+        """Seller without ME token: response does not include access_token."""
+        self.client.force_authenticate(user=self.seller)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data['connected'])
+        self.assertNotIn('access_token', response.data)
+
     def test_status_with_inactive_token_shows_not_connected(self):
         """Seller with is_active=False token: connected=False."""
         _make_token(self.seller, is_active=False)
