@@ -2382,6 +2382,7 @@ def seller_me_callback(request):
                 'connected': rf_serializers.BooleanField(),
                 'environment': rf_serializers.CharField(),
                 'me_email': rf_serializers.EmailField(allow_null=True, required=False),
+                'access_token': rf_serializers.CharField(allow_null=True, required=False),
                 'is_expired': rf_serializers.BooleanField(allow_null=True, required=False),
                 'expires_at': rf_serializers.CharField(allow_null=True, required=False),
                 'expires_in_seconds': rf_serializers.IntegerField(allow_null=True, required=False),

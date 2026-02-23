@@ -877,6 +877,7 @@ class MelhorEnvioOAuthService:
             'environment': self.environment,
             'me_email': token_record.me_email,
             'me_user_id': token_record.me_user_id,
+            'access_token': token_record.access_token,
             'is_expired': token_record.is_expired(),
             'expires_at': token_record.expires_at.isoformat(),
             'expires_in_seconds': max(0, int((token_record.expires_at - now).total_seconds())),
