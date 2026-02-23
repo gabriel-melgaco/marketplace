@@ -1392,7 +1392,7 @@ class MelhorEnvioService:
 
         to_block = {
             'name': shipping_address_dict.get('recipient_name', ''),
-            'phone': self._sanitize_phone(shipping_address_dict.get('recipient_phone', '')),
+            'phone': self._sanitize_phone(shipping_address_dict.get('recipient_phone', '')) or '11999999999',
             'email': buyer.email,
             'document': buyer_digits,
             'country_id': 'BR',
