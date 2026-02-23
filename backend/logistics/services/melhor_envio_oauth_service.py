@@ -1036,8 +1036,8 @@ class MelhorEnvioOAuthService:
         address, _ = Address.objects.update_or_create(
             user=seller,
             address_type='shipping',
+            nickname='Endereço Melhor Envio',
             defaults={
-                'nickname': 'Endereço Melhor Envio',
                 'is_shipping_address': True,
                 'is_active': True,
                 'recipient_name': recipient_name,
