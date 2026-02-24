@@ -338,6 +338,10 @@ MELHOR_ENVIO_USER_AGENT_EMAIL = os.getenv('MELHOR_ENVIO_USER_AGENT_EMAIL', 'gabr
 
 MELHOR_ENVIO_PLATFORM_NAME = os.getenv('MELHOR_ENVIO_PLATFORM_NAME', 'Marketplace Academia')
 
+# IDs de serviços ME solicitados na cotação (separados por vírgula).
+# 1=PAC, 2=SEDEX, 3=Jadlog .Package, 4=Jadlog .Com, 7=Mini, 17=Azul, 18=Total Express
+MELHOR_ENVIO_DEFAULT_SERVICES = os.getenv('MELHOR_ENVIO_DEFAULT_SERVICES', '1,2,3,4,7,17,18')
+
 
 # =================== PAYMENT CONFIGURATION ===================
 # Taxa da plataforma (%)

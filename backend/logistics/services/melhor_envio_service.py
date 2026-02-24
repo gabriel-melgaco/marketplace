@@ -232,7 +232,7 @@ class MelhorEnvioService:
                 'Para entregas no mesmo CEP, utilize a opção de entrega presencial.'
             )
     
-    def calculate_shipping(self, from_zipcode, to_zipcode, products=None, package=None, options=None, seller=None):
+    def calculate_shipping(self, from_zipcode, to_zipcode, products=None, package=None, options=None, seller=None, services=None):
         """
         Calcula frete usando API v2 do Melhor Envio
 
@@ -303,6 +303,10 @@ class MelhorEnvioService:
         # Adiciona opções se fornecidas
         if options:
             payload['options'] = options
+
+        # Adiciona filtro de serviços se fornecido
+        if services:
+            payload['services'] = services
 
         try:
             logger.info(f'Calculando frete: {from_zipcode} → {to_zipcode}' +
@@ -448,6 +452,7 @@ class MelhorEnvioService:
                     products=products,
                     options=options,
                     seller=seller,
+                    services=settings.MELHOR_ENVIO_DEFAULT_SERVICES,
                 )
 
                 # Calcular dimensoes consolidadas do pacote (para armazenamento no ShippingQuote)
