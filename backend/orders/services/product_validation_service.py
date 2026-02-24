@@ -89,6 +89,30 @@ class ProductValidationService:
             )
 
             # Build validated item data
+            # Dimensions: prefer legacy fields on listing; fall back to aggregated packages
+            packages = list(listing.packages.all())
+            if listing.weight_kg is not None:
+                dims = {
+                    'weight_kg': listing.weight_kg,
+                    'height_cm': listing.height_cm,
+                    'width_cm': listing.width_cm,
+                    'length_cm': listing.length_cm,
+                }
+            elif packages:
+                dims = {
+                    'weight_kg': sum(float(p.weight_kg) for p in packages),
+                    'height_cm': max(float(p.height_cm) for p in packages),
+                    'width_cm': max(float(p.width_cm) for p in packages),
+                    'length_cm': sum(float(p.length_cm) for p in packages),
+                }
+            else:
+                dims = {
+                    'weight_kg': None,
+                    'height_cm': None,
+                    'width_cm': None,
+                    'length_cm': None,
+                }
+
             validated_items.append({
                 'cart_item': cart_item,
                 'listing': listing,
@@ -101,12 +125,7 @@ class ProductValidationService:
                     'brand': listing.brand.name,
                     'condition': listing.condition.name,
                 },
-                'dimensions': {
-                    'weight_kg': listing.weight_kg,
-                    'height_cm': listing.height_cm,
-                    'width_cm': listing.width_cm,
-                    'length_cm': listing.length_cm,
-                },
+                'dimensions': dims,
             })
 
         logger.info(
