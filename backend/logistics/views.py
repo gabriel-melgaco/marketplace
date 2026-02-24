@@ -1792,7 +1792,7 @@ def melhor_envio_webhook(request):
     # Mapear evento para status do Shipment
     # Ref: https://docs.melhorenvio.com.br (eventos de etiqueta)
     EVENT_STATUS_MAP = {
-        'order.created': 'created',         # Etiqueta criada
+        'order.created': 'pending',         # Item adicionado ao carrinho (checkout ainda não realizado)
         'order.pending': 'pending',         # Etiqueta retornada ao carrinho
         'order.released': 'released',       # Etiqueta paga
         'order.generated': 'generated',     # Etiqueta gerada
