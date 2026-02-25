@@ -44,5 +44,5 @@ export const INITIAL_FORMDATA = {
   height_cm: "",
   width_cm: "",
   length_cm: "",
-  shipping_address: "",
+  package_description: "",
 };
