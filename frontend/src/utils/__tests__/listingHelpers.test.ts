@@ -18,6 +18,7 @@ const EMPTY_FORM: FormData = {
   height_cm: "",
   width_cm: "",
   length_cm: "",
+  shipping_address: "",
 };
 
 function formWith(overrides: Partial<FormData>): FormData {
@@ -207,6 +208,28 @@ describe("validateStep", () => {
       expect(errors).toEqual({});
     });
   });
+
+  describe("Step 8 - Location", () => {
+    it("requires shipping_address", () => {
+      const errors = validateStep(8, EMPTY_FORM);
+      expect(errors.shipping_address).toBe("Selecione um endereço");
+    });
+
+    it("rejects shipping_address value '0'", () => {
+      const errors = validateStep(8, formWith({ shipping_address: "0" }));
+      expect(errors.shipping_address).toBe("Selecione um endereço");
+    });
+
+    it("rejects empty string shipping_address", () => {
+      const errors = validateStep(8, formWith({ shipping_address: "   " }));
+      expect(errors.shipping_address).toBe("Selecione um endereço");
+    });
+
+    it("accepts valid shipping_address", () => {
+      const errors = validateStep(8, formWith({ shipping_address: "7" }));
+      expect(errors).toEqual({});
+    });
+  });
 });
 
 describe("buildListingData", () => {
@@ -243,6 +266,17 @@ describe("buildListingData", () => {
   it("defaults quantity to 1 when empty", () => {
     const data = buildListingData(EMPTY_FORM);
     expect(data.quantity).toBe(1);
+  });
+
+  it("includes shipping_address as number when set", () => {
+    const form = formWith({ shipping_address: "7" });
+    const data = buildListingData(form);
+    expect(data.shipping_address).toBe(7);
+  });
+
+  it("sends shipping_address as null when empty", () => {
+    const data = buildListingData(EMPTY_FORM);
+    expect(data.shipping_address).toBeNull();
   });
 
   it("trims whitespace from title and description", () => {

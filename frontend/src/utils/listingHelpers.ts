@@ -62,6 +62,15 @@ export function validateStep(
       if (!formData.length_cm || Number(formData.length_cm) <= 0)
         errors.length_cm = "Comprimento inválido";
       break;
+    case 8: // Location
+      if (
+        !formData.shipping_address ||
+        formData.shipping_address.trim() === "" ||
+        Number(formData.shipping_address) <= 0
+      ) {
+        errors.shipping_address = "Selecione um endereço";
+      }
+      break;
   }
 
   return errors;
@@ -83,5 +92,6 @@ export function buildListingData(formData: FormData) {
     height_cm: formatDecimal(formData.height_cm),
     width_cm: formatDecimal(formData.width_cm),
     length_cm: formatDecimal(formData.length_cm),
+    shipping_address: Number(formData.shipping_address) || null,
   };
 }

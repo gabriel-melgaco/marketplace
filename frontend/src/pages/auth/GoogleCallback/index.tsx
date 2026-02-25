@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { AlertCircle } from "lucide-react";
 import { socialAuthService } from "@/services/socialAuthService";
 import { useAuth } from "@/contexts/AuthContext";
+import { GOOGLE_REDIRECT_URI } from "@/utils/constants";
 
 const OAUTH_ERROR_MESSAGES: Record<string, string> = {
   access_denied: "Você cancelou a autorização do Google.",
@@ -53,6 +54,7 @@ export function GoogleCallback() {
       try {
         const response = await socialAuthService.googleLogin({
           code: authCode,
+          redirect_uri: GOOGLE_REDIRECT_URI,
         });
         if (!cancelled) {
           setUser(response.user);

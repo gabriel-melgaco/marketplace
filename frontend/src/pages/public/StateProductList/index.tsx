@@ -31,7 +31,7 @@ export function StateProductList() {
         // Currently fetches all listings and filters client-side
         const data = await productService.getListings();
         if (!cancelled) {
-          setAllListings(data);
+          setAllListings(data.results);
         }
       } catch (err) {
         console.error("Erro ao buscar listings:", err);

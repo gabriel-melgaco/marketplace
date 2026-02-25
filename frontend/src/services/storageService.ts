@@ -22,7 +22,16 @@ export function toPublicUrl(url: string): string {
     const parsed = new URL(url);
     const pub = new URL(MINIO_PUBLIC_URL);
 
+    // Already using the public MinIO host — nothing to do.
     if (parsed.hostname === pub.hostname && parsed.port === pub.port) {
+      return url;
+    }
+
+    // Only convert URLs from internal Docker hostnames (bare names without
+    // dots, e.g. "minio"). External URLs (e.g. "alcateiafitness.com.br")
+    // must be left untouched.
+    const isInternalHost = !parsed.hostname.includes(".");
+    if (!isInternalHost) {
       return url;
     }
 

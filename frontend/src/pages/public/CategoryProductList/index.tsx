@@ -38,7 +38,7 @@ export function CategoryProductList() {
         ]);
 
         if (!cancelled) {
-          setListings(listingsData);
+          setListings(listingsData.results);
           setCategoryName(categoryData?.name ?? "");
         }
       } catch (err) {

@@ -22,7 +22,7 @@ export default function Home() {
         setError(null);
         const data = await productService.getListings();
         if (!cancelled) {
-          setListings(data);
+          setListings(data.results);
         }
       } catch (err) {
         console.error("Erro ao buscar listings:", err);

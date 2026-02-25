@@ -58,6 +58,38 @@ describe("toPublicUrl", () => {
     );
     consoleSpy.mockRestore();
   });
+
+  it("leaves external HTTPS URLs unchanged", () => {
+    const external =
+      "https://alcateiafitness.com.br/wp-content/uploads/2024/04/HS22-scaled.jpg";
+    expect(toPublicUrl(external)).toBe(external);
+  });
+
+  it("leaves external HTTP URLs unchanged", () => {
+    const external =
+      "http://images.tcdn.com.br/img/editor/up/450774/Supino_reto.png";
+    expect(toPublicUrl(external)).toBe(external);
+  });
+
+  it("leaves other external domains unchanged", () => {
+    const urls = [
+      "https://example.com/image.jpg",
+      "https://cdn.shopify.com/photo.webp",
+      "http://storage.googleapis.com/bucket/img.png",
+    ];
+    for (const url of urls) {
+      expect(toPublicUrl(url)).toBe(url);
+    }
+  });
+
+  it("converts bare Docker hostname (no dots)", () => {
+    expect(toPublicUrl("http://storage:9000/bucket/img.jpg")).toContain(
+      "localhost:9000",
+    );
+    expect(toPublicUrl("http://s3:9000/bucket/img.jpg")).toContain(
+      "localhost:9000",
+    );
+  });
 });
 
 describe("validateImageFile", () => {

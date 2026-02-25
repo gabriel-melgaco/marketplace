@@ -17,9 +17,11 @@ import {
   ShoppingBag,
 } from "lucide-react";
 import { productService } from "@/services/productService";
+import { toPublicUrl } from "@/services/storageService";
 import { useAuth } from "@/contexts/AuthContext";
 import { Footer } from "@/components/layout/Footer";
 import { ProductDetailSkeleton } from "@/components/skeletons/ProductDetailSkeleton";
+import { ProductCard, formatListingDate } from "@/components/ui/ProductCard";
 import type {
   MarketplaceListingDetail,
   MarketplaceListing,
@@ -31,21 +33,9 @@ function formatPrice(price: string): string {
   return num.toLocaleString("pt-BR", { minimumFractionDigits: 2 });
 }
 
-function formatDate(dateStr: string): string {
-  const date = new Date(dateStr);
-  if (isNaN(date.getTime())) {
-    return "Data inválida";
-  }
-  return date.toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "2-digit",
-  });
-}
-
 function getLocation(listing: MarketplaceListingDetail): string {
   const addr = listing.seller_shipping_address;
-  if (!addr) return "Brasil";
+  if (!addr) return "";
   return `${addr.city} - ${addr.state}`;
 }
 
@@ -98,11 +88,14 @@ function ImageCarousel({
     <div className="space-y-4">
       {/* Main image */}
       <div className="relative">
-        <div className="aspect-4/3 bg-gray-100 rounded-xl overflow-hidden">
+        <div className="aspect-4/3 bg-gray-100 rounded-xl overflow-hidden max-h-[600px] mx-auto">
           <img
-            src={sortedImages[currentIndex].image_url}
+            src={toPublicUrl(sortedImages[currentIndex].image_url)}
             alt={`${productName} - Imagem ${currentIndex + 1} de ${sortedImages.length}`}
-            className="w-full h-full object-contain"
+            className="w-full h-full object-contain [image-rendering:auto]"
+            loading="eager"
+            decoding="async"
+            fetchPriority="high"
             onError={(e) => {
               e.currentTarget.src =
                 "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect width='100' height='100' fill='%23e5e7eb'/%3E%3Ctext x='50' y='50' font-size='14' text-anchor='middle' dy='.3em' fill='%239ca3af'%3EImagem não disponível%3C/text%3E%3C/svg%3E";
@@ -150,7 +143,7 @@ function ImageCarousel({
               aria-label={`Ver imagem ${idx + 1}`}
             >
               <img
-                src={img.image_url}
+                src={toPublicUrl(img.image_url)}
                 alt={`${productName} - Miniatura ${idx + 1}`}
                 className="w-full h-full object-cover"
               />
@@ -159,38 +152,6 @@ function ImageCarousel({
         </div>
       )}
     </div>
-  );
-}
-
-function SuggestedProductCard({ listing }: { listing: MarketplaceListing }) {
-  return (
-    <Link
-      to={`/productdetail/${listing.id}`}
-      className="block bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-shadow focus:outline-none focus:ring-2 focus:ring-blue-800 focus:ring-offset-2"
-    >
-      <div className="aspect-4/3 bg-gray-200 flex items-center justify-center">
-        {listing.primary_image ? (
-          <img
-            src={listing.primary_image}
-            alt={listing.product.name}
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div className="text-gray-400 text-center p-4">
-            <Package size={40} className="mx-auto mb-2" />
-            <p className="text-sm">Sem imagem</p>
-          </div>
-        )}
-      </div>
-      <div className="p-3">
-        <h3 className="font-semibold text-gray-800 text-sm truncate">
-          {listing.product.name}
-        </h3>
-        <p className="text-lg font-bold text-blue-800 mt-1">
-          R$ {formatPrice(listing.price)}
-        </p>
-      </div>
-    </Link>
   );
 }
 
@@ -231,7 +192,7 @@ export function ProductDetail() {
         if (!cancelled) {
           setListing(listingData);
           setSuggestedListings(
-            allListings.filter((l) => l.id !== numericId).slice(0, 8),
+            allListings.results.filter((l) => l.id !== numericId).slice(0, 8),
           );
         }
 
@@ -378,7 +339,7 @@ export function ProductDetail() {
               <div className="flex flex-wrap items-center gap-3 sm:gap-4 mt-3 text-sm text-gray-500">
                 <span className="flex items-center gap-1.5">
                   <Calendar size={16} />
-                  Publicado em {formatDate(listing.created_at)}
+                  Publicado em {formatListingDate(listing.created_at)}
                 </span>
                 <span className="flex items-center gap-1.5">
                   <Eye size={16} />
@@ -405,7 +366,7 @@ export function ProductDetail() {
               <div className="flex items-start gap-3 text-gray-700">
                 <MapPin size={20} className="text-blue-800 shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium">{getLocation(listing)}</p>
+                  <p className="font-medium">{getLocation(listing) || "Não informada"}</p>
                   {listing.seller_shipping_address && (
                     <p className="text-sm text-gray-500 mt-1">
                       {listing.seller_shipping_address.neighborhood},{" "}
@@ -614,7 +575,7 @@ export function ProductDetail() {
             </h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
               {suggestedListings.map((l) => (
-                <SuggestedProductCard key={l.id} listing={l} />
+                <ProductCard key={l.id} listing={l} />
               ))}
             </div>
           </div>

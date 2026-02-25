@@ -134,6 +134,7 @@ export interface CreateListingRequest {
   width_cm: string;
   length_cm: string;
   quantity?: number;
+  shipping_address?: number | null;
 }
 
 export interface UpdateListingRequest {
@@ -149,6 +150,7 @@ export interface UpdateListingRequest {
   length_cm?: string;
   quantity?: number;
   is_active?: boolean;
+  shipping_address?: number | null;
 }
 
 export interface PresignedUrlRequest {
@@ -174,6 +176,13 @@ export interface FilterOptionsResponse {
   brands: { id: number; name: string; slug: string }[];
   conditions: { id: number; name: string; slug: string }[];
   price_range: { min: number; max: number };
+}
+
+export interface PaginatedResponse<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
 }
 
 export interface ProductListItem {
@@ -220,6 +229,7 @@ export interface FormData {
   height_cm: string;
   width_cm: string;
   length_cm: string;
+  shipping_address: string;
 }
 
 export interface PendingImage {

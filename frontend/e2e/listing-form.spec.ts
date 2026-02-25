@@ -7,7 +7,7 @@ async function goToCreateListing(page: import("@playwright/test").Page) {
   await injectAuth(page);
   await page.goto("/create-listing");
   // Wait for the form to load
-  await expect(page.getByText("Passo 1 de 7")).toBeVisible();
+  await expect(page.getByText("Passo 1 de 8")).toBeVisible();
 }
 
 // Helper to clear draft localStorage
@@ -21,7 +21,7 @@ test.describe("ListingForm - Step Navigation", () => {
   test("displays step 1 (Imagens) by default", async ({ page }) => {
     await goToCreateListing(page);
 
-    await expect(page.getByText("Passo 1 de 7")).toBeVisible();
+    await expect(page.getByText("Passo 1 de 8")).toBeVisible();
     await expect(page.getByText("Imagens do Produto")).toBeVisible();
   });
 
@@ -30,7 +30,7 @@ test.describe("ListingForm - Step Navigation", () => {
     await clearDraft(page);
 
     await page.getByRole("button", { name: "Continuar" }).click();
-    await expect(page.getByText("Passo 2 de 7")).toBeVisible();
+    await expect(page.getByText("Passo 2 de 8")).toBeVisible();
   });
 
   test("can navigate back from step 2 to step 1", async ({ page }) => {
@@ -38,11 +38,11 @@ test.describe("ListingForm - Step Navigation", () => {
     await clearDraft(page);
 
     await page.getByRole("button", { name: "Continuar" }).click();
-    await expect(page.getByText("Passo 2 de 7")).toBeVisible();
+    await expect(page.getByText("Passo 2 de 8")).toBeVisible();
 
     // Use the step navigation "Voltar" button (not the header back arrow)
     await page.getByText("Voltar").click();
-    await expect(page.getByText("Passo 1 de 7")).toBeVisible();
+    await expect(page.getByText("Passo 1 de 8")).toBeVisible();
   });
 });
 
@@ -52,12 +52,12 @@ test.describe("ListingForm - Step 2 Product Validation", () => {
     await clearDraft(page);
 
     await page.getByRole("button", { name: "Continuar" }).click();
-    await expect(page.getByText("Passo 2 de 7")).toBeVisible();
+    await expect(page.getByText("Passo 2 de 8")).toBeVisible();
 
     await page.getByRole("button", { name: "Continuar" }).click();
 
     await expect(page.getByText("Selecione um produto")).toBeVisible();
-    await expect(page.getByText("Passo 2 de 7")).toBeVisible();
+    await expect(page.getByText("Passo 2 de 8")).toBeVisible();
   });
 });
 
@@ -70,7 +70,7 @@ test.describe("ListingForm - Draft Notice", () => {
 
     // Advance to step 2 to create a draft
     await page.getByRole("button", { name: "Continuar" }).click();
-    await expect(page.getByText("Passo 2 de 7")).toBeVisible();
+    await expect(page.getByText("Passo 2 de 8")).toBeVisible();
 
     // Navigate away and come back (re-inject auth since it's same origin)
     await page.goto("/");
@@ -90,7 +90,7 @@ test.describe("ListingForm - Draft Notice", () => {
 
     // Create draft at step 2
     await page.getByRole("button", { name: "Continuar" }).click();
-    await expect(page.getByText("Passo 2 de 7")).toBeVisible();
+    await expect(page.getByText("Passo 2 de 8")).toBeVisible();
 
     // Navigate away and back
     await page.goto("/");
@@ -104,9 +104,9 @@ test.describe("ListingForm - Draft Notice", () => {
     await expect(page.getByText("Rascunho encontrado")).not.toBeVisible();
 
     // Debug: check what step we're on
-    const stepText = await page.locator("text=/Passo \\d+ de 7/").textContent();
+    const stepText = await page.locator("text=/Passo \\d+ de 8/").textContent();
     // The draft step depends on what was saved - should be step 2
-    expect(stepText).toContain("de 7");
+    expect(stepText).toContain("de 8");
   });
 
   test("discard button shows confirmation dialog", async ({ page }) => {
@@ -137,7 +137,7 @@ test.describe("ListingForm - Draft Notice", () => {
 
     // Create draft at step 2
     await page.getByRole("button", { name: "Continuar" }).click();
-    await expect(page.getByText("Passo 2 de 7")).toBeVisible();
+    await expect(page.getByText("Passo 2 de 8")).toBeVisible();
 
     // Navigate away and back
     await page.goto("/");
@@ -153,23 +153,23 @@ test.describe("ListingForm - Draft Notice", () => {
     await page.getByRole("button", { name: "Sim, descartar" }).click();
 
     // Should be on step 1 with no draft notice
-    await expect(page.getByText("Passo 1 de 7")).toBeVisible();
+    await expect(page.getByText("Passo 1 de 8")).toBeVisible();
     await expect(page.getByText("Rascunho encontrado")).not.toBeVisible();
   });
 });
 
 test.describe("ListingForm - Progress Bar", () => {
-  test("shows 14% at step 1", async ({ page }) => {
+  test("shows 13% at step 1", async ({ page }) => {
     await goToCreateListing(page);
-    await expect(page.getByText("14% completo")).toBeVisible();
+    await expect(page.getByText("13% completo")).toBeVisible();
   });
 
-  test("shows 29% at step 2", async ({ page }) => {
+  test("shows 25% at step 2", async ({ page }) => {
     await goToCreateListing(page);
     await clearDraft(page);
 
     await page.getByRole("button", { name: "Continuar" }).click();
-    await expect(page.getByText("29% completo")).toBeVisible();
+    await expect(page.getByText("25% completo")).toBeVisible();
   });
 });
 
@@ -208,11 +208,11 @@ test.describe("ListingForm - Mobile Responsive", () => {
     await goToCreateListing(page);
 
     // Step containers use flex-1 for equal distribution
-    // Find step indicator circles (all 7 of them)
+    // Find step indicator circles (all 8 of them)
     const stepCircles = page.locator(
       '[class*="rounded-full"][class*="flex"][class*="items-center"][class*="justify-center"][class*="w-8"]',
     );
     const count = await stepCircles.count();
-    expect(count).toBe(7);
+    expect(count).toBe(8);
   });
 });

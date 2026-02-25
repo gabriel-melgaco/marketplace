@@ -1,4 +1,5 @@
 import api from "@/api/axios";
+import type { PaginatedResponse } from "@/types/product";
 
 export interface Brand {
   id: number;
@@ -59,8 +60,11 @@ export interface MarketplaceListingItem {
 
 export const catalogService = {
   // Brands
-  async listBrands() {
-    const response = await api.get<Brand[]>("/products/brands/");
+  async listBrands(params?: { page?: number }) {
+    const response = await api.get<PaginatedResponse<Brand>>(
+      "/products/brands/",
+      { params },
+    );
     return response.data;
   },
 
@@ -69,14 +73,20 @@ export const catalogService = {
     return response.data;
   },
 
-  async getBrandListings(slug: string) {
-    const response = await api.get<MarketplaceListingItem[]>(`/products/brands/${slug}/listings/`);
+  async getBrandListings(slug: string, params?: { page?: number }) {
+    const response = await api.get<PaginatedResponse<MarketplaceListingItem>>(
+      `/products/brands/${slug}/listings/`,
+      { params },
+    );
     return response.data;
   },
 
   // Categories
-  async listCategories() {
-    const response = await api.get<Category[]>("/products/categories/");
+  async listCategories(params?: { page?: number }) {
+    const response = await api.get<PaginatedResponse<Category>>(
+      "/products/categories/",
+      { params },
+    );
     return response.data;
   },
 
@@ -85,14 +95,20 @@ export const catalogService = {
     return response.data;
   },
 
-  async getCategoryProducts(slug: string) {
-    const response = await api.get<ProductListItem[]>(`/products/categories/${slug}/products/`);
+  async getCategoryProducts(slug: string, params?: { page?: number }) {
+    const response = await api.get<PaginatedResponse<ProductListItem>>(
+      `/products/categories/${slug}/products/`,
+      { params },
+    );
     return response.data;
   },
 
   // Series
-  async listSeries() {
-    const response = await api.get<Series[]>("/products/series/");
+  async listSeries(params?: { page?: number }) {
+    const response = await api.get<PaginatedResponse<Series>>(
+      "/products/series/",
+      { params },
+    );
     return response.data;
   },
 
@@ -101,12 +117,15 @@ export const catalogService = {
     return response.data;
   },
 
-  async getSeriesProducts(slug: string) {
-    const response = await api.get<ProductListItem[]>(`/products/series/${slug}/products/`);
+  async getSeriesProducts(slug: string, params?: { page?: number }) {
+    const response = await api.get<PaginatedResponse<ProductListItem>>(
+      `/products/series/${slug}/products/`,
+      { params },
+    );
     return response.data;
   },
 
-  // Conditions
+  // Conditions (NOT paginated)
   async listConditions() {
     const response = await api.get<Condition[]>("/products/conditions/");
     return response.data;

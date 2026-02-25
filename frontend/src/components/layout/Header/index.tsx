@@ -19,10 +19,12 @@ function Header(props: HeaderProps) {
   useEffect(() => {
     async function fetchCategories() {
       try {
-        const response = await axios.get<ProductCategory[]>(
-          "/products/categories/",
-        );
-        setCategories(response.data);
+        const response = await axios.get<{
+          count: number;
+          next: string | null;
+          results: ProductCategory[];
+        }>("/products/categories/");
+        setCategories(response.data.results);
       } catch (error) {
         console.error("Erro ao buscar categorias:", error);
       }

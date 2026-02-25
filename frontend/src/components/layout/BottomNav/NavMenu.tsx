@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
-import { Menu, ShoppingBag, Package, Settings } from "lucide-react";
+import { Menu, ShoppingBag, Package, LayoutDashboard } from "lucide-react";
 import { CgClose } from "react-icons/cg";
+import { ROUTES } from "@/routes/routePaths";
 
 const menuItems = [
-  { label: "Minhas Vendas", path: "/my-sales", icon: ShoppingBag },
-  { label: "Minhas Compras", path: "/my-purchases", icon: Package },
-  { label: "Painel Administrativo", path: "/admin", icon: Settings },
+  { label: "Minhas Vendas", path: ROUTES.MY_SALES, icon: ShoppingBag },
+  { label: "Minhas Compras", path: ROUTES.MY_PURCHASES, icon: Package },
+  { label: "Painel Administrativo", path: ROUTES.DASHBOARD, icon: LayoutDashboard },
 ];
 
 export function NavMenu() {

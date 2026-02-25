@@ -7,7 +7,11 @@ import type {
   UpdateListingRequest,
   FilterOptionsResponse,
   ProductListItem,
+  PaginatedResponse,
 } from "@/types/product";
+
+// Re-export for consumers
+export type { PaginatedResponse };
 
 export interface ToggleActiveResponse {
   message: string;
@@ -34,8 +38,9 @@ export const productService = {
     condition__slug?: string;
     product__category__slug?: string;
     ordering?: string;
+    page?: number;
   }) {
-    const response = await api.get<MarketplaceListing[]>(
+    const response = await api.get<PaginatedResponse<MarketplaceListing>>(
       "/products/listings/",
       { params },
     );
@@ -54,8 +59,11 @@ export const productService = {
     return response.data;
   },
 
-  async getMyListings() {
-    const response = await api.get<MarketplaceListing[]>("/products/my-listings/");
+  async getMyListings(params?: { page?: number }) {
+    const response = await api.get<PaginatedResponse<MarketplaceListing>>(
+      "/products/my-listings/",
+      { params },
+    );
     return response.data;
   },
 
@@ -144,8 +152,12 @@ export const productService = {
     series__slug?: string;
     search?: string;
     ordering?: string;
-  }) {
-    const response = await api.get<ProductListItem[]>("/products/products/", { params });
+    page?: number;
+  }): Promise<PaginatedResponse<ProductListItem>> {
+    const response = await api.get<PaginatedResponse<ProductListItem>>(
+      "/products/products/",
+      { params },
+    );
     return response.data;
   },
 
@@ -154,8 +166,11 @@ export const productService = {
     return response.data;
   },
 
-  async getProductListings(slug: string) {
-    const response = await api.get<MarketplaceListing[]>(`/products/products/${slug}/listings/`);
+  async getProductListings(slug: string, params?: { page?: number }) {
+    const response = await api.get<PaginatedResponse<MarketplaceListing>>(
+      `/products/products/${slug}/listings/`,
+      { params },
+    );
     return response.data;
   },
 
