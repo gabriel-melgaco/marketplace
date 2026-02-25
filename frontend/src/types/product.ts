@@ -122,6 +122,14 @@ export interface SearchProductsResponse {
   results: MarketplaceListing[];
 }
 
+export interface ListingPackageRequest {
+  weight_kg: string;
+  height_cm: string;
+  width_cm: string;
+  length_cm: string;
+  description?: string;
+}
+
 export interface CreateListingRequest {
   product: number;
   title: string;
@@ -129,12 +137,8 @@ export interface CreateListingRequest {
   condition: number;
   description: string;
   price: string;
-  weight_kg: string;
-  height_cm: string;
-  width_cm: string;
-  length_cm: string;
   quantity?: number;
-  shipping_address?: number | null;
+  packages: ListingPackageRequest[];
 }
 
 export interface UpdateListingRequest {
@@ -144,13 +148,9 @@ export interface UpdateListingRequest {
   condition?: number;
   description?: string;
   price?: string;
-  weight_kg?: string;
-  height_cm?: string;
-  width_cm?: string;
-  length_cm?: string;
   quantity?: number;
   is_active?: boolean;
-  shipping_address?: number | null;
+  packages?: ListingPackageRequest[];
 }
 
 export interface PresignedUrlRequest {
@@ -229,7 +229,7 @@ export interface FormData {
   height_cm: string;
   width_cm: string;
   length_cm: string;
-  shipping_address: string;
+  package_description: string;
 }
 
 export interface PendingImage {
