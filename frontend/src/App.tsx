@@ -20,6 +20,8 @@ import EmailSent from "@/pages/auth/EmailSent";
 import ConfirmEmail from "@/pages/auth/ConfirmEmail";
 import { Chat } from "@/pages/private/Chat";
 import { StateProductList } from "@/pages/public/StateProductList";
+import { GoogleCallback } from "@/pages/auth/GoogleCallback";
+import { CategoryProductList } from "@/pages/public/CategoryProductList";
 
 const router = createBrowserRouter([
   // 🌍 PÚBLICAS COM LAYOUT
@@ -31,10 +33,12 @@ const router = createBrowserRouter([
       { path: "productlist", element: <ProductList /> },
       { path: "productdetail/:id", element: <ProductDetail /> },
       { path: "estado/:uf", element: <StateProductList /> },
+      { path: "products", element: <CategoryProductList /> },
     ],
   },
 
   // 🔐 AUTH (SEM HEADER)
+  { path: "/auth/google/callback", element: <GoogleCallback /> },
   { path: "/login", element: <LoginPage /> },
   { path: "/register", element: <Register /> },
   { path: "/forgotpassword", element: <ForgotPassword /> },

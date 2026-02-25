@@ -23,4 +23,10 @@ export default defineConfig({
       "@/assets": path.resolve(__dirname, "./src/assets"),
     },
   },
+  test: {
+    globals: true,
+    environment: "jsdom",
+    setupFiles: ["./src/test/setup.ts"],
+    exclude: ["e2e/**", "node_modules/**"],
+  },
 });

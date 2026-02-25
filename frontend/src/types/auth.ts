@@ -77,4 +77,5 @@ export interface AuthContextData {
   isLoading: boolean;
   login: (credentials: LoginCredentials) => Promise<void>;
   logout: () => void;
+  setUser: (user: User) => void;
 }

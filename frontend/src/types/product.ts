@@ -123,6 +123,7 @@ export interface SearchProductsResponse {
 }
 
 export interface CreateListingRequest {
+  product: number;
   title: string;
   brand: number;
   condition: number;
@@ -133,9 +134,11 @@ export interface CreateListingRequest {
   width_cm: string;
   length_cm: string;
   quantity?: number;
+  shipping_address?: number | null;
 }
 
 export interface UpdateListingRequest {
+  product?: number;
   title?: string;
   brand?: number;
   condition?: number;
@@ -147,6 +150,7 @@ export interface UpdateListingRequest {
   length_cm?: string;
   quantity?: number;
   is_active?: boolean;
+  shipping_address?: number | null;
 }
 
 export interface PresignedUrlRequest {
@@ -157,10 +161,12 @@ export interface PresignedUrlRequest {
 export interface PresignedUrlResponse {
   upload_url: string;
   file_url: string;
+  object_name: string;
 }
 
 export interface AddListingImageRequest {
   image_url: string;
+  object_name: string;
   is_primary?: boolean;
   order?: number;
 }
@@ -170,6 +176,13 @@ export interface FilterOptionsResponse {
   brands: { id: number; name: string; slug: string }[];
   conditions: { id: number; name: string; slug: string }[];
   price_range: { min: number; max: number };
+}
+
+export interface PaginatedResponse<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
 }
 
 export interface ProductListItem {
@@ -205,6 +218,7 @@ export interface MarketplaceListingDetail {
 }
 
 export interface FormData {
+  product: string;
   title: string;
   brand: string;
   condition: string;
@@ -215,6 +229,7 @@ export interface FormData {
   height_cm: string;
   width_cm: string;
   length_cm: string;
+  shipping_address: string;
 }
 
 export interface PendingImage {

@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
-import { Menu, ShoppingBag, Package, Settings } from "lucide-react";
+import { Menu, ShoppingBag, Package, LayoutDashboard } from "lucide-react";
 import { CgClose } from "react-icons/cg";
+import { ROUTES } from "@/routes/routePaths";
 
 const menuItems = [
-  { label: "Minhas Vendas", path: "/my-sales", icon: ShoppingBag },
-  { label: "Minhas Compras", path: "/my-purchases", icon: Package },
-  { label: "Painel Administrativo", path: "/admin", icon: Settings },
+  { label: "Minhas Vendas", path: ROUTES.MY_SALES, icon: ShoppingBag },
+  { label: "Minhas Compras", path: ROUTES.MY_PURCHASES, icon: Package },
+  { label: "Painel Administrativo", path: ROUTES.DASHBOARD, icon: LayoutDashboard },
 ];
 
 export function NavMenu() {
@@ -48,7 +49,7 @@ export function NavMenu() {
           {/* Overlay */}
           <div
             className={`
-              fixed inset-0 z-[60] bg-black/40 transition-opacity
+              fixed inset-0 z-[9998] bg-black/40 transition-opacity
               ${isOpen ? "opacity-100" : "opacity-0 pointer-events-none"}
             `}
             onClick={() => setIsOpen(false)}
@@ -61,7 +62,7 @@ export function NavMenu() {
             aria-modal="true"
             aria-labelledby="nav-menu-heading"
             className={`
-              fixed top-0 bottom-0 right-0 z-[70]
+              fixed top-0 bottom-0 right-0 z-[9999]
               w-3/5 md:w-1/2 lg:w-1/4
               bg-white shadow-xl
               transform transition-transform duration-300

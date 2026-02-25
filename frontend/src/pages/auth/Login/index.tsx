@@ -3,6 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { AuthLogo } from "@/components/ui/AuthLogo";
 import { Eye, EyeOff, Mail, Lock, LogIn, AlertCircle } from "lucide-react";
+import { GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI } from "@/utils/constants";
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -14,6 +15,21 @@ export default function LoginPage() {
   const [rememberMe, setRememberMe] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  const handleGoogleLogin = () => {
+    const state = crypto.randomUUID();
+    sessionStorage.setItem("oauth_state", state);
+
+    const params = new URLSearchParams({
+      client_id: GOOGLE_CLIENT_ID,
+      redirect_uri: GOOGLE_REDIRECT_URI,
+      response_type: "code",
+      scope: "openid email profile",
+      access_type: "offline",
+      state,
+    });
+    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+  };
 
   const handleLogin = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -161,7 +177,8 @@ export default function LoginPage() {
             <div className="space-y-3">
               <button
                 type="button"
-                className="w-full flex items-center justify-center gap-3 bg-white border-2 border-gray-300 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-50 transition"
+                onClick={handleGoogleLogin}
+                className="w-full flex items-center justify-center gap-3 bg-white border-2 border-gray-300 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-50 transition cursor-pointer"
                 disabled={isLoading}
               >
                 <svg className="w-5 h-5" viewBox="0 0 24 24">

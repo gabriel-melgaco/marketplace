@@ -5,8 +5,10 @@ export const ROUTES = {
   HOME: "/",
   PRODUCT_LIST: "/productlist",
   PRODUCT_DETAIL: "/productdetail/:id",
+  CATEGORY_PRODUCTS: "/products",
 
   // Auth
+  GOOGLE_CALLBACK: "/auth/google/callback",
   LOGIN: "/login",
   REGISTER: "/register",
   FORGOT_PASSWORD: "/forgotpassword",

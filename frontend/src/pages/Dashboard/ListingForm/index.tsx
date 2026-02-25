@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   X,
@@ -14,10 +14,14 @@ import {
   CheckCircle,
   Ruler,
   Trash2,
+  Search,
+  ShoppingBag,
+  MapPin,
 } from "lucide-react";
 import { productService } from "@/services/productService";
 import { storageService, IMAGE_UPLOAD_LIMITS } from "@/services/storageService";
 import { listingImageService } from "@/services/listingImageService";
+import api from "@/api/axios";
 import type {
   FilterOptionsResponse,
   MarketplaceListingImage,
@@ -25,15 +29,74 @@ import type {
   UpdateListingRequest,
   FormData,
   PendingImage,
+  ProductListItem,
 } from "@/types/product";
 import { INITIAL_FORMDATA } from "@/constants/brazilianStates";
+import {
+  validateStep as validateStepHelper,
+  formatDecimal,
+  buildListingData as buildListingDataHelper,
+} from "@/utils/listingHelpers";
+import Swal from "sweetalert2";
+
+interface ShippingAddress {
+  id: number;
+  address_type: string;
+  nickname: string;
+  city: string;
+  state: string;
+  is_default: boolean;
+  is_shipping_address: boolean;
+}
 
 const MAX_IMAGES = 10;
 
-const TOTAL_STEPS = 6;
+const TOTAL_STEPS = 8;
+
+const FIELD_TO_STEP: Record<string, number> = {
+  product: 2,
+  title: 3,
+  brand: 6,
+  condition: 6,
+  description: 4,
+  price: 5,
+  quantity: 5,
+  weight_kg: 7,
+  height_cm: 7,
+  width_cm: 7,
+  length_cm: 7,
+  shipping_address: 8,
+};
+
+const STEP_NAMES: Record<number, string> = {
+  1: "Imagens",
+  2: "Produto",
+  3: "Título",
+  4: "Descrição",
+  5: "Preço",
+  6: "Marca e Condição",
+  7: "Dimensões",
+  8: "Localização",
+};
+
+const FIELD_LABELS: Record<string, string> = {
+  product: "Produto",
+  title: "Título",
+  brand: "Marca",
+  condition: "Condição",
+  description: "Descrição",
+  price: "Preço",
+  quantity: "Quantidade",
+  weight_kg: "Peso (kg)",
+  height_cm: "Altura (cm)",
+  width_cm: "Largura (cm)",
+  length_cm: "Comprimento (cm)",
+  shipping_address: "Endereço de envio",
+};
 
 interface UploadedImageUrl {
   url: string;
+  objectName: string;
   isPrimary: boolean;
   order: number;
 }
@@ -60,6 +123,26 @@ export function ListingForm() {
   const [existingImages, setExistingImages] = useState<
     MarketplaceListingImage[]
   >([]);
+  const [productSearch, setProductSearch] = useState("");
+  const [productResults, setProductResults] = useState<ProductListItem[]>([]);
+  const [allProducts, setAllProducts] = useState<ProductListItem[]>([]);
+  const [productsPage, setProductsPage] = useState(1);
+  const [hasMoreProducts, setHasMoreProducts] = useState(false);
+  const [loadingMoreProducts, setLoadingMoreProducts] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<ProductListItem | null>(null);
+  const [searchingProducts, setSearchingProducts] = useState(false);
+  const [searchAbortController, setSearchAbortController] = useState<AbortController | null>(null);
+  const draftProductRestoredRef = useRef(false);
+
+  // Draft timing refs — prevent auto-save from overwriting the real draft step
+  // before the user has dismissed the Draft Notice.
+  const draftStepRef = useRef<number>(1);
+  const draftJustLoadedRef = useRef(false);
+
+  const [shippingAddresses, setShippingAddresses] = useState<ShippingAddress[]>([]);
+  const [loadingAddresses, setLoadingAddresses] = useState(false);
+  const [addressRefreshKey, setAddressRefreshKey] = useState(0);
+
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -73,24 +156,51 @@ export function ListingForm() {
 
   const draftKey = isEditMode ? `listing_draft_${id}` : "listing_draft";
 
-  // Load draft from localStorage
+  // Load draft from localStorage (runs once).
+  // currentStep intentionally stays at 1 so the Draft Notice can show.
+  // The user clicks "Continuar do passo X" to jump to the saved step.
+  // draftJustLoadedRef prevents the auto-save effect from overwriting the real
+  // draft step before the user has had a chance to act on the notice.
   useEffect(() => {
-    if (isEditMode) return; // No localStorage for edit mode
+    if (isEditMode) return;
 
     try {
       const saved = localStorage.getItem(draftKey);
       if (saved) {
         const draft: DraftData = JSON.parse(saved);
+        draftStepRef.current = draft.step ?? 1;
+        draftJustLoadedRef.current = true;
         setHasDraft(true);
-        setCurrentStep(draft.step);
         setFormData(draft.formData);
         setUploadedImageUrls(draft.uploadedImageUrls || []);
+        // Don't restore currentStep here; the Draft Notice handles navigation
       }
     } catch (err) {
       console.error("Error loading draft:", err);
       localStorage.removeItem(draftKey);
     }
   }, [draftKey, isEditMode]);
+
+  // Restore selectedProduct from draft once allProducts loads
+  useEffect(() => {
+    if (isEditMode || draftProductRestoredRef.current || allProducts.length === 0) return;
+
+    try {
+      const saved = localStorage.getItem(draftKey);
+      if (saved) {
+        const draft: DraftData = JSON.parse(saved);
+        if (draft.formData.product) {
+          const product = allProducts.find(p => p.id === Number(draft.formData.product));
+          if (product) {
+            setSelectedProduct(product);
+          }
+          draftProductRestoredRef.current = true;
+        }
+      }
+    } catch {
+      // Draft already handled above
+    }
+  }, [allProducts, draftKey, isEditMode]);
 
   // Save draft to localStorage
   const saveDraft = useCallback(() => {
@@ -114,9 +224,12 @@ export function ListingForm() {
     isEditMode,
   ]);
 
-  // Auto-save draft when data changes
+  // Auto-save draft when data changes.
+  // Skip saving while draftJustLoadedRef is true — this prevents the effect
+  // from firing immediately after draft restoration and overwriting the real
+  // saved step with the current step (which is still 1 at that point).
   useEffect(() => {
-    if (!isEditMode && currentStep > 0) {
+    if (!isEditMode && currentStep > 0 && !draftJustLoadedRef.current) {
       saveDraft();
     }
   }, [
@@ -127,8 +240,23 @@ export function ListingForm() {
     isEditMode,
   ]);
 
-  // Discard draft
-  const discardDraft = useCallback(() => {
+  // Discard draft with confirmation
+  const discardDraft = useCallback(async () => {
+    const result = await Swal.fire({
+      title: "Descartar rascunho?",
+      text: "Todos os dados preenchidos serão perdidos.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#1e3a8a",
+      cancelButtonColor: "#6b7280",
+      confirmButtonText: "Sim, descartar",
+      cancelButtonText: "Cancelar",
+    });
+
+    if (!result.isConfirmed) return;
+
+    // User has explicitly acted — allow auto-save from this point forward
+    draftJustLoadedRef.current = false;
     localStorage.removeItem(draftKey);
     setHasDraft(false);
     setCurrentStep(1);
@@ -138,12 +266,18 @@ export function ListingForm() {
     setErrors({});
   }, [draftKey]);
 
-  // Load filter options
+  // Load filter options and products
   useEffect(() => {
     async function loadOptions() {
       try {
-        const opts = await productService.getFilterOptions();
+        const [opts, productsResponse] = await Promise.all([
+          productService.getFilterOptions(),
+          productService.getProducts(),
+        ]);
         setFilterOptions(opts);
+        setAllProducts(productsResponse.results);
+        setHasMoreProducts(productsResponse.next !== null);
+        setProductsPage(1);
       } catch (err) {
         console.error("Erro ao carregar opções:", err);
       } finally {
@@ -153,6 +287,52 @@ export function ListingForm() {
     loadOptions();
   }, [isEditMode]);
 
+  // Fetch the authenticated user's addresses.
+  // Uses the general /addresses/ endpoint (paginated) so ALL user addresses are available,
+  // not just shipping-specific ones.
+  // Auto-selects the default address when no address is already chosen in formData.
+  // This runs once on mount — addresses are stable for the session lifetime.
+  useEffect(() => {
+    async function loadShippingAddresses() {
+      setLoadingAddresses(true);
+      try {
+        const response = await api.get<{ results: ShippingAddress[] }>("/logistics/addresses/");
+        const allAddresses = response.data.results ?? [];
+        // Only show addresses marked as shipping — the backend requires this for listings
+        const addresses = allAddresses.filter((a) => a.is_shipping_address);
+        setShippingAddresses(addresses);
+
+        // Auto-select an address:
+        // - On refresh (addressRefreshKey > 0): select the newest (last) address
+        // - On initial load: select the default address if no choice yet
+        setFormData((prev) => {
+          if (addressRefreshKey > 0 && addresses.length > 0) {
+            const newest = addresses[addresses.length - 1];
+            return { ...prev, shipping_address: String(newest.id) };
+          }
+          // Validate that the draft's saved address still exists in the database
+          if (prev.shipping_address) {
+            const stillExists = addresses.some(
+              (a) => a.id === Number(prev.shipping_address),
+            );
+            if (stillExists) return prev;
+            // Address was deleted — clear the stale selection
+          }
+          const defaultAddr = addresses.find((a) => a.is_default);
+          if (defaultAddr) {
+            return { ...prev, shipping_address: String(defaultAddr.id) };
+          }
+          return { ...prev, shipping_address: "" };
+        });
+      } catch (err) {
+        console.error("Erro ao carregar endereços de envio:", err);
+      } finally {
+        setLoadingAddresses(false);
+      }
+    }
+    loadShippingAddresses();
+  }, [addressRefreshKey]);
+
   // Load existing listing data in edit mode
   useEffect(() => {
     if (!isEditMode || !id) return;
@@ -161,6 +341,7 @@ export function ListingForm() {
       try {
         const listing = await productService.getListingById(Number(id));
         setFormData({
+          product: String(listing.product.id),
           title: listing.title || "",
           brand: String(listing.brand.id),
           condition: String(listing.condition.id),
@@ -171,6 +352,15 @@ export function ListingForm() {
           height_cm: listing.height_cm || "",
           width_cm: listing.width_cm || "",
           length_cm: listing.length_cm || "",
+          shipping_address: listing.seller_shipping_address
+            ? String(listing.seller_shipping_address.id)
+            : "",
+        });
+        setSelectedProduct({
+          id: listing.product.id,
+          name: listing.product.name,
+          slug: listing.product.slug,
+          code: listing.product.code ?? null,
         });
         setExistingImages(listing.images);
         // In edit mode, start at step 2 (skip image upload)
@@ -184,14 +374,17 @@ export function ListingForm() {
     loadListing();
   }, [isEditMode, id]);
 
-  // Cleanup: Revoke object URLs when component unmounts or pendingImages change
+  // Track pending images in a ref for cleanup on unmount only
+  const pendingImagesRef = useRef(pendingImages);
+  pendingImagesRef.current = pendingImages;
+
   useEffect(() => {
     return () => {
-      pendingImages.forEach((img) => {
+      pendingImagesRef.current.forEach((img) => {
         URL.revokeObjectURL(img.previewUrl);
       });
     };
-  }, [pendingImages]);
+  }, []);
 
   const handleChange = (
     e: React.ChangeEvent<
@@ -209,45 +402,97 @@ export function ListingForm() {
     }
   };
 
-  // Step-specific validation
-  const validateStep = (step: number): boolean => {
-    const newErrors: Record<string, string> = {};
+  // Product search handler with debounce
+  const handleProductSearch = useCallback(
+    (term: string) => {
+      setProductSearch(term);
 
-    switch (step) {
-      case 1: // Images - optional, no validation needed
-        break;
-      case 2: // Title
-        if (!formData.title.trim())
-          newErrors.title = "O título do anúncio é obrigatório";
-        if (formData.title.length > 150)
-          newErrors.title = "Máximo 150 caracteres";
-        break;
-      case 3: // Description
-        if (!formData.description.trim())
-          newErrors.description = "Descrição é obrigatória";
-        if (formData.description.length > 255)
-          newErrors.description = "Máximo 255 caracteres";
-        break;
-      case 4: // Price and Quantity
-        if (!formData.price || Number(formData.price) <= 0)
-          newErrors.price = "Preço inválido";
-        break;
-      case 5: // Brand and Condition
-        if (!formData.brand) newErrors.brand = "Selecione uma marca";
-        if (!formData.condition) newErrors.condition = "Selecione a condição";
-        break;
-      case 6: // Dimensions and Weight
-        if (!formData.weight_kg || Number(formData.weight_kg) <= 0)
-          newErrors.weight_kg = "Peso inválido";
-        if (!formData.height_cm || Number(formData.height_cm) <= 0)
-          newErrors.height_cm = "Altura inválida";
-        if (!formData.width_cm || Number(formData.width_cm) <= 0)
-          newErrors.width_cm = "Largura inválida";
-        if (!formData.length_cm || Number(formData.length_cm) <= 0)
-          newErrors.length_cm = "Comprimento inválido";
-        break;
+      if (!term.trim()) {
+        setProductResults([]);
+        setSearchingProducts(false);
+        if (searchAbortController) {
+          searchAbortController.abort();
+          setSearchAbortController(null);
+        }
+        return;
+      }
+
+      // Cancel previous search
+      if (searchAbortController) {
+        searchAbortController.abort();
+      }
+
+      setSearchingProducts(true);
+
+      // Debounce: wait 300ms before searching
+      const timeoutId = setTimeout(async () => {
+        const controller = new AbortController();
+        setSearchAbortController(controller);
+
+        try {
+          const response = await productService.getProducts({ search: term.trim() });
+          // Only update if this request wasn't aborted
+          if (!controller.signal.aborted) {
+            setProductResults(response.results);
+          }
+        } catch (err: any) {
+          if (err.name !== 'AbortError' && err.name !== 'CanceledError') {
+            console.error("Erro ao buscar produtos:", err);
+          }
+        } finally {
+          if (!controller.signal.aborted) {
+            setSearchingProducts(false);
+          }
+        }
+      }, 300);
+
+      return () => clearTimeout(timeoutId);
+    },
+    [searchAbortController],
+  );
+
+  const selectProduct = useCallback(
+    (product: ProductListItem) => {
+      setSelectedProduct(product);
+      setFormData((prev) => ({ ...prev, product: String(product.id) }));
+      setProductSearch("");
+      setProductResults([]);
+      if (errors.product) {
+        setErrors((prev) => {
+          const next = { ...prev };
+          delete next.product;
+          return next;
+        });
+      }
+    },
+    [errors.product],
+  );
+
+  const clearProduct = useCallback(() => {
+    setSelectedProduct(null);
+    setFormData((prev) => ({ ...prev, product: "" }));
+  }, []);
+
+  const loadMoreProducts = useCallback(async () => {
+    if (loadingMoreProducts || !hasMoreProducts) return;
+
+    setLoadingMoreProducts(true);
+    try {
+      const nextPage = productsPage + 1;
+      const response = await productService.getProducts({ page: nextPage });
+      setAllProducts((prev) => [...prev, ...response.results]);
+      setHasMoreProducts(response.next !== null);
+      setProductsPage(nextPage);
+    } catch (err) {
+      console.error("Erro ao carregar mais produtos:", err);
+    } finally {
+      setLoadingMoreProducts(false);
     }
+  }, [loadingMoreProducts, hasMoreProducts, productsPage]);
 
+  // Step-specific validation (delegates to pure helper)
+  const validateStep = (step: number): boolean => {
+    const newErrors = validateStepHelper(step, formData);
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -389,8 +634,9 @@ export function ListingForm() {
   }, []);
 
   // Upload images to S3 and save URLs (Step 1)
-  const uploadImagesToS3 = useCallback(async () => {
-    if (pendingImages.length === 0) return;
+  // Returns the newly uploaded URLs so callers avoid stale closure issues
+  const uploadImagesToS3 = useCallback(async (): Promise<UploadedImageUrl[]> => {
+    if (pendingImages.length === 0) return [];
 
     setUploading(true);
     setUploadError(null);
@@ -404,16 +650,15 @@ export function ListingForm() {
         setUploadProgress({ current: i + 1, total: pendingImages.length });
 
         // Step 1: Get presigned URL
-        const { upload_url, file_url } = await storageService.getPresignedUrl(
-          img.file.name,
-          img.file.type,
-        );
+        const { upload_url, file_url, object_name } =
+          await storageService.getPresignedUrl(img.file.name, img.file.type);
 
         // Step 2: Upload to S3
         await storageService.uploadToS3(upload_url, img.file);
 
         newUploadedUrls.push({
           url: file_url,
+          objectName: object_name,
           isPrimary: img.isPrimary,
           order: uploadedImageUrls.length + i,
         });
@@ -425,6 +670,8 @@ export function ListingForm() {
         prev.forEach((img) => URL.revokeObjectURL(img.previewUrl));
         return [];
       });
+
+      return newUploadedUrls;
     } catch (err) {
       console.error("Erro ao fazer upload de imagens:", err);
       setUploadError(
@@ -446,10 +693,21 @@ export function ListingForm() {
     async (listingId: number) => {
       if (uploadedImageUrls.length === 0) return;
 
+      // Validate all images have required fields before linking
+      const invalidImages = uploadedImageUrls.filter(
+        (img) => !img.url || !img.objectName?.trim(),
+      );
+      if (invalidImages.length > 0) {
+        throw new Error(
+          `${invalidImages.length} imagem(ns) sem dados válidos de upload. Tente enviar novamente.`,
+        );
+      }
+
       try {
         for (const img of uploadedImageUrls) {
           await listingImageService.addImage(listingId, {
             image_url: img.url,
+            object_name: img.objectName,
             is_primary: img.isPrimary,
             order: img.order,
           });
@@ -462,43 +720,20 @@ export function ListingForm() {
     [uploadedImageUrls],
   );
 
-  // Format decimal to 2 places (FIX for 400 Bad Request)
-  const formatDecimal = (value: string): string => {
-    const num = parseFloat(value);
-    if (isNaN(num)) return "0.00";
-    return num.toFixed(2);
-  };
+  const buildListingData = useCallback(
+    () => buildListingDataHelper(formData),
+    [formData],
+  );
 
-  const buildListingData = useCallback(() => {
-    return {
-      title: formData.title.trim(),
-      brand: Number(formData.brand),
-      condition: Number(formData.condition),
-      description: formData.description.trim(),
-      price: formatDecimal(formData.price),
-      quantity: Number(formData.quantity) || 1,
-      weight_kg: formatDecimal(formData.weight_kg),
-      height_cm: formatDecimal(formData.height_cm),
-      width_cm: formatDecimal(formData.width_cm),
-      length_cm: formatDecimal(formData.length_cm),
-    };
-  }, [formData]);
-
-  // Handle "Continuar" button (Step 1-5)
+  // Handle "Continuar" button (Step 1-7)
+  // Images are intentionally kept as pendingImages here and only uploaded
+  // at final submit, after the listing has been created.
   const handleContinue = async () => {
     if (!validateStep(currentStep)) return;
 
-    // Step 1: Upload images to S3 before proceeding
-    if (currentStep === 1 && pendingImages.length > 0) {
-      try {
-        await uploadImagesToS3();
-      } catch (err) {
-        return; // Error already shown in uploadImagesToS3
-      }
-    }
-
     setCurrentStep((prev) => Math.min(prev + 1, TOTAL_STEPS));
     setErrors({});
+    setUploadError(null);
   };
 
   // Handle "Voltar" button
@@ -510,12 +745,40 @@ export function ListingForm() {
     }
     setCurrentStep((prev) => Math.max(prev - 1, 1));
     setErrors({});
+    setUploadError(null);
   };
 
-  // Handle final submit (Step 6 - "Publicar Anúncio")
+  // Handle final submit (Step 8 - "Publicar Anúncio")
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validateStep(6)) return;
+
+    // Only allow submission from the last step.
+    // This prevents accidental form submission when pressing Enter
+    // in input fields on earlier steps.
+    if (currentStep < TOTAL_STEPS) {
+      handleContinue();
+      return;
+    }
+
+    // Validate ALL steps before hitting the API.
+    // This catches any field that may have been left invalid on a previous step
+    // so the user is navigated directly to the offending step instead of seeing
+    // a generic error after a round-trip to the server.
+    const allErrors: Record<string, string> = {};
+    for (let step = 1; step <= TOTAL_STEPS; step++) {
+      const stepErrors = validateStepHelper(step, formData);
+      Object.assign(allErrors, stepErrors);
+    }
+    if (Object.keys(allErrors).length > 0) {
+      setErrors(allErrors);
+      // Navigate to the lowest step number that has an error
+      const targetStep = Object.keys(allErrors).reduce((lowest, field) => {
+        const step = FIELD_TO_STEP[field] ?? TOTAL_STEPS;
+        return step < lowest ? step : lowest;
+      }, TOTAL_STEPS);
+      setCurrentStep(targetStep);
+      return;
+    }
 
     setSubmitting(true);
     setUploadError(null);
@@ -529,11 +792,12 @@ export function ListingForm() {
         // Upload new pending images if any
         if (pendingImages.length > 0) {
           try {
-            await uploadImagesToS3();
-            // Link new images
-            for (const img of uploadedImageUrls) {
+            const newUrls = await uploadImagesToS3();
+            // Link new images using returned array (not stale state)
+            for (const img of newUrls) {
               await listingImageService.addImage(Number(id), {
                 image_url: img.url,
+                object_name: img.objectName,
                 is_primary: img.isPrimary,
                 order: img.order,
               });
@@ -548,62 +812,473 @@ export function ListingForm() {
 
         navigate(`/productdetail/${id}`);
       } else {
-        // Create mode: create listing FIRST, THEN link images
+        // Create mode — strict order:
+        // STEP 1: create listing → get listing_id
+        // STEP 2: per image: presigned URL → upload → associate
+        // STEP 3: navigate
+
         const createData: CreateListingRequest = buildListingData();
 
-        // Step 1: Create the listing
-        const listing = await productService.createListing(createData);
+        // STEP 1: Create the listing. Abort entirely on failure.
+        const createResponse = await productService.createListing(createData);
 
-        // Step 2: Link uploaded images to the created listing
+        // The create endpoint may not return the listing id in the response.
+        // If missing, fetch the user's latest listing to obtain it.
+        let listingId: number | undefined = createResponse.id;
+        if (!listingId) {
+          const myListings = await productService.getMyListings();
+          if (myListings.results.length > 0) {
+            listingId = myListings.results[0].id;
+          }
+        }
+
+        if (!listingId) {
+          throw new Error("Não foi possível obter o ID do anúncio criado.");
+        }
+
+        // STEP 2a: For each pending image (not yet uploaded):
+        //   a) request presigned URL
+        //   b) upload file to MinIO
+        //   c) associate image to the listing
+        // This guarantees no image is uploaded before the listing exists
+        // and no orphan objects are left in MinIO on listing-creation failure.
+        if (pendingImages.length > 0) {
+          setUploading(true);
+          setUploadProgress({ current: 0, total: pendingImages.length });
+          try {
+            for (let i = 0; i < pendingImages.length; i++) {
+              const img = pendingImages[i];
+              setUploadProgress({ current: i + 1, total: pendingImages.length });
+
+              // a) Presigned URL
+              const { upload_url, file_url, object_name } =
+                await storageService.getPresignedUrl(img.file.name, img.file.type);
+
+              // b) Upload
+              await storageService.uploadToS3(upload_url, img.file);
+
+              // c) Associate
+              await listingImageService.addImage(listingId, {
+                image_url: file_url,
+                object_name,
+                is_primary: img.isPrimary,
+                order: i,
+              });
+            }
+          } catch (uploadErr) {
+            console.error("Upload/associate error:", uploadErr);
+            setUploadError(
+              "Anúncio criado, mas houve erro ao enviar algumas imagens. Você pode adicioná-las editando o anúncio.",
+            );
+            localStorage.removeItem(draftKey);
+            setTimeout(() => navigate(`/productdetail/${listingId}`), 3000);
+            return;
+          } finally {
+            setUploading(false);
+            setUploadProgress({ current: 0, total: 0 });
+          }
+        }
+
+        // STEP 2b: Associate any images that were already uploaded in a previous
+        // session (e.g., restored from an older draft). These have a valid
+        // file_url and object_name but were never linked to a listing.
         if (uploadedImageUrls.length > 0) {
           try {
-            await linkImagesToListing(listing.id);
+            await linkImagesToListing(listingId);
           } catch (linkErr) {
             console.error("Link error:", linkErr);
             setUploadError(
               "Anúncio criado, mas houve erro ao vincular algumas imagens. Você pode adicioná-las editando o anúncio.",
             );
             localStorage.removeItem(draftKey);
-            setTimeout(() => navigate(`/productdetail/${listing.id}`), 3000);
+            setTimeout(() => navigate(`/productdetail/${listingId}`), 3000);
             return;
           }
         }
 
-        // Clear draft and navigate
+        // STEP 3: Clear draft and navigate to the new listing
         localStorage.removeItem(draftKey);
-        navigate(`/productdetail/${listing.id}`);
+        navigate(`/productdetail/${listingId}`);
       }
     } catch (err: any) {
       console.error("Erro ao salvar anúncio:", err);
 
-      // FIX: Parse API field-level errors
+      // Parse validation errors returned by the API.
+      // DRF can return: field arrays, "detail" string, or "non_field_errors" array.
       if (err.response?.data) {
         console.error("API validation errors:", err.response.data);
         const apiErrors = err.response.data;
-        const newErrors: Record<string, string> = {};
 
-        // Map API field errors to form errors
+        // Handle "detail" string (auth errors, 404, etc.)
+        if (typeof apiErrors.detail === "string") {
+          setUploadError(apiErrors.detail);
+          return;
+        }
+
+        // Handle "non_field_errors" (global validation errors)
+        if (Array.isArray(apiErrors.non_field_errors) && apiErrors.non_field_errors.length > 0) {
+          setUploadError(apiErrors.non_field_errors[0]);
+          return;
+        }
+
+        // Parse field-level errors and navigate to the correct step
+        const newErrors: Record<string, string> = {};
         Object.keys(apiErrors).forEach((field) => {
           const messages = apiErrors[field];
           if (Array.isArray(messages) && messages.length > 0) {
             newErrors[field] = messages[0];
+          } else if (typeof messages === "string") {
+            newErrors[field] = messages;
           }
         });
 
         if (Object.keys(newErrors).length > 0) {
           setErrors(newErrors);
-          setUploadError("Por favor, corrija os erros nos campos destacados.");
+          // Navigate to the lowest step number that has an error
+          const targetStep = Object.keys(newErrors).reduce((lowest, field) => {
+            const step = FIELD_TO_STEP[field] ?? TOTAL_STEPS;
+            return step < lowest ? step : lowest;
+          }, TOTAL_STEPS);
+          setCurrentStep(targetStep);
           return;
         }
       }
 
-      const errorMessage =
-        err.message || "Erro ao salvar anúncio. Tente novamente.";
-      setUploadError(errorMessage);
+      setUploadError("Erro ao salvar anúncio. Tente novamente.");
     } finally {
       setSubmitting(false);
     }
   };
+
+  // Opens a SweetAlert2 modal with a full address creation form.
+  // On success the new address is appended to shippingAddresses and
+  // auto-selected in formData.shipping_address.
+  const handleCreateAddress = useCallback(async () => {
+    const { value: confirmed, isConfirmed } = await Swal.fire({
+      title: "Cadastrar Novo Endereço",
+      width: 600,
+      html: `
+        <div style="text-align:left; font-family: inherit;">
+          <div style="display:grid; gap:12px;">
+
+            <!-- CEP row -->
+            <div>
+              <label style="display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:4px;">
+                CEP <span style="color:#ef4444;">*</span>
+              </label>
+              <div style="display:flex; gap:8px;">
+                <input
+                  id="swal-zipcode"
+                  type="text"
+                  maxlength="9"
+                  placeholder="00000-000"
+                  style="flex:1; padding:8px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; outline:none;"
+                />
+                <button
+                  id="swal-cep-btn"
+                  type="button"
+                  style="padding:8px 14px; background:#1e3a8a; color:#fff; border:none; border-radius:8px; font-size:13px; cursor:pointer; white-space:nowrap;"
+                >
+                  Buscar CEP
+                </button>
+              </div>
+              <p id="swal-cep-error" style="display:none; font-size:12px; color:#ef4444; margin-top:4px;"></p>
+            </div>
+
+            <!-- Street + Number -->
+            <div style="display:grid; grid-template-columns:1fr auto; gap:8px;">
+              <div>
+                <label style="display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:4px;">
+                  Rua / Logradouro <span style="color:#ef4444;">*</span>
+                </label>
+                <input
+                  id="swal-street"
+                  type="text"
+                  placeholder="Rua das Flores"
+                  style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; outline:none; box-sizing:border-box;"
+                />
+              </div>
+              <div style="min-width:90px;">
+                <label style="display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:4px;">
+                  Número <span style="color:#ef4444;">*</span>
+                </label>
+                <input
+                  id="swal-number"
+                  type="text"
+                  placeholder="123"
+                  style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; outline:none; box-sizing:border-box;"
+                />
+              </div>
+            </div>
+
+            <!-- Complement -->
+            <div>
+              <label style="display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:4px;">
+                Complemento
+              </label>
+              <input
+                id="swal-complement"
+                type="text"
+                placeholder="Apto 42, Bloco B (opcional)"
+                style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; outline:none; box-sizing:border-box;"
+              />
+            </div>
+
+            <!-- Neighborhood -->
+            <div>
+              <label style="display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:4px;">
+                Bairro <span style="color:#ef4444;">*</span>
+              </label>
+              <input
+                id="swal-neighborhood"
+                type="text"
+                placeholder="Centro"
+                style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; outline:none; box-sizing:border-box;"
+              />
+            </div>
+
+            <!-- City + State -->
+            <div style="display:grid; grid-template-columns:1fr 80px; gap:8px;">
+              <div>
+                <label style="display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:4px;">
+                  Cidade <span style="color:#ef4444;">*</span>
+                </label>
+                <input
+                  id="swal-city"
+                  type="text"
+                  placeholder="São Paulo"
+                  style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; outline:none; box-sizing:border-box;"
+                />
+              </div>
+              <div>
+                <label style="display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:4px;">
+                  Estado <span style="color:#ef4444;">*</span>
+                </label>
+                <input
+                  id="swal-state"
+                  type="text"
+                  maxlength="2"
+                  placeholder="SP"
+                  style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; outline:none; box-sizing:border-box; text-transform:uppercase;"
+                />
+              </div>
+            </div>
+
+            <!-- Nickname -->
+            <div>
+              <div>
+                <label style="display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:4px;">
+                  Apelido
+                </label>
+                <input
+                  id="swal-nickname"
+                  type="text"
+                  placeholder="Ex: Casa, Trabalho"
+                  style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; outline:none; box-sizing:border-box;"
+                />
+              </div>
+            </div>
+
+            <!-- Recipient Name -->
+            <div>
+              <label style="display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:4px;">
+                Nome do responsável <span style="color:#ef4444;">*</span>
+              </label>
+              <input
+                id="swal-recipient-name"
+                type="text"
+                placeholder="Nome completo"
+                style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; outline:none; box-sizing:border-box;"
+              />
+            </div>
+
+            <!-- Recipient Phone -->
+            <div>
+              <label style="display:block; font-size:13px; font-weight:600; color:#374151; margin-bottom:4px;">
+                Telefone de contato <span style="color:#ef4444;">*</span>
+              </label>
+              <input
+                id="swal-recipient-phone"
+                type="text"
+                placeholder="(11) 99999-9999"
+                style="width:100%; padding:8px 12px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; outline:none; box-sizing:border-box;"
+              />
+            </div>
+
+            <!-- Checkbox -->
+            <div style="padding-top:4px;">
+              <label style="display:flex; align-items:center; gap:8px; font-size:14px; color:#374151; cursor:pointer;">
+                <input
+                  id="swal-is-default"
+                  type="checkbox"
+                  style="width:16px; height:16px; accent-color:#1e3a8a; cursor:pointer;"
+                />
+                Definir como endereço padrão
+              </label>
+            </div>
+
+            <div style="padding:8px 12px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px;">
+              <p style="font-size:12px; color:#1e40af; margin:0;">
+                Este endereço será registrado como <strong>Endereço de Envio do Vendedor</strong>, obrigatório para publicar anúncios.
+              </p>
+            </div>
+
+          </div>
+        </div>
+      `,
+      confirmButtonText: "Cadastrar",
+      confirmButtonColor: "#1e3a8a",
+      cancelButtonText: "Cancelar",
+      cancelButtonColor: "#6b7280",
+      showCancelButton: true,
+      focusConfirm: false,
+      didOpen: () => {
+        // CEP input masking: format as 00000-000 as user types
+        const zipcodeInput = document.getElementById("swal-zipcode") as HTMLInputElement | null;
+        if (zipcodeInput) {
+          zipcodeInput.addEventListener("input", () => {
+            let val = zipcodeInput.value.replace(/\D/g, "");
+            if (val.length > 8) val = val.slice(0, 8);
+            if (val.length > 5) {
+              val = val.slice(0, 5) + "-" + val.slice(5);
+            }
+            zipcodeInput.value = val;
+          });
+        }
+
+        // CEP lookup button handler
+        const cepBtn = document.getElementById("swal-cep-btn") as HTMLButtonElement | null;
+        const cepError = document.getElementById("swal-cep-error") as HTMLParagraphElement | null;
+
+        if (cepBtn) {
+          cepBtn.addEventListener("click", async () => {
+            const rawZipcode = zipcodeInput?.value.replace(/\D/g, "") ?? "";
+            if (rawZipcode.length !== 8) {
+              if (cepError) {
+                cepError.textContent = "Informe um CEP com 8 dígitos.";
+                cepError.style.display = "block";
+              }
+              return;
+            }
+            if (cepError) cepError.style.display = "none";
+
+            cepBtn.disabled = true;
+            cepBtn.textContent = "Buscando...";
+
+            try {
+              const res = await api.post<{
+                zipcode: string;
+                street: string;
+                neighborhood: string;
+                city: string;
+                state: string;
+              }>("/logistics/cep/lookup/", { zipcode: rawZipcode });
+
+              const { street, neighborhood, city, state } = res.data;
+
+              const setVal = (id: string, val: string) => {
+                const el = document.getElementById(id) as HTMLInputElement | null;
+                if (el) el.value = val;
+              };
+
+              setVal("swal-street", street ?? "");
+              setVal("swal-neighborhood", neighborhood ?? "");
+              setVal("swal-city", city ?? "");
+              setVal("swal-state", (state ?? "").toUpperCase());
+            } catch {
+              if (cepError) {
+                cepError.textContent = "CEP não encontrado. Preencha os campos manualmente.";
+                cepError.style.display = "block";
+              }
+            } finally {
+              cepBtn.disabled = false;
+              cepBtn.textContent = "Buscar CEP";
+            }
+          });
+        }
+      },
+      preConfirm: async () => {
+        const getVal = (id: string): string => {
+          const el = document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null;
+          return el ? el.value.trim() : "";
+        };
+        const getChecked = (id: string): boolean => {
+          const el = document.getElementById(id) as HTMLInputElement | null;
+          return el ? el.checked : false;
+        };
+
+        const zipcode = getVal("swal-zipcode").replace(/\D/g, "");
+        const street = getVal("swal-street");
+        const number = getVal("swal-number");
+        const complement = getVal("swal-complement");
+        const neighborhood = getVal("swal-neighborhood");
+        const city = getVal("swal-city");
+        const state = getVal("swal-state").toUpperCase();
+        const nickname = getVal("swal-nickname");
+        const recipient_name = getVal("swal-recipient-name");
+        const recipient_phone = getVal("swal-recipient-phone");
+        const is_default = getChecked("swal-is-default");
+
+        const missing: string[] = [];
+        if (!zipcode || zipcode.length !== 8) missing.push("CEP (8 dígitos)");
+        if (!street) missing.push("Rua / Logradouro");
+        if (!number) missing.push("Número");
+        if (!neighborhood) missing.push("Bairro");
+        if (!city) missing.push("Cidade");
+        if (!state) missing.push("Estado");
+        if (!recipient_name) missing.push("Nome do responsável");
+        if (!recipient_phone) missing.push("Telefone de contato");
+
+        if (missing.length > 0) {
+          Swal.showValidationMessage(
+            `Preencha os campos obrigatórios: ${missing.join(", ")}.`,
+          );
+          return false;
+        }
+
+        try {
+          const response = await api.post<ShippingAddress>("/logistics/addresses/", {
+            zipcode,
+            street,
+            number,
+            complement: complement || undefined,
+            neighborhood,
+            city,
+            state,
+            address_type: "shipping",
+            nickname: nickname || undefined,
+            recipient_name,
+            recipient_phone,
+            is_default,
+          });
+          return response.data;
+        } catch (err: any) {
+          const detail =
+            err?.response?.data?.detail ??
+            err?.response?.data?.non_field_errors?.[0] ??
+            "Erro ao cadastrar endereço. Verifique os dados e tente novamente.";
+          Swal.showValidationMessage(String(detail));
+          return false;
+        }
+      },
+    });
+
+    if (!isConfirmed || !confirmed) return;
+
+    // The POST /addresses/ response (AddressCreate schema) does NOT include `id`.
+    // Trigger useEffect re-fetch so the new address appears in the dropdown
+    setAddressRefreshKey((k) => k + 1);
+
+    await Swal.fire({
+      toast: true,
+      position: "top-end",
+      icon: "success",
+      title: "Endereço cadastrado com sucesso!",
+      showConfirmButton: false,
+      timer: 3000,
+      timerProgressBar: true,
+    });
+  }, [setFormData, setShippingAddresses]);
 
   if (loading) {
     return (
@@ -619,11 +1294,13 @@ export function ListingForm() {
   // Step configuration
   const stepConfig = [
     { step: 1, title: "Imagens", icon: ImagePlus },
-    { step: 2, title: "Título", icon: Package },
-    { step: 3, title: "Descrição", icon: FileText },
-    { step: 4, title: "Preço e Quantidade", icon: DollarSign },
-    { step: 5, title: "Marca e Condição", icon: Tag },
-    { step: 6, title: "Dimensões e Peso", icon: Ruler },
+    { step: 2, title: "Produto", icon: ShoppingBag },
+    { step: 3, title: "Título", icon: Package },
+    { step: 4, title: "Descrição", icon: FileText },
+    { step: 5, title: "Preço", icon: DollarSign },
+    { step: 6, title: "Marca", icon: Tag },
+    { step: 7, title: "Dimensões", icon: Ruler },
+    { step: 8, title: "Local", icon: MapPin },
   ];
 
   return (
@@ -644,29 +1321,51 @@ export function ListingForm() {
         </div>
 
         {/* Draft Notice */}
-        {!isEditMode && hasDraft && currentStep === 1 && (
-          <div className="bg-blue-800 rounded-xl p-4 mb-6 border border-blue-700">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-white font-medium mb-1">
-                  Rascunho encontrado
-                </p>
-                <p className="text-blue-200 text-sm">
-                  Você tem um rascunho salvo. Continue de onde parou ou descarte
-                  para começar um novo anúncio.
-                </p>
+        {!isEditMode && hasDraft && currentStep === 1 && (() => {
+          // Read from the ref — guaranteed to hold the original draft step because
+          // we stored it at load time and the auto-save guard keeps it intact.
+          const draftStep = draftStepRef.current;
+          const draftStepName = stepConfig.find(s => s.step === draftStep)?.title ?? `Passo ${draftStep}`;
+
+          return (
+            <div className="bg-blue-800 rounded-xl p-4 mb-6 border border-blue-700">
+              <div className="flex flex-col gap-3">
+                <div>
+                  <p className="text-white font-medium mb-1">
+                    Rascunho encontrado
+                  </p>
+                  <p className="text-blue-200 text-sm">
+                    Você parou no passo <strong className="text-white">{draftStep} de {TOTAL_STEPS}</strong> ({draftStepName}).
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // User chose to continue — lift the auto-save guard and
+                      // jump to the step they were on.
+                      draftJustLoadedRef.current = false;
+                      setHasDraft(false);
+                      setCurrentStep(draftStep);
+                    }}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-white text-blue-900 rounded-lg text-sm font-semibold hover:bg-gray-100 transition-all"
+                  >
+                    <ArrowRight size={14} />
+                    Continuar do passo {draftStep}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={discardDraft}
+                    className="flex items-center gap-1 px-3 py-2 bg-white/10 text-white rounded-lg text-sm hover:bg-white/20 transition-all border border-white/20 whitespace-nowrap"
+                  >
+                    <Trash2 size={14} />
+                    Descartar
+                  </button>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={discardDraft}
-                className="flex items-center gap-1 px-3 py-2 bg-white/10 text-white rounded-lg text-sm hover:bg-white/20 transition-all border border-white/20 whitespace-nowrap"
-              >
-                <Trash2 size={14} />
-                Descartar
-              </button>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Step Progress Indicator */}
         <div className="bg-white rounded-xl p-5 sm:p-6 shadow-md mb-6">
@@ -688,11 +1387,11 @@ export function ListingForm() {
           </div>
 
           {/* Step dots */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-start justify-between">
             {stepConfig.map(({ step, title, icon: Icon }) => (
-              <div key={step} className="flex flex-col items-center gap-2">
+              <div key={step} className="flex flex-col items-center gap-1 w-0 flex-1">
                 <div
-                  className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
+                  className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center shrink-0 transition-all ${
                     step < currentStep
                       ? "bg-green-500 text-white"
                       : step === currentStep
@@ -701,13 +1400,13 @@ export function ListingForm() {
                   }`}
                 >
                   {step < currentStep ? (
-                    <CheckCircle size={20} />
+                    <CheckCircle size={16} className="sm:w-5 sm:h-5" />
                   ) : (
-                    <Icon size={20} />
+                    <Icon size={16} className="sm:w-5 sm:h-5" />
                   )}
                 </div>
                 <span
-                  className={`text-[10px] sm:text-xs font-medium text-center ${
+                  className={`text-[9px] sm:text-xs font-medium text-center leading-tight ${
                     step === currentStep
                       ? "text-blue-800"
                       : step < currentStep
@@ -715,7 +1414,8 @@ export function ListingForm() {
                         : "text-gray-400"
                   }`}
                 >
-                  {title}
+                  <span className="hidden sm:inline">{title}</span>
+                  <span className="sm:hidden">{step}</span>
                 </span>
               </div>
             ))}
@@ -895,8 +1595,155 @@ export function ListingForm() {
             </div>
           )}
 
-          {/* STEP 2: TITLE */}
+          {/* STEP 2: PRODUCT */}
           {currentStep === 2 && (
+            <div className="bg-white rounded-xl p-5 sm:p-6 shadow-md space-y-4">
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <ShoppingBag size={20} className="text-blue-800" />
+                Produto
+              </h2>
+              <p className="text-sm text-gray-500">
+                Selecione o produto que melhor se enquadra no seu anúncio.
+              </p>
+
+              {/* Selected product display */}
+              {selectedProduct ? (
+                <div className="flex items-center justify-between p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">
+                      {selectedProduct.name}
+                    </p>
+                    {selectedProduct.code && (
+                      <p className="text-xs text-gray-500">
+                        Código: {selectedProduct.code}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={clearProduct}
+                    className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                    aria-label="Remover produto"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Search input */}
+                  <div className="relative">
+                    <Search
+                      className="absolute left-3 top-2.5 text-gray-400"
+                      size={18}
+                    />
+                    <input
+                      type="text"
+                      value={productSearch}
+                      onChange={(e) => handleProductSearch(e.target.value)}
+                      placeholder="Buscar produto por nome..."
+                      className={`w-full pl-10 pr-4 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-800 focus:border-transparent transition-colors ${
+                        errors.product
+                          ? "border-red-300 bg-red-50"
+                          : "border-gray-300 bg-white"
+                      }`}
+                    />
+                    {searchingProducts && (
+                      <Loader2
+                        size={18}
+                        className="absolute right-3 top-2.5 text-blue-800 animate-spin"
+                      />
+                    )}
+                  </div>
+
+                  {errors.product && (
+                    <div className="flex items-start gap-1">
+                      <X size={14} className="text-red-500 shrink-0 mt-0.5" />
+                      <p className="text-red-600 text-xs">{errors.product}</p>
+                    </div>
+                  )}
+
+                  {/* Search results */}
+                  {productSearch.trim() && productResults.length > 0 && (
+                    <div className="border border-gray-200 rounded-lg max-h-48 overflow-y-auto divide-y divide-gray-100">
+                      {productResults.map((product) => (
+                        <button
+                          key={product.id}
+                          type="button"
+                          onClick={() => selectProduct(product)}
+                          className="w-full text-left px-3 py-2.5 hover:bg-blue-50 transition-colors"
+                        >
+                          <p className="text-sm font-medium text-gray-900">
+                            {product.name}
+                          </p>
+                          {product.code && (
+                            <p className="text-xs text-gray-500">
+                              Código: {product.code}
+                            </p>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {productSearch.trim() &&
+                    !searchingProducts &&
+                    productResults.length === 0 && (
+                      <p className="text-sm text-gray-500 text-center py-2">
+                        Nenhum produto encontrado.
+                      </p>
+                    )}
+
+                  {/* Quick select from all products */}
+                  {!productSearch.trim() && allProducts.length > 0 && (
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 mb-2">
+                        Ou selecione da lista:
+                      </p>
+                      <div className="border border-gray-200 rounded-lg max-h-48 overflow-y-auto divide-y divide-gray-100">
+                        {allProducts.map((product) => (
+                          <button
+                            key={product.id}
+                            type="button"
+                            onClick={() => selectProduct(product)}
+                            className="w-full text-left px-3 py-2.5 hover:bg-blue-50 transition-colors"
+                          >
+                            <p className="text-sm font-medium text-gray-900">
+                              {product.name}
+                            </p>
+                            {product.code && (
+                              <p className="text-xs text-gray-500">
+                                Código: {product.code}
+                              </p>
+                            )}
+                          </button>
+                        ))}
+                        {hasMoreProducts && (
+                          <button
+                            type="button"
+                            onClick={loadMoreProducts}
+                            disabled={loadingMoreProducts}
+                            className="w-full text-center px-3 py-2.5 text-sm font-medium text-blue-800 hover:bg-blue-50 transition-colors disabled:opacity-50"
+                          >
+                            {loadingMoreProducts ? (
+                              <span className="flex items-center justify-center gap-2">
+                                <Loader2 size={14} className="animate-spin" />
+                                Carregando...
+                              </span>
+                            ) : (
+                              "Carregar mais produtos"
+                            )}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* STEP 3: TITLE */}
+          {currentStep === 3 && (
             <div className="bg-white rounded-xl p-5 sm:p-6 shadow-md space-y-4">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                 <Package size={20} className="text-blue-800" />
@@ -939,8 +1786,8 @@ export function ListingForm() {
             </div>
           )}
 
-          {/* STEP 3: DESCRIPTION */}
-          {currentStep === 3 && (
+          {/* STEP 4: DESCRIPTION */}
+          {currentStep === 4 && (
             <div className="bg-white rounded-xl p-5 sm:p-6 shadow-md space-y-4">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                 <FileText size={20} className="text-blue-800" />
@@ -985,8 +1832,8 @@ export function ListingForm() {
             </div>
           )}
 
-          {/* STEP 4: PRICE AND QUANTITY */}
-          {currentStep === 4 && (
+          {/* STEP 5: PRICE AND QUANTITY */}
+          {currentStep === 5 && (
             <div className="bg-white rounded-xl p-5 sm:p-6 shadow-md space-y-4">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                 <DollarSign size={20} className="text-blue-800" />
@@ -1031,15 +1878,26 @@ export function ListingForm() {
                   min="1"
                   max="2147483647"
                   placeholder="1"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-800 focus:border-transparent"
+                  className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-800 focus:border-transparent transition-colors ${
+                    errors.quantity
+                      ? "border-red-300 bg-red-50"
+                      : "border-gray-300 bg-white"
+                  }`}
                 />
-                <p className="text-xs text-gray-500 mt-1">Padrão: 1 unidade</p>
+                {errors.quantity ? (
+                  <div className="flex items-start gap-1 mt-1">
+                    <X size={14} className="text-red-500 shrink-0 mt-0.5" />
+                    <p className="text-red-600 text-xs">{errors.quantity}</p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-500 mt-1">Padrão: 1 unidade</p>
+                )}
               </div>
             </div>
           )}
 
-          {/* STEP 5: BRAND AND CONDITION */}
-          {currentStep === 5 && (
+          {/* STEP 6: BRAND AND CONDITION */}
+          {currentStep === 6 && (
             <div className="bg-white rounded-xl p-5 sm:p-6 shadow-md space-y-4">
               <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                 <Tag size={20} className="text-blue-800" />
@@ -1106,8 +1964,8 @@ export function ListingForm() {
             </div>
           )}
 
-          {/* STEP 6: DIMENSIONS AND WEIGHT */}
-          {currentStep === 6 && (
+          {/* STEP 7: DIMENSIONS AND WEIGHT */}
+          {currentStep === 7 && (
             <div className="bg-white rounded-xl p-5 sm:p-6 shadow-md space-y-4">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
@@ -1229,6 +2087,105 @@ export function ListingForm() {
                   )}
                 </div>
               </div>
+
+            </div>
+          )}
+
+          {/* STEP 8: LOCATION */}
+          {currentStep === 8 && (
+            <div className="bg-white rounded-xl p-5 sm:p-6 shadow-md space-y-4">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                  <MapPin size={20} className="text-blue-800" />
+                  Localização do Anúncio
+                </h2>
+                <p className="text-xs text-gray-500 mt-1">
+                  Informe o endereço onde o equipamento está localizado. Este endereço será usado para filtros de localização.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Endereço do anúncio
+                </label>
+                {loadingAddresses ? (
+                  <div className="flex items-center gap-2 py-2 text-sm text-gray-500">
+                    <Loader2 size={16} className="animate-spin text-blue-800" />
+                    Carregando endereços...
+                  </div>
+                ) : shippingAddresses.length === 0 ? (
+                  <div className="space-y-3">
+                    <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <p className="text-xs text-yellow-800">
+                        Você não possui um endereço cadastrado. Cadastre um endereço para continuar.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleCreateAddress}
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-800 text-white text-sm font-medium rounded-lg hover:bg-blue-900 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-800 focus:ring-offset-2"
+                    >
+                      + Cadastrar Novo Endereço
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <select
+                      name="shipping_address"
+                      value={formData.shipping_address}
+                      onChange={handleChange}
+                      className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-800 focus:border-transparent transition-colors ${
+                        errors.shipping_address
+                          ? "border-red-300 bg-red-50"
+                          : "border-gray-300 bg-white"
+                      }`}
+                    >
+                      <option value="">Selecione um endereço</option>
+                      {shippingAddresses.map((addr) => (
+                        <option key={addr.id} value={addr.id}>
+                          {addr.nickname
+                            ? `${addr.nickname} - ${addr.city}, ${addr.state}`
+                            : `${addr.city}, ${addr.state}`}
+                          {addr.is_default ? " (padrão)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Este é o local onde o equipamento se encontra, não necessariamente o seu endereço pessoal.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleCreateAddress}
+                      className="mt-2 flex items-center gap-2 px-4 py-2 border border-blue-800 text-blue-800 text-sm font-medium rounded-lg hover:bg-blue-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-800 focus:ring-offset-2"
+                    >
+                      + Cadastrar Novo Endereço
+                    </button>
+                  </>
+                )}
+                {errors.shipping_address && (
+                  <div className="flex items-start gap-1 mt-1">
+                    <X size={14} className="text-red-500 shrink-0 mt-0.5" />
+                    <p className="text-red-600 text-xs">{errors.shipping_address}</p>
+                  </div>
+                )}
+              </div>
+
+              {formData.shipping_address && (() => {
+                const selected = shippingAddresses.find(
+                  (a) => a.id === Number(formData.shipping_address),
+                );
+                if (!selected) return null;
+                return (
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p className="text-sm font-medium text-gray-900">
+                      {selected.nickname || "Endereço selecionado"}
+                    </p>
+                    <p className="text-xs text-gray-600 mt-0.5">
+                      {selected.city}, {selected.state}
+                    </p>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
