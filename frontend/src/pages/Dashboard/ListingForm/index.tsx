@@ -110,6 +110,11 @@ export function ListingForm() {
   const [meConnected, setMeConnected] = useState(false);
   const [meConnectUrl, setMeConnectUrl] = useState<string | null>(null);
   const [meCheckError, setMeCheckError] = useState(false);
+  const [mePolling, setMePolling] = useState(false);
+  const mePopupRef = useRef<Window | null>(null);
+  const mePollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
 
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState<FormData>(INITIAL_FORMDATA);
@@ -135,6 +140,16 @@ export function ListingForm() {
   // Draft timing refs
   const draftStepRef = useRef<number>(1);
   const draftJustLoadedRef = useRef(false);
+
+  // Holds the ID of the listing created at the step 6 → 7 transition
+  // (create mode only). Never persisted to localStorage — if the user
+  // restores a draft the listing ID is orphaned and a fresh creation is needed.
+  const [createdListingId, setCreatedListingId] = useState<number | null>(null);
+
+  // When the user navigates back from step 7 to step 6 in create mode and a
+  // listing was already created, we show an informational banner so they know
+  // the data has already been submitted and they are just reviewing.
+  const [listingCreatedNotice, setListingCreatedNotice] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -165,7 +180,8 @@ export function ListingForm() {
           setMeConnected(false);
           // Get the OAuth URL so we can show a direct connect button
           try {
-            const connectData = await logisticsService.getMelhorEnvioConnectUrl();
+            const connectData =
+              await logisticsService.getMelhorEnvioConnectUrl();
             setMeConnectUrl(connectData.authorization_url);
           } catch {
             // URL fetch failure is non-fatal; user can still try
@@ -180,6 +196,78 @@ export function ListingForm() {
     }
     checkMelhorEnvioConnection();
   }, []);
+
+  // Cleanup polling and popup on unmount
+  useEffect(() => {
+    return () => {
+      if (mePollingIntervalRef.current) {
+        clearInterval(mePollingIntervalRef.current);
+      }
+      if (mePopupRef.current && !mePopupRef.current.closed) {
+        mePopupRef.current.close();
+      }
+    };
+  }, []);
+
+  /**
+   * Opens the Melhor Envio OAuth flow in a popup window and polls
+   * GET /logistics/me/status/ every 3 s until connected.
+   * This keeps the main window alive so the user stays in the form.
+   */
+  const startMeConnection = useCallback(() => {
+    if (!meConnectUrl) return;
+
+    // Open OAuth popup
+    const popup = window.open(
+      meConnectUrl,
+      "melhorenvio_oauth",
+      "width=640,height=720,left=200,top=100,toolbar=no,menubar=no,scrollbars=yes",
+    );
+    mePopupRef.current = popup;
+    setMePolling(true);
+
+    const MAX_POLLS = 20; // 60 s total
+    let pollCount = 0;
+
+    mePollingIntervalRef.current = setInterval(async () => {
+      pollCount += 1;
+
+      try {
+        const status = await logisticsService.getMelhorEnvioStatus();
+        if (status.connected && !status.is_expired) {
+          // Connection established
+          clearInterval(mePollingIntervalRef.current!);
+          mePollingIntervalRef.current = null;
+          if (mePopupRef.current && !mePopupRef.current.closed) {
+            mePopupRef.current.close();
+          }
+          setMePolling(false);
+          setMeConnected(true);
+          return;
+        }
+      } catch {
+        // Ignore transient network errors during polling
+      }
+
+      // Popup was closed by the user before connecting
+      if (mePopupRef.current?.closed) {
+        clearInterval(mePollingIntervalRef.current!);
+        mePollingIntervalRef.current = null;
+        setMePolling(false);
+        return;
+      }
+
+      // Timeout reached
+      if (pollCount >= MAX_POLLS) {
+        clearInterval(mePollingIntervalRef.current!);
+        mePollingIntervalRef.current = null;
+        if (mePopupRef.current && !mePopupRef.current.closed) {
+          mePopupRef.current.close();
+        }
+        setMePolling(false);
+      }
+    }, 3000);
+  }, [meConnectUrl]);
 
   // ============================================
   // DRAFT MANAGEMENT
@@ -306,8 +394,7 @@ export function ListingForm() {
       try {
         const listing = await productService.getListingById(Number(id));
         // Populate from first package if available
-        const firstPkg =
-          (listing as any).packages?.[0] ?? listing;
+        const firstPkg = listing.packages?.[0] ?? listing;
         setFormData({
           product: String(listing.product.id),
           title: listing.title || "",
@@ -503,9 +590,7 @@ export function ListingForm() {
           id: crypto.randomUUID(),
           file,
           previewUrl: URL.createObjectURL(file),
-          isPrimary:
-            totalImages === 0 &&
-            newImages.length === 0,
+          isPrimary: totalImages === 0 && newImages.length === 0,
         });
       }
 
@@ -606,53 +691,52 @@ export function ListingForm() {
    * 2. PUT file to S3
    * Returns the list of uploaded URL objects.
    */
-  const uploadImagesToS3 = useCallback(
-    async (): Promise<UploadedImageUrl[]> => {
-      if (pendingImages.length === 0) return [];
+  const uploadImagesToS3 = useCallback(async (): Promise<
+    UploadedImageUrl[]
+  > => {
+    if (pendingImages.length === 0) return [];
 
-      setUploading(true);
-      setUploadError(null);
-      setUploadProgress({ current: 0, total: pendingImages.length });
+    setUploading(true);
+    setUploadError(null);
+    setUploadProgress({ current: 0, total: pendingImages.length });
 
-      const newUploadedUrls: UploadedImageUrl[] = [];
+    const newUploadedUrls: UploadedImageUrl[] = [];
 
-      try {
-        for (let i = 0; i < pendingImages.length; i++) {
-          const img = pendingImages[i];
-          setUploadProgress({ current: i + 1, total: pendingImages.length });
+    try {
+      for (let i = 0; i < pendingImages.length; i++) {
+        const img = pendingImages[i];
+        setUploadProgress({ current: i + 1, total: pendingImages.length });
 
-          const { upload_url, file_url, object_name } =
-            await storageService.getPresignedUrl(img.file.name, img.file.type);
+        const { upload_url, file_url, object_name } =
+          await storageService.getPresignedUrl(img.file.name, img.file.type);
 
-          await storageService.uploadToS3(upload_url, img.file);
+        await storageService.uploadToS3(upload_url, img.file);
 
-          newUploadedUrls.push({
-            url: file_url,
-            objectName: object_name,
-            isPrimary: img.isPrimary,
-            order: i,
-          });
-        }
-
-        setPendingImages((prev) => {
-          prev.forEach((img) => URL.revokeObjectURL(img.previewUrl));
-          return [];
+        newUploadedUrls.push({
+          url: file_url,
+          objectName: object_name,
+          isPrimary: img.isPrimary,
+          order: i,
         });
-
-        return newUploadedUrls;
-      } catch (err) {
-        console.error("Erro ao fazer upload de imagens:", err);
-        setUploadError(
-          `Erro ao fazer upload de imagens. ${newUploadedUrls.length} de ${pendingImages.length} foram enviadas.`,
-        );
-        throw err;
-      } finally {
-        setUploading(false);
-        setUploadProgress({ current: 0, total: 0 });
       }
-    },
-    [pendingImages],
-  );
+
+      setPendingImages((prev) => {
+        prev.forEach((img) => URL.revokeObjectURL(img.previewUrl));
+        return [];
+      });
+
+      return newUploadedUrls;
+    } catch (err) {
+      console.error("Erro ao fazer upload de imagens:", err);
+      setUploadError(
+        `Erro ao fazer upload de imagens. ${newUploadedUrls.length} de ${pendingImages.length} foram enviadas.`,
+      );
+      throw err;
+    } finally {
+      setUploading(false);
+      setUploadProgress({ current: 0, total: 0 });
+    }
+  }, [pendingImages]);
 
   /**
    * Links uploaded image URLs to an existing listing sequentially.
@@ -683,12 +767,85 @@ export function ListingForm() {
   const handleContinue = async () => {
     if (!validateCurrentStep(currentStep)) return;
 
+    // ── Step 6 → 7 in CREATE mode ──────────────────────────────────────────
+    // The listing must be persisted server-side before the user reaches the
+    // image step so that we have a valid listing ID to attach images to.
+    // In edit mode the listing already exists; just advance normally.
+    if (currentStep === 6 && !isEditMode) {
+      // If the listing was already created (e.g. user went back and came
+      // forward again), skip creation and advance directly.
+      if (createdListingId !== null) {
+        setCurrentStep(7);
+        setErrors({});
+        setUploadError(null);
+        setListingCreatedNotice(false);
+        return;
+      }
+
+      setSubmitting(true);
+      setUploadError(null);
+
+      try {
+        const listingData = buildListingData();
+
+        // ── Diagnóstico: log do payload antes de enviar ──────────────────────
+        console.log(
+          "[ListingForm] Payload enviado para createListing:",
+          listingData,
+        );
+
+        const createdListing = await productService.createListing(listingData);
+
+        // ── Diagnóstico: log da resposta completa da API ─────────────────────
+        console.log("[ListingForm] Resposta de createListing:", createdListing);
+
+        // createdListing é MarketplaceListingDetail — id: number é garantido pelo tipo.
+        // Mantemos a guarda defensiva para capturar edge cases de resposta inesperada.
+        const newListingId = createdListing.id;
+
+        if (!newListingId) {
+          // A requisição respondeu 2xx mas sem ID — erro inesperado da API.
+          throw new Error(
+            `A API não retornou o ID do anúncio criado. Resposta recebida: ${JSON.stringify(createdListing)}`,
+          );
+        }
+
+        setCreatedListingId(newListingId);
+        setCurrentStep(7);
+        setErrors({});
+        setUploadError(null);
+      } catch (err: any) {
+        console.error("[ListingForm] Erro ao criar anúncio (passo 6):", err);
+        const message =
+          err.response?.data?.detail ||
+          err.response?.data?.non_field_errors?.[0] ||
+          err.message ||
+          "Erro ao criar anúncio. Verifique os dados e tente novamente.";
+        await Swal.fire({
+          title: "Erro ao criar anúncio",
+          text: message,
+          icon: "error",
+          confirmButtonColor: "#1e3a8a",
+        });
+        // Permanece no passo 6 para o usuário corrigir e tentar novamente.
+      } finally {
+        setSubmitting(false);
+      }
+
+      return;
+    }
+
     setCurrentStep((prev) => Math.min(prev + 1, TOTAL_STEPS));
     setErrors({});
     setUploadError(null);
   };
 
   const handleBack = () => {
+    // When going back from step 7 to step 6 in create mode and the listing
+    // has already been created, show the informational notice on step 6.
+    if (currentStep === 7 && !isEditMode && createdListingId !== null) {
+      setListingCreatedNotice(true);
+    }
     setCurrentStep((prev) => Math.max(prev - 1, 1));
     setErrors({});
     setUploadError(null);
@@ -701,34 +858,44 @@ export function ListingForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Only allow submission on last step
+    // Steps 1–6: delegate to handleContinue instead of submitting.
     if (currentStep < TOTAL_STEPS) {
       handleContinue();
       return;
     }
 
-    // Validate all metadata steps (1-6) before submitting
-    const allErrors: Record<string, string> = {};
-    for (let step = 1; step <= 6; step++) {
-      const stepErrors = validateStepHelper(step, formData);
-      Object.assign(allErrors, stepErrors);
-    }
-    if (Object.keys(allErrors).length > 0) {
-      setErrors(allErrors);
-      const targetStep = Object.keys(allErrors).reduce((lowest, field) => {
-        const step = FIELD_TO_STEP[field] ?? 1;
-        return step < lowest ? step : lowest;
-      }, 6);
-      setCurrentStep(targetStep);
-      return;
-    }
+    // ── STEP 7 SUBMIT ────────────────────────────────────────────────────────
+    // At this point we are on the final images step.
+    //
+    // CREATE mode: the listing was already created when the user advanced
+    // from step 6. We only need to upload images and link them.
+    //
+    // EDIT mode: call updateListing first, then upload images.
 
     setSubmitting(true);
     setUploadError(null);
 
     try {
       if (isEditMode && id) {
-        // Edit mode: update listing
+        // ── Edit mode ────────────────────────────────────────────────────
+        // Re-validate all metadata steps to guard against any edge-case where
+        // the user navigated back and changed data.
+        const allErrors: Record<string, string> = {};
+        for (let step = 1; step <= 6; step++) {
+          const stepErrors = validateStepHelper(step, formData);
+          Object.assign(allErrors, stepErrors);
+        }
+        if (Object.keys(allErrors).length > 0) {
+          setErrors(allErrors);
+          const targetStep = Object.keys(allErrors).reduce((lowest, field) => {
+            const step = FIELD_TO_STEP[field] ?? 1;
+            return step < lowest ? step : lowest;
+          }, 6);
+          setCurrentStep(targetStep);
+          setSubmitting(false);
+          return;
+        }
+
         const updateData: UpdateListingRequest = {
           ...buildListingData(),
         };
@@ -764,19 +931,36 @@ export function ListingForm() {
         return;
       }
 
-      // Create mode:
-      // Step 1: Create listing with packages
-      const listingData = buildListingData();
-      const createdListing = await productService.createListing(listingData);
-      const listingId = createdListing.id;
+      // ── Create mode ──────────────────────────────────────────────────────
+      // The listing was created at the step 6 → 7 transition.
+      // Recover the ID; if it is somehow missing, send the user back to step 6
+      // so the creation can be retried.
+      console.log(
+        "[ListingForm] handleSubmit (passo 7) — createdListingId:",
+        createdListingId,
+      );
 
-      // Step 2: Upload images to S3 sequentially (if any)
+      if (createdListingId === null) {
+        await Swal.fire({
+          title: "Erro inesperado",
+          text: "O anúncio não foi criado corretamente. Por favor, retorne ao passo anterior e tente novamente.",
+          icon: "error",
+          confirmButtonColor: "#1e3a8a",
+        });
+        setCurrentStep(6);
+        setSubmitting(false);
+        return;
+      }
+
+      const listingId = createdListingId;
+
+      // Upload images to S3 sequentially (if any)
       let uploadedUrls: UploadedImageUrl[] = [];
       if (pendingImages.length > 0) {
         try {
           uploadedUrls = await uploadImagesToS3();
         } catch (imgErr) {
-          // Listing was created but image upload failed
+          // Listing already exists — only images failed.
           console.error("Erro no upload de imagens:", imgErr);
           await Swal.fire({
             title: "Anúncio criado!",
@@ -790,7 +974,7 @@ export function ListingForm() {
         }
       }
 
-      // Step 3: Link images to listing sequentially
+      // Link uploaded images to the listing
       if (uploadedUrls.length > 0) {
         try {
           await linkImagesToListing(listingId, uploadedUrls);
@@ -842,13 +1026,17 @@ export function ListingForm() {
 
   if (meCheckLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-2xl p-10 max-w-sm w-full text-center">
           <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
             <Loader2 className="h-8 w-8 animate-spin text-blue-900" />
           </div>
-          <h2 className="text-lg font-bold text-gray-900 mb-1">Verificando conexão</h2>
-          <p className="text-sm text-gray-500">Aguarde enquanto verificamos sua conta Melhor Envio…</p>
+          <h2 className="text-lg font-bold text-gray-900 mb-1">
+            Verificando conexão
+          </h2>
+          <p className="text-sm text-gray-500">
+            Aguarde enquanto verificamos sua conta Melhor Envio…
+          </p>
         </div>
       </div>
     );
@@ -856,9 +1044,9 @@ export function ListingForm() {
 
   if (meCheckError) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-2xl overflow-hidden max-w-sm w-full">
-          <div className="bg-gradient-to-r from-blue-900 to-gray-900 p-8 text-white text-center">
+          <div className="bg-linear-to-r from-blue-900 to-gray-900 p-8 text-white text-center">
             <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
               <AlertCircle size={32} className="text-white" />
             </div>
@@ -867,7 +1055,8 @@ export function ListingForm() {
           </div>
           <div className="p-8 text-center">
             <p className="text-gray-600 text-sm mb-6">
-              Não foi possível verificar sua conexão com o Melhor Envio. Verifique sua conexão e tente novamente.
+              Não foi possível verificar sua conexão com o Melhor Envio.
+              Verifique sua conexão e tente novamente.
             </p>
             <button
               onClick={() => window.location.reload()}
@@ -889,40 +1078,77 @@ export function ListingForm() {
 
   if (!meConnected) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden max-w-sm w-full">
-          <div className="bg-gradient-to-r from-blue-900 to-gray-900 p-8 text-white text-center">
+      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden w-full max-w-xs mx-auto">
+          <div className="bg-linear-to-r from-blue-900 to-gray-900 p-8 text-white text-center">
             <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
               <Package size={32} className="text-white" />
             </div>
             <h2 className="text-xl font-bold mb-1">Conecte o Melhor Envio</h2>
-            <p className="text-blue-100 text-sm">Necessário para anunciar produtos</p>
+            <p className="text-blue-100 text-sm">
+              Necessário para anunciar produtos
+            </p>
           </div>
           <div className="p-8 text-center">
-            <p className="text-gray-600 text-sm mb-6">
-              Para anunciar produtos você precisa conectar sua conta do Melhor Envio. Isso nos permite calcular fretes e processar envios para seus compradores.
-            </p>
-            {meConnectUrl ? (
-              <a
-                href={meConnectUrl}
-                className="inline-flex items-center justify-center gap-2 w-full px-6 py-3 bg-blue-900 text-white rounded-xl font-semibold hover:bg-blue-800 active:bg-blue-950 transition"
-              >
-                <ExternalLink size={18} />
-                Conectar Melhor Envio
-              </a>
-            ) : (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-                <p className="text-sm text-amber-700">
-                  Não foi possível obter o link de conexão. Entre em contato com o suporte.
+            {mePolling ? (
+              <>
+                <div className="flex items-center justify-center gap-2 mb-3">
+                  <Loader2 size={20} className="animate-spin text-blue-900" />
+                  <p className="text-sm font-semibold text-gray-800">
+                    Aguardando autorização…
+                  </p>
+                </div>
+                <p className="text-xs text-gray-500 mb-6">
+                  Conclua a autorização na janela do Melhor Envio que foi
+                  aberta. Esta tela atualizará automaticamente.
                 </p>
-              </div>
+                <button
+                  onClick={() => {
+                    if (mePollingIntervalRef.current) {
+                      clearInterval(mePollingIntervalRef.current);
+                      mePollingIntervalRef.current = null;
+                    }
+                    if (mePopupRef.current && !mePopupRef.current.closed) {
+                      mePopupRef.current.close();
+                    }
+                    setMePolling(false);
+                  }}
+                  className="w-full px-6 py-2.5 border border-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 transition cursor-pointer"
+                >
+                  Cancelar
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-gray-600 text-sm mb-6">
+                  Para anunciar produtos você precisa conectar sua conta do
+                  Melhor Envio. Isso nos permite calcular fretes e processar
+                  envios para seus compradores.
+                </p>
+                {meConnectUrl ? (
+                  <button
+                    onClick={startMeConnection}
+                    className="inline-flex items-center justify-center gap-2 w-full px-6 py-3 bg-blue-900 text-white rounded-xl font-semibold hover:bg-blue-800 active:bg-blue-950 transition cursor-pointer"
+                  >
+                    <ExternalLink size={18} />
+                    Conectar Melhor Envio
+                  </button>
+                ) : (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                    <p className="text-sm text-amber-700">
+                      Não foi possível obter o link de conexão. Entre em contato
+                      com o suporte.
+                    </p>
+                  </div>
+                )}
+                <button
+                  onClick={() => navigate(-1)}
+                  className="block w-full mt-3 py-2.5 text-sm text-gray-500 hover:text-gray-700 transition cursor-pointer"
+                >
+                  Voltar
+                </button>
+              </>
             )}
-            <button
-              onClick={() => navigate(-1)}
-              className="block w-full mt-3 py-2.5 text-sm text-gray-500 hover:text-gray-700 transition cursor-pointer"
-            >
-              Voltar
-            </button>
           </div>
         </div>
       </div>
@@ -935,7 +1161,7 @@ export function ListingForm() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-2xl p-10 max-w-sm w-full text-center">
           <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
             <Loader2 className="h-8 w-8 animate-spin text-blue-900" />
@@ -957,7 +1183,7 @@ export function ListingForm() {
   return (
     <div className="min-h-screen bg-blue-900 pb-24">
       {/* Page banner — mirrors dashboard header style */}
-      <div className="relative bg-gradient-to-br from-primary via-primary to-secundary overflow-hidden">
+      <div className="relative bg-linear-to-br from-primary via-primary to-secundary overflow-hidden">
         <div
           className="absolute inset-0 opacity-10"
           style={{
@@ -985,13 +1211,12 @@ export function ListingForm() {
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 mt-5">
-
+      <div className="w-full max-w-xl mx-auto px-4 sm:px-6 mt-5">
         {/* Draft notice */}
         {hasDraft && !isEditMode && (
           <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-4">
             <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+              <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0 mt-0.5">
                 <FileText size={15} className="text-amber-700" />
               </div>
               <div className="flex-1 min-w-0">
@@ -999,7 +1224,10 @@ export function ListingForm() {
                   Rascunho encontrado
                 </p>
                 <p className="text-amber-700 text-xs mt-0.5">
-                  Você tem um rascunho salvo em "{STEP_NAMES[draftStepRef.current] ?? `Passo ${draftStepRef.current}`}".
+                  Você tem um rascunho salvo em "
+                  {STEP_NAMES[draftStepRef.current] ??
+                    `Passo ${draftStepRef.current}`}
+                  ".
                 </p>
               </div>
             </div>
@@ -1034,20 +1262,22 @@ export function ListingForm() {
           aria-label={`Passo ${currentStep} de ${TOTAL_STEPS}: ${STEP_NAMES[currentStep]}`}
         >
           <div className="flex items-center justify-center gap-1.5 mb-2.5">
-            {Array.from({ length: TOTAL_STEPS }, (_, i) => i + 1).map((step) => (
-              <div
-                key={step}
-                className={`rounded-full transition-all duration-300 ${
-                  step === currentStep
-                    ? "w-7 h-2 bg-white"
-                    : step < currentStep
-                      ? "w-2 h-2 bg-white/50"
-                      : "w-2 h-2 bg-white/20"
-                }`}
-                title={STEP_NAMES[step]}
-                aria-hidden="true"
-              />
-            ))}
+            {Array.from({ length: TOTAL_STEPS }, (_, i) => i + 1).map(
+              (step) => (
+                <div
+                  key={step}
+                  className={`rounded-full transition-all duration-300 ${
+                    step === currentStep
+                      ? "w-7 h-2 bg-white"
+                      : step < currentStep
+                        ? "w-2 h-2 bg-white/50"
+                        : "w-2 h-2 bg-white/20"
+                  }`}
+                  title={STEP_NAMES[step]}
+                  aria-hidden="true"
+                />
+              ),
+            )}
           </div>
           <p className="text-center text-xs text-white/50">
             {currentStep} de {TOTAL_STEPS} — {STEP_NAMES[currentStep]}
@@ -1059,7 +1289,7 @@ export function ListingForm() {
           {/* Step header */}
           <div className="px-6 pt-6 pb-4 border-b border-gray-100">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center flex-shrink-0">
+              <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center shrink-0">
                 <StepIcon size={20} className="text-blue-900" />
               </div>
               <div>
@@ -1075,7 +1305,6 @@ export function ListingForm() {
 
           <form onSubmit={handleSubmit}>
             <div className="px-6 py-6 space-y-4">
-
               {/* STEP 1 — Produto */}
               {currentStep === 1 && (
                 <div className="space-y-4">
@@ -1304,10 +1533,10 @@ export function ListingForm() {
                           {formData.condition === String(c.id) ? (
                             <CheckCircle
                               size={18}
-                              className="text-blue-900 flex-shrink-0"
+                              className="text-blue-900 shrink-0"
                             />
                           ) : (
-                            <div className="w-[18px] h-[18px] border-2 border-gray-300 rounded-full flex-shrink-0" />
+                            <div className="w-4.5 h-4.5 border-2 border-gray-300 rounded-full shrink-0" />
                           )}
                           <span
                             className={`text-sm font-medium ${
@@ -1375,6 +1604,22 @@ export function ListingForm() {
               {/* STEP 6 — Dimensões do Pacote */}
               {currentStep === 6 && (
                 <div className="space-y-4">
+                  {/* Informational banner shown when the user navigates back
+                      from step 7 after the listing was already created. */}
+                  {listingCreatedNotice && !isEditMode && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex items-start gap-2">
+                      <AlertCircle
+                        size={16}
+                        className="text-blue-600 shrink-0 mt-0.5"
+                      />
+                      <p className="text-sm text-blue-800">
+                        O anúncio já foi criado. Você está apenas revisando as
+                        dimensões. Clique em "Próximo" para continuar para as
+                        imagens.
+                      </p>
+                    </div>
+                  )}
+
                   <p className="text-sm text-gray-500">
                     Informe as dimensões do pacote que será enviado. Esses dados
                     são usados para calcular o frete.
@@ -1515,17 +1760,24 @@ export function ListingForm() {
                       onChange={handleFileSelect}
                       className="sr-only"
                     />
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-3 transition-colors ${isDragging ? "bg-blue-100" : "bg-gray-100"}`}>
+                    <div
+                      className={`w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-3 transition-colors ${isDragging ? "bg-blue-100" : "bg-gray-100"}`}
+                    >
                       <ImagePlus
                         size={22}
-                        className={isDragging ? "text-blue-900" : "text-gray-400"}
+                        className={
+                          isDragging ? "text-blue-900" : "text-gray-400"
+                        }
                       />
                     </div>
                     <p className="text-sm font-semibold text-gray-700">
-                      {isDragging ? "Solte as imagens aqui" : "Clique para selecionar ou arraste"}
+                      {isDragging
+                        ? "Solte as imagens aqui"
+                        : "Clique para selecionar ou arraste"}
                     </p>
                     <p className="text-xs text-gray-400 mt-1">
-                      JPEG, PNG ou WebP · Máx {IMAGE_UPLOAD_LIMITS.MAX_FILE_SIZE_MB}MB por imagem
+                      JPEG, PNG ou WebP · Máx{" "}
+                      {IMAGE_UPLOAD_LIMITS.MAX_FILE_SIZE_MB}MB por imagem
                     </p>
                   </label>
 
@@ -1533,7 +1785,7 @@ export function ListingForm() {
                     <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-start gap-2">
                       <AlertCircle
                         size={16}
-                        className="text-red-500 flex-shrink-0 mt-0.5"
+                        className="text-red-500 shrink-0 mt-0.5"
                       />
                       <p className="text-sm text-red-700">{uploadError}</p>
                     </div>
@@ -1653,12 +1905,13 @@ export function ListingForm() {
                     </div>
                   )}
 
-                  {pendingImages.length === 0 && existingImages.length === 0 && (
-                    <p className="text-sm text-gray-400 text-center py-2">
-                      Nenhuma imagem selecionada. As imagens são opcionais, mas
-                      aumentam as chances de venda.
-                    </p>
-                  )}
+                  {pendingImages.length === 0 &&
+                    existingImages.length === 0 && (
+                      <p className="text-sm text-gray-400 text-center py-2">
+                        Nenhuma imagem selecionada. As imagens são opcionais,
+                        mas aumentam as chances de venda.
+                      </p>
+                    )}
                 </div>
               )}
             </div>
@@ -1682,17 +1935,25 @@ export function ListingForm() {
               <button
                 type="submit"
                 disabled={submitting || uploading}
-                className="flex items-center justify-center gap-2 px-6 py-2.5 bg-blue-900 text-white rounded-xl text-sm font-semibold hover:bg-blue-800 active:bg-blue-950 transition disabled:opacity-60 cursor-pointer ml-auto min-w-[130px]"
+                className="flex items-center justify-center gap-2 px-6 py-2.5 bg-blue-900 text-white rounded-xl text-sm font-semibold hover:bg-blue-800 active:bg-blue-950 transition disabled:opacity-60 cursor-pointer ml-auto min-w-32.5"
               >
                 {submitting || uploading ? (
                   <>
                     <Loader2 size={16} className="animate-spin" />
-                    <span>{uploading ? "Enviando…" : "Publicando…"}</span>
+                    <span>
+                      {uploading
+                        ? "Enviando…"
+                        : currentStep === 6
+                          ? "Criando anúncio…"
+                          : "Publicando…"}
+                    </span>
                   </>
                 ) : isLastStep ? (
                   <>
                     <CheckCircle size={16} />
-                    <span>{isEditMode ? "Salvar alterações" : "Publicar Anúncio"}</span>
+                    <span>
+                      {isEditMode ? "Salvar alterações" : "Publicar Anúncio"}
+                    </span>
                   </>
                 ) : (
                   <>
