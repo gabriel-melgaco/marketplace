@@ -1599,7 +1599,7 @@ class MelhorEnvioService:
             # Atualizar shipment
             shipment.label_url = label_url
             shipment.label_generated_at = timezone.now()
-            shipment.status = 'label_generated'
+            shipment.status = 'generated'
             shipment.save()
 
             logger.info(f'URL da etiqueta obtida com sucesso: {shipment.melhorenvio_order_id}')
