@@ -12,7 +12,7 @@ export function formatDecimal(value: string): string {
 
 /**
  * Validates a specific step of the listing form.
- * Steps: 1=Product, 2=Title, 3=Description, 4=Brand&Condition, 5=Price&Qty, 6=Package, 7=Images
+ * Steps: 1=Product, 2=Title, 3=Description, 4=Brand&Condition, 5=Price&Qty, 6=Package, 7=Address, 8=Images
  * Returns a map of field names to error messages.
  */
 export function validateStep(
@@ -61,7 +61,19 @@ export function validateStep(
       if (!formData.length_cm || Number(formData.length_cm) <= 0)
         errors.length_cm = "Comprimento inválido";
       break;
-    case 7: // Images - optional, no validation required
+    case 7: // Address
+      if (!formData.address_zipcode || formData.address_zipcode.replace(/\D/g, "").length !== 8)
+        errors.address_zipcode = "CEP inválido";
+      if (!formData.address_neighborhood?.trim())
+        errors.address_neighborhood = "Bairro é obrigatório";
+      if (!formData.address_city?.trim())
+        errors.address_city = "Cidade é obrigatória";
+      if (!formData.address_state?.trim())
+        errors.address_state = "Estado é obrigatório";
+      if (!formData.address_number?.trim())
+        errors.address_number = "Número é obrigatório";
+      break;
+    case 8: // Images - optional, no validation required
       break;
   }
 

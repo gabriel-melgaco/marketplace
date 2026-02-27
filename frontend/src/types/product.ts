@@ -75,6 +75,7 @@ export interface SellerShippingAddress {
   id: number;
   city: string;
   state: string;
+  neighborhood: string;
 }
 
 export interface SellerShippingAddressDetail {
@@ -251,6 +252,13 @@ export interface FormData {
   width_cm: string;
   length_cm: string;
   package_description: string;
+  address_zipcode: string;
+  address_street: string;
+  address_number: string;
+  address_complement: string;
+  address_neighborhood: string;
+  address_city: string;
+  address_state: string;
 }
 
 export interface PendingImage {

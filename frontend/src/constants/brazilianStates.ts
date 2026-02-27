@@ -45,4 +45,11 @@ export const INITIAL_FORMDATA = {
   width_cm: "",
   length_cm: "",
   package_description: "",
+  address_zipcode: "",
+  address_street: "",
+  address_number: "",
+  address_complement: "",
+  address_neighborhood: "",
+  address_city: "",
+  address_state: "",
 };

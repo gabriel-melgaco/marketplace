@@ -18,6 +18,7 @@ import {
   ShoppingBag,
   AlertCircle,
   ExternalLink,
+  MapPin,
 } from "lucide-react";
 import { productService } from "@/services/productService";
 import { storageService, IMAGE_UPLOAD_LIMITS } from "@/services/storageService";
@@ -41,7 +42,7 @@ import Swal from "sweetalert2";
 
 const MAX_IMAGES = 10;
 
-const TOTAL_STEPS = 7;
+const TOTAL_STEPS = 8;
 
 /**
  * Steps:
@@ -51,7 +52,8 @@ const TOTAL_STEPS = 7;
  * 4 - Marca & Condição
  * 5 - Preço & Quantidade
  * 6 - Dimensões do Pacote
- * 7 - Imagens
+ * 7 - Endereço
+ * 8 - Imagens
  */
 
 const FIELD_TO_STEP: Record<string, number> = {
@@ -66,6 +68,13 @@ const FIELD_TO_STEP: Record<string, number> = {
   height_cm: 6,
   width_cm: 6,
   length_cm: 6,
+  address_zipcode: 7,
+  address_street: 7,
+  address_number: 7,
+  address_complement: 7,
+  address_neighborhood: 7,
+  address_city: 7,
+  address_state: 7,
 };
 
 const STEP_NAMES: Record<number, string> = {
@@ -75,7 +84,8 @@ const STEP_NAMES: Record<number, string> = {
   4: "Marca e Condição",
   5: "Preço",
   6: "Dimensões",
-  7: "Imagens",
+  7: "Endereço",
+  8: "Imagens",
 };
 
 const STEP_ICONS: Record<number, React.ElementType> = {
@@ -85,7 +95,8 @@ const STEP_ICONS: Record<number, React.ElementType> = {
   4: Tag,
   5: DollarSign,
   6: Ruler,
-  7: ImagePlus,
+  7: MapPin,
+  8: ImagePlus,
 };
 
 interface UploadedImageUrl {
@@ -133,8 +144,7 @@ export function ListingForm() {
   const [selectedProduct, setSelectedProduct] =
     useState<ProductListItem | null>(null);
   const [searchingProducts, setSearchingProducts] = useState(false);
-  const [searchAbortController, setSearchAbortController] =
-    useState<AbortController | null>(null);
+  const searchAbortControllerRef = useRef<AbortController | null>(null);
   const draftProductRestoredRef = useRef(false);
 
   // Draft timing refs
@@ -162,6 +172,10 @@ export function ListingForm() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [hasDraft, setHasDraft] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+
+  const [cepLoading, setCepLoading] = useState(false);
+  const [cepError, setCepError] = useState<string | null>(null);
+  const [addressId, setAddressId] = useState<number | null>(null);
 
   const draftKey = isEditMode ? `listing_draft_${id}` : "listing_draft";
 
@@ -408,6 +422,13 @@ export function ListingForm() {
           width_cm: firstPkg.width_cm || "",
           length_cm: firstPkg.length_cm || "",
           package_description: firstPkg.description || "",
+          address_zipcode: listing.seller_shipping_address?.zipcode || "",
+          address_street: listing.seller_shipping_address?.street || "",
+          address_number: listing.seller_shipping_address?.number || "",
+          address_complement: listing.seller_shipping_address?.complement || "",
+          address_neighborhood: listing.seller_shipping_address?.neighborhood || "",
+          address_city: listing.seller_shipping_address?.city || "",
+          address_state: listing.seller_shipping_address?.state || "",
         });
         setSelectedProduct({
           id: listing.product.id,
@@ -458,52 +479,50 @@ export function ListingForm() {
     }
   };
 
-  const handleProductSearch = useCallback(
-    (term: string) => {
-      setProductSearch(term);
+  const handleProductSearch = useCallback((term: string) => {
+    setProductSearch(term);
 
-      if (!term.trim()) {
-        setProductResults([]);
-        setSearchingProducts(false);
-        if (searchAbortController) {
-          searchAbortController.abort();
-          setSearchAbortController(null);
-        }
-        return;
+    if (!term.trim()) {
+      setProductResults([]);
+      setSearchingProducts(false);
+      if (searchAbortControllerRef.current) {
+        searchAbortControllerRef.current.abort();
+        searchAbortControllerRef.current = null;
       }
+      return;
+    }
 
-      if (searchAbortController) {
-        searchAbortController.abort();
-      }
+    if (searchAbortControllerRef.current) {
+      searchAbortControllerRef.current.abort();
+    }
 
-      setSearchingProducts(true);
+    setSearchingProducts(true);
 
-      const timeoutId = setTimeout(async () => {
-        const controller = new AbortController();
-        setSearchAbortController(controller);
+    const timeoutId = setTimeout(async () => {
+      const controller = new AbortController();
+      searchAbortControllerRef.current = controller;
 
-        try {
-          const response = await productService.getProducts({
-            search: term.trim(),
-          });
-          if (!controller.signal.aborted) {
-            setProductResults(response.results);
-          }
-        } catch (err: any) {
-          if (err.name !== "AbortError" && err.name !== "CanceledError") {
-            console.error("Erro ao buscar produtos:", err);
-          }
-        } finally {
-          if (!controller.signal.aborted) {
-            setSearchingProducts(false);
-          }
+      try {
+        const response = await productService.getProducts({
+          search: term.trim(),
+        });
+        if (!controller.signal.aborted) {
+          setProductResults(response.results);
         }
-      }, 300);
+      } catch (err: unknown) {
+        const e = err as { name?: string };
+        if (e.name !== "AbortError" && e.name !== "CanceledError") {
+          console.error("Erro ao buscar produtos:", err);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setSearchingProducts(false);
+        }
+      }
+    }, 300);
 
-      return () => clearTimeout(timeoutId);
-    },
-    [searchAbortController],
-  );
+    return () => clearTimeout(timeoutId);
+  }, []);
 
   const selectProduct = useCallback(
     (product: ProductListItem) => {
@@ -760,6 +779,31 @@ export function ListingForm() {
     [formData],
   );
 
+  const handleCepLookup = async () => {
+    const cep = formData.address_zipcode.replace(/\D/g, "");
+    if (cep.length !== 8) return;
+    setCepLoading(true);
+    setCepError(null);
+    try {
+      const data = await logisticsService.lookupCep(cep);
+      if (data.erro) {
+        setCepError("CEP não encontrado.");
+        return;
+      }
+      setFormData((prev) => ({
+        ...prev,
+        address_street: data.logradouro || "",
+        address_neighborhood: data.bairro || "",
+        address_city: data.localidade || "",
+        address_state: data.uf || "",
+      }));
+    } catch {
+      setCepError("Erro ao buscar CEP. Tente novamente.");
+    } finally {
+      setCepLoading(false);
+    }
+  };
+
   // ============================================
   // NAVIGATION
   // ============================================
@@ -767,15 +811,15 @@ export function ListingForm() {
   const handleContinue = async () => {
     if (!validateCurrentStep(currentStep)) return;
 
-    // ── Step 6 → 7 in CREATE mode ──────────────────────────────────────────
-    // The listing must be persisted server-side before the user reaches the
-    // image step so that we have a valid listing ID to attach images to.
+    // ── Step 7 → 8 in CREATE mode ──────────────────────────────────────────
+    // Create the address and the listing before the user reaches the image
+    // step so that we have a valid listing ID to attach images to.
     // In edit mode the listing already exists; just advance normally.
-    if (currentStep === 6 && !isEditMode) {
+    if (currentStep === 7 && !isEditMode) {
       // If the listing was already created (e.g. user went back and came
       // forward again), skip creation and advance directly.
       if (createdListingId !== null) {
-        setCurrentStep(7);
+        setCurrentStep(8);
         setErrors({});
         setUploadError(null);
         setListingCreatedNotice(false);
@@ -786,48 +830,45 @@ export function ListingForm() {
       setUploadError(null);
 
       try {
+        const addrData = await logisticsService.createAddress({
+          address_type: "shipping",
+          zipcode: formData.address_zipcode.replace(/\D/g, ""),
+          street: formData.address_street,
+          number: formData.address_number,
+          complement: formData.address_complement || undefined,
+          neighborhood: formData.address_neighborhood,
+          city: formData.address_city,
+          state: formData.address_state,
+          country: "BR",
+          is_default: false,
+        });
+        setAddressId(addrData.id);
+
         const listingData = buildListingData();
-
-        // ── Diagnóstico: log do payload antes de enviar ──────────────────────
-        console.log(
-          "[ListingForm] Payload enviado para createListing:",
-          listingData,
-        );
-
         const createdListing = await productService.createListing(listingData);
-
-        // ── Diagnóstico: log da resposta completa da API ─────────────────────
-        console.log("[ListingForm] Resposta de createListing:", createdListing);
-
-        // createdListing é MarketplaceListingDetail — id: number é garantido pelo tipo.
-        // Mantemos a guarda defensiva para capturar edge cases de resposta inesperada.
         const newListingId = createdListing.id;
 
         if (!newListingId) {
-          // A requisição respondeu 2xx mas sem ID — erro inesperado da API.
-          throw new Error(
-            `A API não retornou o ID do anúncio criado. Resposta recebida: ${JSON.stringify(createdListing)}`,
-          );
+          throw new Error("A API não retornou o ID do anúncio.");
         }
 
         setCreatedListingId(newListingId);
-        setCurrentStep(7);
+        setCurrentStep(8);
         setErrors({});
         setUploadError(null);
-      } catch (err: any) {
-        console.error("[ListingForm] Erro ao criar anúncio (passo 6):", err);
+      } catch (err: unknown) {
+        const e = err as { response?: { data?: { detail?: string; non_field_errors?: string[] } }; message?: string };
         const message =
-          err.response?.data?.detail ||
-          err.response?.data?.non_field_errors?.[0] ||
-          err.message ||
-          "Erro ao criar anúncio. Verifique os dados e tente novamente.";
+          e.response?.data?.detail ||
+          e.response?.data?.non_field_errors?.[0] ||
+          e.message ||
+          "Erro ao criar anúncio.";
         await Swal.fire({
-          title: "Erro ao criar anúncio",
+          title: "Erro",
           text: message,
           icon: "error",
           confirmButtonColor: "#1e3a8a",
         });
-        // Permanece no passo 6 para o usuário corrigir e tentar novamente.
       } finally {
         setSubmitting(false);
       }
@@ -841,9 +882,9 @@ export function ListingForm() {
   };
 
   const handleBack = () => {
-    // When going back from step 7 to step 6 in create mode and the listing
-    // has already been created, show the informational notice on step 6.
-    if (currentStep === 7 && !isEditMode && createdListingId !== null) {
+    // When going back from step 8 to step 7 in create mode and the listing
+    // has already been created, show the informational notice on step 7.
+    if (currentStep === 8 && !isEditMode && createdListingId !== null) {
       setListingCreatedNotice(true);
     }
     setCurrentStep((prev) => Math.max(prev - 1, 1));
@@ -858,17 +899,17 @@ export function ListingForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Steps 1–6: delegate to handleContinue instead of submitting.
+    // Steps 1–7: delegate to handleContinue instead of submitting.
     if (currentStep < TOTAL_STEPS) {
       handleContinue();
       return;
     }
 
-    // ── STEP 7 SUBMIT ────────────────────────────────────────────────────────
+    // ── STEP 8 SUBMIT ────────────────────────────────────────────────────────
     // At this point we are on the final images step.
     //
     // CREATE mode: the listing was already created when the user advanced
-    // from step 6. We only need to upload images and link them.
+    // from step 7. We only need to upload images and link them.
     //
     // EDIT mode: call updateListing first, then upload images.
 
@@ -881,7 +922,7 @@ export function ListingForm() {
         // Re-validate all metadata steps to guard against any edge-case where
         // the user navigated back and changed data.
         const allErrors: Record<string, string> = {};
-        for (let step = 1; step <= 6; step++) {
+        for (let step = 1; step <= 7; step++) {
           const stepErrors = validateStepHelper(step, formData);
           Object.assign(allErrors, stepErrors);
         }
@@ -890,7 +931,7 @@ export function ListingForm() {
           const targetStep = Object.keys(allErrors).reduce((lowest, field) => {
             const step = FIELD_TO_STEP[field] ?? 1;
             return step < lowest ? step : lowest;
-          }, 6);
+          }, 7);
           setCurrentStep(targetStep);
           setSubmitting(false);
           return;
@@ -935,10 +976,7 @@ export function ListingForm() {
       // The listing was created at the step 6 → 7 transition.
       // Recover the ID; if it is somehow missing, send the user back to step 6
       // so the creation can be retried.
-      console.log(
-        "[ListingForm] handleSubmit (passo 7) — createdListingId:",
-        createdListingId,
-      );
+      // Guard: listing must have been created during the step 7 → 8 transition.
 
       if (createdListingId === null) {
         await Swal.fire({
@@ -947,7 +985,7 @@ export function ListingForm() {
           icon: "error",
           confirmButtonColor: "#1e3a8a",
         });
-        setCurrentStep(6);
+        setCurrentStep(7);
         setSubmitting(false);
         return;
       }
@@ -1002,12 +1040,13 @@ export function ListingForm() {
         showConfirmButton: false,
       });
       navigate("/dashboard");
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Erro ao salvar anúncio:", err);
+      const e = err as { response?: { data?: { detail?: string; non_field_errors?: string[] } }; message?: string };
       const message =
-        err.response?.data?.detail ||
-        err.response?.data?.non_field_errors?.[0] ||
-        err.message ||
+        e.response?.data?.detail ||
+        e.response?.data?.non_field_errors?.[0] ||
+        e.message ||
         "Erro ao salvar anúncio. Tente novamente.";
       await Swal.fire({
         title: "Erro",
@@ -1604,21 +1643,6 @@ export function ListingForm() {
               {/* STEP 6 — Dimensões do Pacote */}
               {currentStep === 6 && (
                 <div className="space-y-4">
-                  {/* Informational banner shown when the user navigates back
-                      from step 7 after the listing was already created. */}
-                  {listingCreatedNotice && !isEditMode && (
-                    <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex items-start gap-2">
-                      <AlertCircle
-                        size={16}
-                        className="text-blue-600 shrink-0 mt-0.5"
-                      />
-                      <p className="text-sm text-blue-800">
-                        O anúncio já foi criado. Você está apenas revisando as
-                        dimensões. Clique em "Próximo" para continuar para as
-                        imagens.
-                      </p>
-                    </div>
-                  )}
 
                   <p className="text-sm text-gray-500">
                     Informe as dimensões do pacote que será enviado. Esses dados
@@ -1731,8 +1755,256 @@ export function ListingForm() {
                 </div>
               )}
 
-              {/* STEP 7 — Imagens */}
+              {/* STEP 7 — Endereço */}
               {currentStep === 7 && (
+                <div className="space-y-4">
+                  {listingCreatedNotice && !isEditMode && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 flex items-start gap-2">
+                      <AlertCircle
+                        size={16}
+                        className="text-blue-600 shrink-0 mt-0.5"
+                        aria-hidden="true"
+                      />
+                      <p className="text-sm text-blue-800">
+                        O anúncio já foi criado. Você está apenas revisando o
+                        endereço. Clique em "Próximo" para continuar para as
+                        imagens.
+                      </p>
+                    </div>
+                  )}
+
+                  <p className="text-sm text-gray-500">
+                    Informe o endereço de onde o produto será enviado. Usado
+                    para calcular o frete.
+                  </p>
+
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="address_zipcode"
+                      className="block text-sm font-medium text-gray-700"
+                    >
+                      CEP
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        id="address_zipcode"
+                        type="text"
+                        name="address_zipcode"
+                        value={formData.address_zipcode}
+                        onChange={handleChange}
+                        maxLength={9}
+                        placeholder="00000-000"
+                        inputMode="numeric"
+                        autoComplete="postal-code"
+                        aria-describedby={
+                          errors.address_zipcode
+                            ? "zipcode-error"
+                            : cepError
+                              ? "cep-error"
+                              : undefined
+                        }
+                        aria-invalid={!!(errors.address_zipcode || cepError)}
+                        className={`flex-1 px-4 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition ${
+                          errors.address_zipcode || cepError
+                            ? "border-red-400 bg-red-50/30"
+                            : "border-gray-200"
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleCepLookup}
+                        disabled={
+                          cepLoading ||
+                          formData.address_zipcode.replace(/\D/g, "").length !== 8
+                        }
+                        aria-label={cepLoading ? "Buscando CEP…" : "Buscar endereço pelo CEP"}
+                        className="px-4 py-2.5 bg-blue-900 text-white rounded-xl text-sm font-medium hover:bg-blue-800 active:bg-blue-950 transition disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-blue-900/40 focus:ring-offset-2 min-w-[72px] flex items-center justify-center"
+                      >
+                        {cepLoading ? (
+                          <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+                        ) : (
+                          "Buscar"
+                        )}
+                      </button>
+                    </div>
+                    {errors.address_zipcode && (
+                      <p id="zipcode-error" role="alert" className="text-xs text-red-500">
+                        {errors.address_zipcode}
+                      </p>
+                    )}
+                    {cepError && !errors.address_zipcode && (
+                      <p id="cep-error" role="alert" className="text-xs text-red-500 flex items-center gap-1">
+                        <AlertCircle size={12} aria-hidden="true" />
+                        {cepError}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="address_street"
+                      className="block text-sm font-medium text-gray-700"
+                    >
+                      Rua / Logradouro
+                    </label>
+                    <input
+                      id="address_street"
+                      type="text"
+                      name="address_street"
+                      value={formData.address_street}
+                      onChange={handleChange}
+                      placeholder="Preenchido automaticamente pelo CEP"
+                      autoComplete="street-address"
+                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition bg-gray-50"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label
+                        htmlFor="address_number"
+                        className="block text-sm font-medium text-gray-700"
+                      >
+                        Número
+                      </label>
+                      <input
+                        id="address_number"
+                        type="text"
+                        name="address_number"
+                        value={formData.address_number}
+                        onChange={handleChange}
+                        placeholder="Ex: 123"
+                        inputMode="numeric"
+                        aria-describedby={errors.address_number ? "number-error" : undefined}
+                        aria-invalid={!!errors.address_number}
+                        className={`w-full px-4 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition ${
+                          errors.address_number
+                            ? "border-red-400 bg-red-50/30"
+                            : "border-gray-200"
+                        }`}
+                      />
+                      {errors.address_number && (
+                        <p id="number-error" role="alert" className="text-xs text-red-500">
+                          {errors.address_number}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <label
+                        htmlFor="address_complement"
+                        className="block text-sm font-medium text-gray-700"
+                      >
+                        Complemento{" "}
+                        <span className="text-gray-400 font-normal">
+                          (opcional)
+                        </span>
+                      </label>
+                      <input
+                        id="address_complement"
+                        type="text"
+                        name="address_complement"
+                        value={formData.address_complement}
+                        onChange={handleChange}
+                        placeholder="Apto, Bloco…"
+                        autoComplete="address-line2"
+                        className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="address_neighborhood"
+                      className="block text-sm font-medium text-gray-700"
+                    >
+                      Bairro
+                    </label>
+                    <input
+                      id="address_neighborhood"
+                      type="text"
+                      name="address_neighborhood"
+                      value={formData.address_neighborhood}
+                      onChange={handleChange}
+                      placeholder="Preenchido automaticamente pelo CEP"
+                      aria-describedby={errors.address_neighborhood ? "neighborhood-error" : undefined}
+                      aria-invalid={!!errors.address_neighborhood}
+                      className={`w-full px-4 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition ${
+                        errors.address_neighborhood
+                          ? "border-red-400 bg-red-50/30"
+                          : "border-gray-200"
+                      }`}
+                    />
+                    {errors.address_neighborhood && (
+                      <p id="neighborhood-error" role="alert" className="text-xs text-red-500">
+                        {errors.address_neighborhood}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label
+                        htmlFor="address_city"
+                        className="block text-sm font-medium text-gray-700"
+                      >
+                        Cidade
+                      </label>
+                      <input
+                        id="address_city"
+                        type="text"
+                        name="address_city"
+                        value={formData.address_city}
+                        onChange={handleChange}
+                        placeholder="Preenchido pelo CEP"
+                        autoComplete="address-level2"
+                        aria-describedby={errors.address_city ? "city-error" : undefined}
+                        aria-invalid={!!errors.address_city}
+                        className={`w-full px-4 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition bg-gray-50 ${
+                          errors.address_city ? "border-red-400" : "border-gray-200"
+                        }`}
+                      />
+                      {errors.address_city && (
+                        <p id="city-error" role="alert" className="text-xs text-red-500">
+                          {errors.address_city}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <label
+                        htmlFor="address_state"
+                        className="block text-sm font-medium text-gray-700"
+                      >
+                        Estado (UF)
+                      </label>
+                      <input
+                        id="address_state"
+                        type="text"
+                        name="address_state"
+                        value={formData.address_state}
+                        onChange={handleChange}
+                        maxLength={2}
+                        placeholder="UF"
+                        autoComplete="address-level1"
+                        aria-describedby={errors.address_state ? "state-error" : undefined}
+                        aria-invalid={!!errors.address_state}
+                        className={`w-full px-4 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition bg-gray-50 uppercase ${
+                          errors.address_state ? "border-red-400" : "border-gray-200"
+                        }`}
+                      />
+                      {errors.address_state && (
+                        <p id="state-error" role="alert" className="text-xs text-red-500">
+                          {errors.address_state}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* STEP 8 — Imagens */}
+              {currentStep === 8 && (
                 <div className="space-y-4">
                   <p className="text-sm text-gray-500">
                     Adicione fotos do produto. A primeira imagem será a capa do
@@ -1943,7 +2215,7 @@ export function ListingForm() {
                     <span>
                       {uploading
                         ? "Enviando…"
-                        : currentStep === 6
+                        : currentStep === 7
                           ? "Criando anúncio…"
                           : "Publicando…"}
                     </span>

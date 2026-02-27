@@ -22,9 +22,10 @@ import { Chat } from "@/pages/private/Chat";
 import { StateProductList } from "@/pages/public/StateProductList";
 import { GoogleCallback } from "@/pages/auth/GoogleCallback";
 import { CategoryProductList } from "@/pages/public/CategoryProductList";
+import { NotFound } from "@/pages/public/NotFound";
 
 const router = createBrowserRouter([
-  // 🌍 PÚBLICAS COM LAYOUT
+  // PUBLIC — with shared layout
   {
     path: "/",
     element: <HomeLayout />,
@@ -34,10 +35,11 @@ const router = createBrowserRouter([
       { path: "productdetail/:id", element: <ProductDetail /> },
       { path: "estado/:uf", element: <StateProductList /> },
       { path: "products", element: <CategoryProductList /> },
+      { path: "*", element: <NotFound /> },
     ],
   },
 
-  // 🔐 AUTH (SEM HEADER)
+  // AUTH — no shared header
   { path: "/auth/google/callback", element: <GoogleCallback /> },
   { path: "/login", element: <LoginPage /> },
   { path: "/register", element: <Register /> },
@@ -46,7 +48,7 @@ const router = createBrowserRouter([
   { path: "/email-sent", element: <EmailSent /> },
   { path: "/confirm-email", element: <ConfirmEmail /> },
 
-  // 🔒 PRIVADAS
+  // PRIVATE — require authentication
   {
     element: <PivateRoutes />,
     children: [

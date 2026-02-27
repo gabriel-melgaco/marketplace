@@ -1,20 +1,19 @@
 import { useState, useEffect } from "react";
 import type { HTMLAttributes } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import axios from "@/api/axios";
-import { TiShoppingCart } from "react-icons/ti";
 import Logo from "@/assets/logo1.png";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { CartDrawer } from "@/components/layout/CartDrawer";
 import { useAuth } from "@/contexts/AuthContext";
 import type { ProductCategory } from "@/types/product";
 
 interface HeaderProps extends HTMLAttributes<HTMLDivElement> {}
 
 function Header(props: HeaderProps) {
-  const [selectedCategory, setSelectedCategory] = useState("Todos");
   const [categories, setCategories] = useState<ProductCategory[]>([]);
-
   const { isAuthenticated } = useAuth();
+  const location = useLocation();
 
   useEffect(() => {
     async function fetchCategories() {
@@ -48,13 +47,7 @@ function Header(props: HeaderProps) {
 
         {isAuthenticated ? (
           <div className="flex items-center gap-3 md:gap-5">
-            <Link
-              to="/cart"
-              aria-label="Carrinho de compras"
-              className="relative text-text-primary hover:text-secundary transition-colors"
-            >
-              <TiShoppingCart className="w-7 h-7 md:w-8 md:h-8" />
-            </Link>
+            <CartDrawer />
             <Sidebar />
           </div>
         ) : (
@@ -82,20 +75,24 @@ function Header(props: HeaderProps) {
         <div className="border-t border-white">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2">
             <div className="flex md:justify-center gap-2 overflow-x-auto no-scrollbar">
-              {categories.map((category) => (
-                <Link
-                  to={`/products?category=${category.slug}`}
-                  key={category.id}
-                  onClick={() => setSelectedCategory(category.name)}
-                  className={`px-3 py-1.5 text-s rounded whitespace-nowrap transition-colors ${
-                    selectedCategory === category.name
-                      ? "bg-white text-header font-semibold"
-                      : "bg-blue-900 text-white hover:bg-white/20"
-                  }`}
-                >
-                  {category.name}
-                </Link>
-              ))}
+              {categories.map((category) => {
+                const isActive =
+                  location.pathname === "/products" &&
+                  location.search.includes(`category=${category.slug}`);
+                return (
+                  <Link
+                    to={`/products?category=${category.slug}`}
+                    key={category.id}
+                    className={`px-3 py-1.5 text-s rounded whitespace-nowrap transition-colors ${
+                      isActive
+                        ? "bg-white text-header font-semibold"
+                        : "bg-blue-900 text-white hover:bg-white/20"
+                    }`}
+                  >
+                    {category.name}
+                  </Link>
+                );
+              })}
             </div>
           </div>
         </div>

@@ -17,6 +17,44 @@ export interface SellerMEConnectResponse {
   authorization_url: string;
 }
 
+export interface CepLookupResponse {
+  cep: string;
+  logradouro: string;
+  complemento: string;
+  bairro: string;
+  localidade: string;
+  uf: string;
+  erro?: boolean;
+}
+
+export interface AddressData {
+  id: number;
+  address_type: string;
+  zipcode: string;
+  street: string;
+  number: string;
+  complement: string;
+  neighborhood: string;
+  city: string;
+  state: string;
+  country: string;
+  is_default: boolean;
+  is_active: boolean;
+}
+
+export interface CreateAddressRequest {
+  address_type?: string;
+  zipcode: string;
+  street: string;
+  number: string;
+  complement?: string;
+  neighborhood: string;
+  city: string;
+  state: string;
+  country?: string;
+  is_default?: boolean;
+}
+
 export const logisticsService = {
   async getMelhorEnvioStatus(): Promise<SellerMEStatusResponse> {
     const response = await api.get<SellerMEStatusResponse>("/logistics/me/status/");
@@ -26,5 +64,32 @@ export const logisticsService = {
   async getMelhorEnvioConnectUrl(): Promise<SellerMEConnectResponse> {
     const response = await api.get<SellerMEConnectResponse>("/logistics/me/connect/");
     return response.data;
+  },
+
+  async lookupCep(cep: string): Promise<CepLookupResponse> {
+    const cleanCep = cep.replace(/\D/g, "");
+    const response = await api.get<CepLookupResponse>(`/logistics/cep/lookup/?cep=${cleanCep}`);
+    return response.data;
+  },
+
+  async getAddresses(): Promise<AddressData[]> {
+    const response = await api.get<{ results: AddressData[] } | AddressData[]>("/logistics/addresses/");
+    const data = response.data;
+    if (Array.isArray(data)) return data;
+    return data.results ?? [];
+  },
+
+  async createAddress(data: CreateAddressRequest): Promise<AddressData> {
+    const response = await api.post<AddressData>("/logistics/addresses/", data);
+    return response.data;
+  },
+
+  async updateAddress(id: number, data: Partial<CreateAddressRequest>): Promise<AddressData> {
+    const response = await api.patch<AddressData>(`/logistics/addresses/${id}/`, data);
+    return response.data;
+  },
+
+  async setDefaultAddress(id: number): Promise<void> {
+    await api.post(`/logistics/addresses/${id}/set-default/`);
   },
 };
