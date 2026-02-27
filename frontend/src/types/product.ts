@@ -192,6 +192,21 @@ export interface ProductListItem {
   code: string | null;
 }
 
+/**
+ * Representa um pacote retornado pela API dentro de um listing.
+ * O backend retorna packages como array em:
+ *   GET  /products/listings/{id}/
+ *   POST /products/listings/create/
+ */
+export interface ListingPackage {
+  id?: number;
+  weight_kg: string;
+  height_cm: string;
+  width_cm: string;
+  length_cm: string;
+  description?: string;
+}
+
 export interface MarketplaceListingDetail {
   id: number;
   product: ProductDetail;
@@ -208,10 +223,16 @@ export interface MarketplaceListingDetail {
   is_active: boolean;
   description: string;
   views_count: number;
+  /**
+   * Campos legados: dimensões no objeto raiz (alguns endpoints antigos).
+   * Prefira usar packages[0] quando disponível.
+   */
   weight_kg: string | null;
   height_cm: string | null;
   width_cm: string | null;
   length_cm: string | null;
+  /** Array de pacotes — presente em create e detail */
+  packages?: ListingPackage[];
   created_at: string;
   updated_at: string;
   sold_at: string | null;
