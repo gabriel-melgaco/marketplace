@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { productService } from "@/services/productService";
+import { confirmDelete } from "@/utils/confirmDialog";
 import { orderService } from "@/services/orderService";
 import { reviewService } from "@/services/reviewService";
 import { toPublicUrl } from "@/services/storageService";
@@ -260,7 +261,8 @@ function ListingsSection() {
   }
 
   async function handleDelete(id: number) {
-    if (!window.confirm("Tem certeza que deseja excluir este anúncio?")) return;
+    const confirmed = await confirmDelete();
+    if (!confirmed) return;
     try {
       await productService.deleteListing(id);
       setListings((prev) => prev.filter((l) => l.id !== id));

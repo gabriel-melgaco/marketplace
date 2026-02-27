@@ -19,6 +19,7 @@ import {
 import { productService } from "@/services/productService";
 import { toPublicUrl } from "@/services/storageService";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCart } from "@/contexts/CartContext";
 import { Footer } from "@/components/layout/Footer";
 import { ProductDetailSkeleton } from "@/components/skeletons/ProductDetailSkeleton";
 import { ProductCard, formatListingDate } from "@/components/ui/ProductCard";
@@ -36,7 +37,11 @@ function formatPrice(price: string): string {
 function getLocation(listing: MarketplaceListingDetail): string {
   const addr = listing.seller_shipping_address;
   if (!addr) return "";
-  return `${addr.city} - ${addr.state}`;
+  const parts: string[] = [];
+  if (addr.neighborhood) parts.push(addr.neighborhood);
+  if (addr.city) parts.push(addr.city);
+  if (addr.state) parts.push(addr.state);
+  return parts.join(" - ");
 }
 
 function ImageCarousel({
@@ -159,6 +164,7 @@ export function ProductDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
+  const { addToCart } = useCart();
 
   const [listing, setListing] = useState<MarketplaceListingDetail | null>(null);
   const [suggestedListings, setSuggestedListings] = useState<
@@ -218,11 +224,33 @@ export function ProductDetail() {
   }, [id]);
 
   const handleBuyClick = () => {
-    // TODO: implement checkout flow
+    if (!isAuthenticated) {
+      navigate("/login");
+      return;
+    }
+    // TODO: implement direct checkout flow
+    navigate("/checkout");
   };
 
   const handleAddToCartClick = () => {
-    // TODO: implement cart
+    if (!listing) return;
+    if (!isAuthenticated) {
+      navigate("/login");
+      return;
+    }
+    if (listing.quantity <= 0) return;
+    addToCart(listing);
+    import("sweetalert2").then(({ default: Swal }) => {
+      Swal.fire({
+        icon: "success",
+        title: "Adicionado ao carrinho!",
+        toast: true,
+        position: "top-end",
+        showConfirmButton: false,
+        timer: 2000,
+        timerProgressBar: true,
+      });
+    });
   };
 
   const handleChatClick = () => {
