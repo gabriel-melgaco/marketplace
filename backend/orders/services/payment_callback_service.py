@@ -70,6 +70,22 @@ class PaymentCallbackService:
             if OrderCreationService.STOCK_STRATEGY == 'on_payment':
                 OrderCreationService.confirm_payment_and_reserve_stock(order)
 
+            # Trigger Melhor Envio checkout now that payment is confirmed
+            try:
+                from logistics.services.shipment_creation_service import ShipmentCreationService
+                ShipmentCreationService.checkout_shipments_for_order(order)
+                logger.info(
+                    f"ME checkout triggered automatically for order {order.order_number}",
+                    extra={'order_id': str(order.id)}
+                )
+            except Exception as e:
+                # ME checkout failure must not roll back the PAID transition
+                logger.error(
+                    f"ME checkout failed for order {order.order_number}: {str(e)}",
+                    extra={'order_id': str(order.id)},
+                    exc_info=True
+                )
+
             logger.info(
                 f"Payment succeeded processed for order {order.order_number}",
                 extra={

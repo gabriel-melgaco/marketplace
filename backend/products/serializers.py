@@ -192,9 +192,10 @@ class MarketplaceListingCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = MarketplaceListing
         fields = [
-            'product', 'title', 'price', 'brand', 'quantity',
+            'id', 'product', 'title', 'price', 'brand', 'quantity',
             'description', 'condition', 'packages',
         ]
+        read_only_fields = ['id']
 
     def validate_title(self, value):
         """Valida título do anúncio"""
