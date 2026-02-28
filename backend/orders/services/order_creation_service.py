@@ -148,6 +148,11 @@ class OrderCreationService:
         if me_cart_results:
             cls._create_shipment_records_from_cart(order, me_cart_results)
 
+        # Step 7.6: Create OrderDelivery records for in_person sellers immediately.
+        # This makes meeting details visible in admin before payment confirmation.
+        # (Shipping OrderDelivery records are created by the payment signal.)
+        cls._create_in_person_delivery_records(order, shipping_services_data)
+
         # Step 8: Handle stock management based on strategy
         if cls.STOCK_STRATEGY == 'immediate':
             cls._reserve_stock_immediate(validated_items)
@@ -313,6 +318,40 @@ class OrderCreationService:
                 logger.warning(
                     f'Pedido {order.order_number}: {insurance_warning.get("message", "")}'
                 )
+
+    @staticmethod
+    def _create_in_person_delivery_records(order, shipping_services_data):
+        """
+        Create OrderDelivery records for in_person sellers at order creation time.
+
+        Called immediately after order and order items are persisted, so that
+        in_person delivery details are visible in admin before payment confirmation.
+        Shipping OrderDelivery records are created later by the payment signal.
+
+        Args:
+            order: Order instance already saved to DB
+            shipping_services_data: Dict {str(seller_id): shipping_info}
+        """
+        from logistics.services.delivery_orchestration_service import DeliveryOrchestrationService
+
+        delivery_choices = [
+            {'seller_id': int(seller_id), **shipping_info}
+            for seller_id, shipping_info in shipping_services_data.items()
+            if isinstance(shipping_info, dict)
+            and shipping_info.get('delivery_method') == 'in_person'
+        ]
+
+        if not delivery_choices:
+            return
+
+        DeliveryOrchestrationService.create_order_deliveries(
+            order=order,
+            delivery_choices=delivery_choices,
+        )
+        logger.info(
+            f'OrderDelivery criado para {len(delivery_choices)} vendedor(es) in_person '
+            f'no pedido {order.order_number}'
+        )
 
     @staticmethod
     def _validate_and_calculate_shipping(

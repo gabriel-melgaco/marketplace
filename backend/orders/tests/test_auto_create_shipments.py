@@ -199,8 +199,9 @@ class TestAutoCreateShipments(TestCase):
         """
         Test that shipments are NOT created if they already exist for the order.
         """
-        # Mock existing deliveries
-        mock_filter.return_value.exists.return_value = True
+        # Mock existing deliveries: values_list returns the seller's ID,
+        # indicating an OrderDelivery already exists for that seller.
+        mock_filter.return_value.values_list.return_value = [self.seller.id]
 
         # Create order and change to PAID
         order = Order.objects.create(
@@ -222,7 +223,7 @@ class TestAutoCreateShipments(TestCase):
         order.status = OrderStateMachine.PAID
         order.save()
 
-        # Verify deliveries were NOT created (already exist)
+        # Verify deliveries were NOT created (seller already has an OrderDelivery)
         self.assertFalse(mock_create_deliveries.called)
 
     @override_settings(AUTO_CREATE_SHIPMENTS=True)

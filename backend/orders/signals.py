@@ -43,16 +43,14 @@ def auto_create_shipments_on_payment(sender, instance, created, **kwargs):
     if instance.status != OrderStateMachine.PAID:
         return
 
-    # Check if shipments already exist
-    # We need to import here to avoid circular imports
+    # Import here to avoid circular imports
     from logistics.models import OrderDelivery
 
-    if OrderDelivery.objects.filter(order=instance).exists():
-        logger.debug(
-            f"Shipments already exist for order {instance.order_number}",
-            extra={'order_id': str(instance.id)}
-        )
-        return
+    # Build delivery choices for this order, skipping sellers that already have
+    # an OrderDelivery (in_person ones are created at order creation time).
+    existing_seller_ids = set(
+        OrderDelivery.objects.filter(order=instance).values_list('seller_id', flat=True)
+    )
 
     # Auto-create shipments
     logger.info(
@@ -73,28 +71,39 @@ def auto_create_shipments_on_payment(sender, instance, created, **kwargs):
         # Attempt to create shipments/deliveries
         # This will create OrderDelivery records based on order's shipping_services
         if instance.shipping_services:
-            # Create deliveries for each seller
+            # Create deliveries for each seller that doesn't have one yet
             delivery_choices = []
 
             for seller_id, shipping_info in instance.shipping_services.items():
-                # Check if shipping service was selected (vs in-person pickup)
-                if isinstance(shipping_info, dict):
-                    delivery_method = shipping_info.get('delivery_method', 'shipping')
+                if not isinstance(shipping_info, dict):
+                    continue
 
-                    if delivery_method == 'shipping':
-                        delivery_choices.append({
-                            'seller_id': int(seller_id),
-                            'delivery_method': 'shipping',
-                            'shipping_service_id': shipping_info.get('service_id'),
-                            'delivery_cost': shipping_info.get('cost', 0)
-                        })
-                    elif delivery_method == 'in_person':
-                        # Handle in-person delivery
-                        delivery_choices.append({
-                            'seller_id': int(seller_id),
-                            'delivery_method': 'in_person',
-                            **shipping_info  # Include all in-person delivery details
-                        })
+                seller_id_int = int(seller_id)
+
+                # Skip sellers whose OrderDelivery was already created at order creation
+                if seller_id_int in existing_seller_ids:
+                    logger.debug(
+                        f"OrderDelivery already exists for seller {seller_id_int} "
+                        f"in order {instance.order_number}, skipping."
+                    )
+                    continue
+
+                delivery_method = shipping_info.get('delivery_method', 'shipping')
+
+                if delivery_method == 'shipping':
+                    delivery_choices.append({
+                        'seller_id': seller_id_int,
+                        'delivery_method': 'shipping',
+                        'shipping_service_id': shipping_info.get('service_id'),
+                        'delivery_cost': shipping_info.get('cost', 0)
+                    })
+                elif delivery_method == 'in_person':
+                    # in_person should already be created — only as fallback
+                    delivery_choices.append({
+                        'seller_id': seller_id_int,
+                        'delivery_method': 'in_person',
+                        **shipping_info
+                    })
 
             if delivery_choices:
                 created_deliveries = DeliveryOrchestrationService.create_order_deliveries(
@@ -109,7 +118,7 @@ def auto_create_shipments_on_payment(sender, instance, created, **kwargs):
                         'delivery_count': len(created_deliveries)
                     }
                 )
-            else:
+            elif not existing_seller_ids:
                 logger.warning(
                     f"No valid delivery choices found for order {instance.order_number}",
                     extra={
