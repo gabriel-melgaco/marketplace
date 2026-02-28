@@ -102,7 +102,12 @@ class Shipment(models.Model):
         help_text='Lista de IDs ME quando o listing possui múltiplos pacotes (1 chamada por pacote).',
     )
     melhorenvio_tracking_code = models.CharField(max_length=255, blank=True)
-    
+    melhorenvio_tracking_codes = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Lista de tracking codes ME (um por pacote físico). melhorenvio_tracking_code mantém o primeiro para retrocompatibilidade.',
+    )
+
     # Informações da transportadora
     carrier_name = models.CharField(max_length=100)
     carrier_service = models.CharField(max_length=100)
@@ -155,18 +160,27 @@ class ShipmentTracking(models.Model):
         on_delete=models.CASCADE,
         related_name='tracking_history'
     )
-    
+
+    package_me_id = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text='ID ME do carrinho ao qual este evento pertence (identifica o pacote).',
+    )
+
     status = models.CharField(max_length=100)
     description = models.TextField()
     location = models.CharField(max_length=255, blank=True)
-    
+
     occurred_at = models.DateTimeField()
     created_at = models.DateTimeField(auto_now_add=True)
-    
+
     class Meta:
         verbose_name = 'Rastreamento'
         verbose_name_plural = 'Rastreamentos'
         ordering = ['-occurred_at']
+        # (shipment, occurred_at, package_me_id) garante unicidade por pacote.
+        # Assim dois pacotes do mesmo shipment podem ter eventos no mesmo instante.
+        unique_together = [('shipment', 'occurred_at', 'package_me_id')]
     
     def __str__(self):
         return f'{self.shipment.melhorenvio_tracking_code} - {self.status}'
