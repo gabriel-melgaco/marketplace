@@ -213,10 +213,15 @@ def get_shipping_addresses(request):
         'Calculate shipping costs grouped by seller using Melhor Envio API. '
         'Requires items in cart.\n\n'
         '**Shipping method constraints:**\n'
-        'If a seller\'s listing has `shipping_method = "in_person"`, the quotes_by_seller '
-        'entry for that seller will contain an error with `in_person_only: true` instead of '
-        'freight quotes. Products with `shipping_method = "melhor_envio"` or `"both"` are '
-        'quoted normally.'
+        'Only items with `shipping_method = "melhor_envio"` or `"both"` are included in the '
+        'freight calculation. Items with `shipping_method = "in_person"` are automatically '
+        'excluded — even when mixed with eligible items from the same seller.\n\n'
+        'When a seller has a mix of item types, the response entry for that seller includes:\n'
+        '- `services`: freight quotes (calculated only from eligible items)\n'
+        '- `in_person_items`: list of items excluded from the quote '
+        '(each with `listing_id`, `title`, `shipping_method`)\n\n'
+        'If **all** items from a seller are `in_person`, the entry will contain '
+        '`in_person_only: true` and no freight quotes.'
     ),
     request=inline_serializer(
         name='CalculateShippingRequest',
