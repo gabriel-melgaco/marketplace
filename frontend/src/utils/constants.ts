@@ -9,8 +9,7 @@ export const GOOGLE_CLIENT_ID =
   "111464785891-0gt867f9asiqnf6m58g0rmm3gvm15uuh.apps.googleusercontent.com";
 
 export const GOOGLE_REDIRECT_URI =
-  import.meta.env.VITE_GOOGLE_REDIRECT_URI ||
-  "http://localhost:5173/auth/google/callback";
+  import.meta.env.VITE_GOOGLE_REDIRECT_URI as string;
 
 export const PAGINATION = {
   DEFAULT_PAGE_SIZE: 20,
