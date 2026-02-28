@@ -3,7 +3,7 @@ from drf_spectacular.utils import extend_schema_field
 from .models import (
     Category, Series, Products, Brand,
     Condition, MarketplaceListing, MarketplaceListingImages,
-    ListingPackage,
+    ListingPackage, ShippingMethodChoices,
 )
 from logistics.models import Address
 from logistics.serializers import AddressSerializer
@@ -160,7 +160,7 @@ class MarketplaceListingSerializer(serializers.ModelSerializer):
             'id', 'product', 'seller', 'seller_name', 'title', 'price', 'brand',
             'quantity', 'is_active', 'description', 'condition',
             'views_count', 'weight_kg', 'height_cm', 'width_cm',
-            'length_cm', 'created_at', 'updated_at', 'sold_at',
+            'length_cm', 'shipping_method', 'created_at', 'updated_at', 'sold_at',
             'images', 'primary_image', 'packages', 'shipping_address'
         ]
         read_only_fields = ['seller', 'views_count', 'created_at', 'updated_at', 'sold_at']
@@ -189,11 +189,23 @@ class MarketplaceListingCreateSerializer(serializers.ModelSerializer):
         help_text='Lista de pacotes físicos do produto. Deve conter pelo menos 1 pacote.',
     )
 
+    shipping_method = serializers.ChoiceField(
+        choices=ShippingMethodChoices.choices,
+        default=ShippingMethodChoices.BOTH,
+        required=False,
+        help_text=(
+            "Método de envio aceito para este anúncio. "
+            "'in_person' = somente entrega presencial; "
+            "'melhor_envio' = somente via transportadora Melhor Envio; "
+            "'both' = ambos os métodos são aceitos (padrão)."
+        )
+    )
+
     class Meta:
         model = MarketplaceListing
         fields = [
             'id', 'product', 'title', 'price', 'brand', 'quantity',
-            'description', 'condition', 'packages',
+            'description', 'condition', 'packages', 'shipping_method',
         ]
         read_only_fields = ['id']
 
@@ -303,7 +315,7 @@ class MarketplaceListingUpdateSerializer(serializers.ModelSerializer):
         model = MarketplaceListing
         fields = [
             'title', 'price', 'quantity', 'description',
-            'condition', 'is_active', 'shipping_address', 'packages',
+            'condition', 'is_active', 'shipping_address', 'packages', 'shipping_method',
         ]
 
     def validate_title(self, value):

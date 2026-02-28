@@ -204,7 +204,7 @@ class ShipmentSerializer(serializers.ModelSerializer):
         model = Shipment
         fields = [
             'id', 'order', 'order_number',
-            'melhorenvio_order_id', 'melhorenvio_tracking_code',
+            'melhorenvio_order_id', 'melhorenvio_order_ids', 'melhorenvio_tracking_code',
             'carrier_name', 'carrier_service',
             'shipping_cost', 'insurance_value',
             'status', 'tracking_url',

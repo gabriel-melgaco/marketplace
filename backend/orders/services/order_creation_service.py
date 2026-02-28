@@ -358,6 +358,42 @@ class OrderCreationService:
 
             delivery_method = delivery_config.get('delivery_method', 'shipping')
 
+            # Validate shipping_method constraints on listings
+            from products.models import ShippingMethodChoices as SMC
+            seller_items = items_by_seller[seller_id]
+            has_in_person_only = any(
+                item['listing'].shipping_method == SMC.IN_PERSON
+                for item in seller_items
+            )
+            has_me_only = any(
+                item['listing'].shipping_method == SMC.MELHOR_ENVIO
+                for item in seller_items
+            )
+
+            if has_in_person_only and delivery_method == 'shipping':
+                in_person_titles = [
+                    item['listing'].title
+                    for item in seller_items
+                    if item['listing'].shipping_method == SMC.IN_PERSON
+                ]
+                raise OrderCreationError(
+                    f"Produto(s) do vendedor {seller_id} aceitam somente entrega "
+                    f"presencial e não podem ser enviados via transportadora: "
+                    f"{', '.join(in_person_titles)}"
+                )
+
+            if has_me_only and delivery_method == 'in_person':
+                me_only_titles = [
+                    item['listing'].title
+                    for item in seller_items
+                    if item['listing'].shipping_method == SMC.MELHOR_ENVIO
+                ]
+                raise OrderCreationError(
+                    f"Produto(s) do vendedor {seller_id} aceitam somente envio via "
+                    f"transportadora (Melhor Envio) e não podem ser entregues "
+                    f"presencialmente: {', '.join(me_only_titles)}"
+                )
+
             if delivery_method == 'shipping':
                 # --- Shipping via carrier ---
                 service_id = delivery_config.get('service_id')

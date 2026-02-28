@@ -7,7 +7,7 @@ from django.core.exceptions import ValidationError
 class DeliveryMethod(models.TextChoices):
     """Tipos de método de entrega"""
     SHIPPING = 'shipping', 'Envio via Transportadora'
-    IN_PERSON = 'in_person', 'Retirada Presencial'
+    IN_PERSON = 'in_person', 'Frete por conta do Vendedor'
 
 
 class ShippingQuote(models.Model):

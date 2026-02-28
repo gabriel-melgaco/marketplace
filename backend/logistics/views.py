@@ -209,7 +209,15 @@ def get_shipping_addresses(request):
 @extend_schema(
     tags=['Logistics - Shipping'],
     summary='Calculate shipping quotes',
-    description='Calculate shipping costs grouped by seller using Melhor Envio API. Requires items in cart.',
+    description=(
+        'Calculate shipping costs grouped by seller using Melhor Envio API. '
+        'Requires items in cart.\n\n'
+        '**Shipping method constraints:**\n'
+        'If a seller\'s listing has `shipping_method = "in_person"`, the quotes_by_seller '
+        'entry for that seller will contain an error with `in_person_only: true` instead of '
+        'freight quotes. Products with `shipping_method = "melhor_envio"` or `"both"` are '
+        'quoted normally.'
+    ),
     request=inline_serializer(
         name='CalculateShippingRequest',
         fields={
@@ -220,7 +228,13 @@ def get_shipping_addresses(request):
         200: inline_serializer(
             name='CalculateShippingResponse',
             fields={
-                'quotes_by_seller': rf_serializers.DictField(help_text='Shipping quotes grouped by seller ID'),
+                'quotes_by_seller': rf_serializers.DictField(
+                    help_text=(
+                        'Shipping quotes grouped by seller ID. Each entry is either a list of '
+                        'freight services or an error object (e.g. {error, in_person_only: true}) '
+                        'when the seller\'s product only accepts in-person delivery.'
+                    )
+                ),
                 'shipping_address': AddressSerializer(),
                 'shipping_address_id': rf_serializers.IntegerField(),
                 'total_items': rf_serializers.IntegerField(),
@@ -587,7 +601,10 @@ class ShipmentDetailView(generics.RetrieveAPIView):
         'Permission: admin, buyer, or a seller of the order.\n\n'
         '**Requires:** Order status must be `paid`.\n\n'
         '**Note:** If the insured value exceeds R$1.000,00 (non-commercial shipping limit), '
-        'it will be capped at R$1.000,00 and a `warnings` array will be included in the response.'
+        'it will be capped at R$1.000,00 and a `warnings` array will be included in the response.\n\n'
+        '**Shipping method constraint:** Items com `listing.shipping_method = "in_person"` são '
+        'ignorados automaticamente — apenas itens com `"melhor_envio"` ou `"both"` geram shipments via ME. '
+        'Um vendedor pode ter anúncios com métodos de envio diferentes no mesmo pedido.'
     ),
     request=inline_serializer(
         name='CreateShipmentsRequest',
@@ -1776,12 +1793,52 @@ def melhor_envio_webhook(request):
         logger.info('Webhook Melhor Envio: requisição de teste/conexão (sem event nem id)')
         return Response({'message': 'Webhook ativo. Nenhum evento para processar.'})
 
-    # Buscar shipment pelo ID do Melhor Envio
-    try:
-        shipment = Shipment.objects.select_related('order').get(
-            melhorenvio_order_id=melhorenvio_order_id
+    # Buscar shipment pelo ID do Melhor Envio.
+    # Um pedido com múltiplos volumes físicos gera um cart ID por volume.
+    # melhorenvio_order_id armazena o PRIMEIRO ID (retrocompatibilidade).
+    # melhorenvio_order_ids armazena TODOS os IDs (lista JSON).
+    # O webhook pode disparar com qualquer um dos IDs — buscar nos dois campos.
+    #
+    # JSONField.__contains é PostgreSQL-only (DataContains lookup usa @> operator).
+    # Para compatibilidade com SQLite (testes e dev), usamos duas queries sequenciais:
+    # 1. Busca exata no campo primário (sempre suportada, índice único).
+    # 2. Se não encontrar, varre os demais shipments e filtra em Python pelo JSON list.
+    # O segundo passo só executa quando o evento chega com um cart ID secundário
+    # (volumes 2, 3, ... de um mesmo listing com múltiplos pacotes).
+    shipment = None
+    if melhorenvio_order_id:
+        # Passo 1 — busca rápida pelo campo indexado (cobre 99% dos casos)
+        shipment = (
+            Shipment.objects
+            .select_related('order')
+            .filter(melhorenvio_order_id=melhorenvio_order_id)
+            .first()
         )
-    except Shipment.DoesNotExist:
+        if shipment is None:
+            # Passo 2 — cart ID secundário (multi-volume): escaneia melhorenvio_order_ids
+            # Carrega apenas os campos necessários para minimizar I/O e filtra em Python.
+            for candidate in (
+                Shipment.objects
+                .select_related('order')
+                .exclude(melhorenvio_order_ids=[])
+                .only('id', 'melhorenvio_order_ids', 'order',
+                      'status', 'carrier_name', 'carrier_service')
+            ):
+                if melhorenvio_order_id in (candidate.melhorenvio_order_ids or []):
+                    # Re-fetch com select_related completo para uso posterior na view
+                    shipment = (
+                        Shipment.objects
+                        .select_related('order')
+                        .get(pk=candidate.pk)
+                    )
+                    logger.info(
+                        f'Webhook Melhor Envio: shipment encontrado via melhorenvio_order_ids '
+                        f'(cart ID secundário): shipment_id={shipment.id}, '
+                        f'me_id={melhorenvio_order_id}'
+                    )
+                    break
+
+    if shipment is None:
         logger.warning(f'Webhook Melhor Envio: shipment não encontrado para id={melhorenvio_order_id}')
         # Retorna 200 para não falhar teste de conexão do Melhor Envio
         return Response({
@@ -2520,4 +2577,24 @@ def get_carrier_services(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+
+# ---------------------------------------------------------------------------
+# No-trailing-slash alias for the Melhor Envio webhook.
+#
+# When ME sends the webhook without a trailing slash Django's APPEND_SLASH
+# middleware tries to 301-redirect, but that drops the POST body and causes
+# a 500.  Registering the bare path here lets Django match the request
+# directly without any redirect.
+#
+# This view is excluded from the OpenAPI schema (exclude=True) so Swagger
+# does not show a duplicate entry.
+# ---------------------------------------------------------------------------
+@extend_schema(exclude=True)
+@csrf_exempt
+@api_view(['POST'])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def melhor_envio_webhook_no_slash(request):
+    """Alias of melhor_envio_webhook that matches the URL without trailing slash."""
+    return melhor_envio_webhook(request)
 

@@ -28,6 +28,10 @@ urlpatterns = [
 
     # =================== Webhooks ===================
     path('webhooks/melhor-envio/', views.melhor_envio_webhook, name='melhor-envio-webhook'),
+    # Alias without trailing slash: ME occasionally omits it; Django's APPEND_SLASH
+    # cannot redirect POST requests, which causes a 500.  This entry lets Django
+    # match the request directly instead of attempting the redirect.
+    path('webhooks/melhor-envio', views.melhor_envio_webhook_no_slash, name='melhor-envio-webhook-no-slash'),
     path('webhooks/melhor-envio/callback/', views.melhor_envio_oauth_callback, name='melhor-envio-oauth-callback'),
 
     # =================== OAuth 2.0 Management (Admin only) ===================
