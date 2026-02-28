@@ -377,7 +377,7 @@ class MelhorEnvioService:
             if all_in_person:
                 quotes_by_seller[seller.id] = {
                     'error': (
-                        'Este produto aceita somente entrega presencial. '
+                        'Este produto aceita somente entrega por conta do vendedor. '
                         'O envio via transportadora (Melhor Envio) não está disponível.'
                     ),
                     'seller_name': seller.get_full_name() or seller.email,
