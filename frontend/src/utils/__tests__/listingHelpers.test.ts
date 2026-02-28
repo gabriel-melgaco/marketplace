@@ -19,14 +19,6 @@ const EMPTY_FORM: FormData = {
   width_cm: "",
   length_cm: "",
   package_description: "",
-  // Address fields (step 7)
-  address_zipcode: "",
-  address_street: "",
-  address_number: "",
-  address_complement: "",
-  address_neighborhood: "",
-  address_city: "",
-  address_state: "",
 };
 
 function formWith(overrides: Partial<FormData>): FormData {
@@ -210,119 +202,9 @@ describe("validateStep", () => {
     });
   });
 
-  describe("Step 7 - Address", () => {
-    it("requires all mandatory address fields when empty", () => {
-      const errors = validateStep(7, EMPTY_FORM);
-      expect(errors.address_zipcode).toBeTruthy();
-      expect(errors.address_neighborhood).toBeTruthy();
-      expect(errors.address_city).toBeTruthy();
-      expect(errors.address_state).toBeTruthy();
-      expect(errors.address_number).toBeTruthy();
-    });
-
-    it("rejects a CEP that has fewer than 8 digits", () => {
-      const errors = validateStep(7, formWith({ address_zipcode: "1234567" }));
-      expect(errors.address_zipcode).toBe("CEP inválido");
-    });
-
-    it("rejects a CEP that has more than 8 digits", () => {
-      const errors = validateStep(7, formWith({ address_zipcode: "123456789" }));
-      expect(errors.address_zipcode).toBe("CEP inválido");
-    });
-
-    it("accepts a formatted CEP (01310-100) by counting only digits", () => {
-      const errors = validateStep(
-        7,
-        formWith({
-          address_zipcode: "01310-100",
-          address_number: "100",
-          address_neighborhood: "Bela Vista",
-          address_city: "São Paulo",
-          address_state: "SP",
-        }),
-      );
-      expect(errors.address_zipcode).toBeUndefined();
-    });
-
-    it("accepts a bare 8-digit CEP (01310100)", () => {
-      const errors = validateStep(
-        7,
-        formWith({
-          address_zipcode: "01310100",
-          address_number: "100",
-          address_neighborhood: "Bela Vista",
-          address_city: "São Paulo",
-          address_state: "SP",
-        }),
-      );
-      expect(errors.address_zipcode).toBeUndefined();
-    });
-
-    it("requires address_number", () => {
-      const errors = validateStep(
-        7,
-        formWith({
-          address_zipcode: "01310100",
-          address_neighborhood: "Bela Vista",
-          address_city: "São Paulo",
-          address_state: "SP",
-          address_number: "",
-        }),
-      );
-      expect(errors.address_number).toBe("Número é obrigatório");
-    });
-
-    it("rejects whitespace-only address_number", () => {
-      const errors = validateStep(
-        7,
-        formWith({
-          address_zipcode: "01310100",
-          address_neighborhood: "Bela Vista",
-          address_city: "São Paulo",
-          address_state: "SP",
-          address_number: "   ",
-        }),
-      );
-      expect(errors.address_number).toBe("Número é obrigatório");
-    });
-
-    it("does NOT require address_complement (it is optional)", () => {
-      const errors = validateStep(
-        7,
-        formWith({
-          address_zipcode: "01310100",
-          address_number: "100",
-          address_neighborhood: "Bela Vista",
-          address_city: "São Paulo",
-          address_state: "SP",
-          address_complement: "",
-        }),
-      );
-      expect(errors.address_complement).toBeUndefined();
-    });
-
-    it("returns no errors for a fully valid address", () => {
-      const errors = validateStep(
-        7,
-        formWith({
-          address_zipcode: "01310100",
-          address_street: "Avenida Paulista",
-          address_number: "1000",
-          address_complement: "Sala 5",
-          address_neighborhood: "Bela Vista",
-          address_city: "São Paulo",
-          address_state: "SP",
-          address_recipient_name: "João Silva",
-          address_recipient_phone: "11999998888",
-        }),
-      );
-      expect(errors).toEqual({});
-    });
-  });
-
-  describe("Step 8 - Images", () => {
+  describe("Step 7 - Images", () => {
     it("returns no errors (images are optional)", () => {
-      const errors = validateStep(8, EMPTY_FORM);
+      const errors = validateStep(7, EMPTY_FORM);
       expect(errors).toEqual({});
     });
   });

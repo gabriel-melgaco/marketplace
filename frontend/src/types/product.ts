@@ -254,18 +254,6 @@ export interface FormData {
   width_cm: string;
   length_cm: string;
   package_description: string;
-  address_type: string;
-  address_nickname: string;
-  address_recipient_name: string;
-  address_recipient_phone: string;
-  address_is_shipping_address: boolean;
-  address_zipcode: string;
-  address_street: string;
-  address_number: string;
-  address_complement: string;
-  address_neighborhood: string;
-  address_city: string;
-  address_state: string;
 }
 
 export interface PendingImage {
