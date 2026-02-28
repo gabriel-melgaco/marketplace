@@ -221,12 +221,56 @@ class OrderCreateSerializer(serializers.Serializer):
 
             # Formato novo: seller_id: {delivery_method: ..., ...}
             if isinstance(service_config, dict):
+
+                # Formato split: dict com sub-chaves 'shipping' e/ou 'in_person' (sem delivery_method)
+                # Usado quando o vendedor tem itens com métodos diferentes (ex: 'both' + 'in_person')
+                if 'shipping' in service_config or ('in_person' in service_config and 'delivery_method' not in service_config):
+                    split_config = {'delivery_method': 'split'}
+
+                    shipping_sub = service_config.get('shipping')
+                    if shipping_sub:
+                        s_id = shipping_sub.get('service_id')
+                        if s_id is None:
+                            raise serializers.ValidationError(
+                                f"service_id é obrigatório na parte 'shipping' do seller {seller_id}."
+                            )
+                        try:
+                            split_config['shipping'] = {'service_id': int(s_id)}
+                        except (ValueError, TypeError):
+                            raise serializers.ValidationError(
+                                f"service_id inválido na parte 'shipping' do seller {seller_id}."
+                            )
+
+                    in_person_sub = service_config.get('in_person')
+                    if in_person_sub is not None:
+                        # Todos os campos de encontro são opcionais (podem ser combinados depois)
+                        ip_address = in_person_sub.get('meeting_address', {})
+                        if ip_address and not isinstance(ip_address, dict):
+                            raise serializers.ValidationError(
+                                f"meeting_address deve ser um objeto para seller {seller_id}."
+                            )
+                        split_config['in_person'] = {
+                            'meeting_location_name': in_person_sub.get('meeting_location_name', ''),
+                            'meeting_address': ip_address if isinstance(ip_address, dict) else {},
+                            'seller_contact_phone': in_person_sub.get('seller_contact_phone', ''),
+                            'buyer_contact_phone': in_person_sub.get('buyer_contact_phone', ''),
+                            'scheduled_date': in_person_sub.get('scheduled_date'),
+                            'scheduled_time': in_person_sub.get('scheduled_time'),
+                            'meeting_notes': in_person_sub.get('meeting_notes', ''),
+                        }
+                    else:
+                        # in_person sem detalhes ainda — será combinado depois
+                        split_config['in_person'] = {}
+
+                    normalized[seller_id] = split_config
+                    continue
+
                 delivery_method = service_config.get('delivery_method', 'shipping')
 
                 if delivery_method not in ('shipping', 'in_person'):
                     raise serializers.ValidationError(
                         f"delivery_method inválido para seller {seller_id}: '{delivery_method}'. "
-                        f"Deve ser 'shipping' ou 'in_person'."
+                        f"Deve ser 'shipping', 'in_person' ou formato split (sub-chaves 'shipping'/'in_person')."
                     )
 
                 if delivery_method == 'shipping':
@@ -247,42 +291,20 @@ class OrderCreateSerializer(serializers.Serializer):
                         )
 
                 elif delivery_method == 'in_person':
-                    # Validar campos obrigatórios para in-person
-                    required_fields = [
-                        'meeting_location_name',
-                        'meeting_address',
-                        'seller_contact_phone',
-                        'buyer_contact_phone',
-                    ]
-                    missing = [f for f in required_fields if not service_config.get(f)]
-                    if missing:
-                        raise serializers.ValidationError(
-                            f"Campos obrigatórios ausentes para entrega presencial do seller "
-                            f"{seller_id}: {', '.join(missing)}"
-                        )
-
-                    # Validar meeting_address tem campos mínimos
+                    # Todos os campos de encontro são opcionais — podem ser combinados depois
                     address = service_config.get('meeting_address', {})
-                    if not isinstance(address, dict):
+                    if address and not isinstance(address, dict):
                         raise serializers.ValidationError(
                             f"meeting_address deve ser um objeto para seller {seller_id}."
-                        )
-
-                    address_required = ['street', 'city', 'state']
-                    missing_addr = [f for f in address_required if not address.get(f)]
-                    if missing_addr:
-                        raise serializers.ValidationError(
-                            f"Campos obrigatórios ausentes em meeting_address do seller "
-                            f"{seller_id}: {', '.join(missing_addr)}"
                         )
 
                     normalized[seller_id] = {
                         'delivery_method': 'in_person',
                         'cost': 0,
-                        'meeting_location_name': service_config['meeting_location_name'],
-                        'meeting_address': address,
-                        'seller_contact_phone': service_config['seller_contact_phone'],
-                        'buyer_contact_phone': service_config['buyer_contact_phone'],
+                        'meeting_location_name': service_config.get('meeting_location_name', ''),
+                        'meeting_address': address if isinstance(address, dict) else {},
+                        'seller_contact_phone': service_config.get('seller_contact_phone', ''),
+                        'buyer_contact_phone': service_config.get('buyer_contact_phone', ''),
                         'scheduled_date': service_config.get('scheduled_date'),
                         'scheduled_time': service_config.get('scheduled_time'),
                         'meeting_notes': service_config.get('meeting_notes', ''),

@@ -97,8 +97,17 @@ def auto_create_shipments_on_payment(sender, instance, created, **kwargs):
                         'shipping_service_id': shipping_info.get('service_id'),
                         'delivery_cost': shipping_info.get('cost', 0)
                     })
+                elif delivery_method == 'split':
+                    # split: shipping OrderDelivery created here; in_person already created at order creation
+                    shipping_sub = shipping_info.get('shipping', {})
+                    delivery_choices.append({
+                        'seller_id': seller_id_int,
+                        'delivery_method': 'shipping',
+                        'shipping_service_id': shipping_sub.get('service_id'),
+                        'delivery_cost': shipping_sub.get('cost', 0),
+                    })
                 elif delivery_method == 'in_person':
-                    # in_person should already be created — only as fallback
+                    # in_person already created at order creation — only as fallback
                     delivery_choices.append({
                         'seller_id': seller_id_int,
                         'delivery_method': 'in_person',

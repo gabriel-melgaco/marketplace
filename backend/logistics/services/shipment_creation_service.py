@@ -112,7 +112,12 @@ class ShipmentCreationService:
             # Extrair delivery_method e service_id
             if isinstance(seller_shipping, dict):
                 delivery_method = seller_shipping.get('delivery_method', 'shipping')
-                service_id = seller_shipping.get('service_id')
+                if delivery_method == 'split':
+                    # Split: use the shipping sub-config for the ME Shipment
+                    service_id = seller_shipping.get('shipping', {}).get('service_id')
+                    delivery_method = 'shipping'  # treat as shipping from here on
+                else:
+                    service_id = seller_shipping.get('service_id')
             else:
                 # Formato legado: inteiro diretamente
                 delivery_method = 'shipping'

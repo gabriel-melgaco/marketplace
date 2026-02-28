@@ -428,13 +428,17 @@ class InPersonDelivery(models.Model):
         default='pending_schedule'
     )
 
-    # Local do encontro
+    # Local do encontro (campos opcionais — podem ser preenchidos depois do pedido)
     meeting_location_name = models.CharField(
         max_length=200,
+        blank=True,
+        default='',
         help_text='Nome do local (ex: Shopping X, Estação Y)'
     )
 
     meeting_address = models.JSONField(
+        default=dict,
+        blank=True,
         help_text='Endereço completo do local de encontro'
     )
 
@@ -456,14 +460,18 @@ class InPersonDelivery(models.Model):
         help_text='Horário agendado para o encontro'
     )
 
-    # Informações de contato
+    # Informações de contato (opcionais — podem ser preenchidas depois)
     seller_contact_phone = models.CharField(
         max_length=20,
+        blank=True,
+        default='',
         help_text='Telefone do vendedor para contato'
     )
 
     buyer_contact_phone = models.CharField(
         max_length=20,
+        blank=True,
+        default='',
         help_text='Telefone do comprador para contato'
     )
 

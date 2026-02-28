@@ -27,10 +27,10 @@ class InPersonDeliveryService:
         order: Order,
         seller: CustomUser,
         buyer: CustomUser,
-        meeting_location_name: str,
-        meeting_address: Dict[str, Any],
-        seller_contact_phone: str,
-        buyer_contact_phone: str,
+        meeting_location_name: str = "",
+        meeting_address: Optional[Dict[str, Any]] = None,
+        seller_contact_phone: str = "",
+        buyer_contact_phone: str = "",
         scheduled_date: Optional[datetime] = None,
         scheduled_time: Optional[time] = None,
         meeting_notes: str = ""
@@ -76,13 +76,13 @@ class InPersonDeliveryService:
             seller=seller,
             buyer=buyer,
             meeting_status=initial_status,
-            meeting_location_name=meeting_location_name,
-            meeting_address=meeting_address,
+            meeting_location_name=meeting_location_name or '',
+            meeting_address=meeting_address or {},
             meeting_notes=meeting_notes,
             scheduled_date=scheduled_date,
             scheduled_time=scheduled_time,
-            seller_contact_phone=seller_contact_phone,
-            buyer_contact_phone=buyer_contact_phone
+            seller_contact_phone=seller_contact_phone or '',
+            buyer_contact_phone=buyer_contact_phone or '',
         )
 
         return in_person_delivery
@@ -92,10 +92,10 @@ class InPersonDeliveryService:
     def create_order_delivery_in_person(
         order: Order,
         seller: CustomUser,
-        meeting_location_name: str,
-        meeting_address: Dict[str, Any],
-        seller_contact_phone: str,
-        buyer_contact_phone: str,
+        meeting_location_name: str = "",
+        meeting_address: Optional[Dict[str, Any]] = None,
+        seller_contact_phone: str = "",
+        buyer_contact_phone: str = "",
         scheduled_date: Optional[datetime] = None,
         scheduled_time: Optional[time] = None,
         meeting_notes: str = ""

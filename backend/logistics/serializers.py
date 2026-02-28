@@ -413,24 +413,7 @@ class OrderDeliveryCreateSerializer(serializers.Serializer):
                 })
 
         elif delivery_method == DeliveryMethod.IN_PERSON:
-            required_fields = [
-                'meeting_location_name',
-                'meeting_address',
-                'seller_contact_phone',
-                'buyer_contact_phone'
-            ]
-
-            missing_fields = [
-                field for field in required_fields
-                if not data.get(field)
-            ]
-
-            if missing_fields:
-                raise serializers.ValidationError({
-                    field: 'Campo obrigatório para entrega presencial'
-                    for field in missing_fields
-                })
-
+            # Todos os campos de encontro são opcionais — podem ser preenchidos depois
             # Validar data/hora no futuro se fornecidos
             scheduled_date = data.get('scheduled_date')
             scheduled_time = data.get('scheduled_time')
@@ -473,19 +456,8 @@ class DeliveryMethodChoiceSerializer(serializers.Serializer):
                 )
 
         elif delivery_method == DeliveryMethod.IN_PERSON:
-            meeting_data = data.get('meeting_data', {})
-
-            required_fields = [
-                'meeting_location_name',
-                'seller_contact_phone',
-                'buyer_contact_phone'
-            ]
-
-            missing = [f for f in required_fields if not meeting_data.get(f)]
-            if missing:
-                raise serializers.ValidationError({
-                    'meeting_data': f'Campos obrigatórios ausentes: {", ".join(missing)}'
-                })
+            # Todos os campos de encontro são opcionais — podem ser preenchidos depois
+            pass
 
         return data
 

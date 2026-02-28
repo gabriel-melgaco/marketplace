@@ -233,12 +233,40 @@ def get_shipping_addresses(request):
         200: inline_serializer(
             name='CalculateShippingResponse',
             fields={
-                'quotes_by_seller': rf_serializers.DictField(
-                    help_text=(
-                        'Shipping quotes grouped by seller ID. Each entry is either a list of '
-                        'freight services or an error object (e.g. {error, in_person_only: true}) '
-                        'when the seller\'s product only accepts in-person delivery.'
-                    )
+                'quotes_by_seller': inline_serializer(
+                    name='SellerQuoteMap',
+                    fields={
+                        'seller_id': inline_serializer(
+                            name='SellerQuoteEntry',
+                            fields={
+                                'services': rf_serializers.ListField(
+                                    child=rf_serializers.DictField(),
+                                    help_text='Lista de serviços de frete disponíveis (apenas itens elegíveis)'
+                                ),
+                                'in_person_items': rf_serializers.ListField(
+                                    child=inline_serializer(
+                                        name='InPersonItem',
+                                        fields={
+                                            'listing_id': rf_serializers.IntegerField(),
+                                            'title': rf_serializers.CharField(),
+                                            'shipping_method': rf_serializers.CharField(),
+                                        }
+                                    ),
+                                    required=False,
+                                    help_text='Itens excluídos do cálculo por terem shipping_method=in_person'
+                                ),
+                                'in_person_only': rf_serializers.BooleanField(
+                                    required=False,
+                                    help_text='True quando TODOS os itens do vendedor são in_person'
+                                ),
+                                'error': rf_serializers.CharField(
+                                    required=False,
+                                    help_text='Mensagem de erro se o cálculo falhou para este vendedor'
+                                ),
+                            }
+                        )
+                    },
+                    help_text='Cotações agrupadas por seller_id'
                 ),
                 'shipping_address': AddressSerializer(),
                 'shipping_address_id': rf_serializers.IntegerField(),
