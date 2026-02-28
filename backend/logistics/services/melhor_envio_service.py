@@ -367,14 +367,21 @@ class MelhorEnvioService:
                 }
                 continue
 
-            # VALIDAÇÃO: shipping_method — se todos os itens do vendedor forem
-            # 'in_person', o envio via Melhor Envio não está disponível.
+            # VALIDAÇÃO: shipping_method — filtrar apenas itens elegíveis para ME.
+            # Itens com in_person são excluídos da cotação; só entram itens com
+            # shipping_method = 'melhor_envio' ou 'both'.
             from products.models import ShippingMethodChoices
-            all_in_person = all(
-                item.listing.shipping_method == ShippingMethodChoices.IN_PERSON
-                for item in items
-            )
-            if all_in_person:
+            me_items = [
+                item for item in items
+                if item.listing.shipping_method != ShippingMethodChoices.IN_PERSON
+            ]
+            in_person_items = [
+                item for item in items
+                if item.listing.shipping_method == ShippingMethodChoices.IN_PERSON
+            ]
+
+            if not me_items:
+                # Todos os itens deste vendedor são somente in_person
                 quotes_by_seller[seller.id] = {
                     'error': (
                         'Este produto aceita somente entrega por conta do vendedor. '
@@ -385,6 +392,9 @@ class MelhorEnvioService:
                     'in_person_only': True,
                 }
                 continue
+
+            # Usar apenas itens elegíveis para o cálculo de frete
+            items = me_items
 
             # Buscar endereço de envio do listing (primeiro item do vendedor)
             # Todos os itens do mesmo vendedor devem ter o mesmo shipping_address
@@ -630,6 +640,15 @@ class MelhorEnvioService:
                     'unavailable_services': unavailable_services,
                     'total_value': total_value,
                     'items_count': len(items),
+                    # Itens excluídos do cálculo (somente in_person)
+                    'in_person_items': [
+                        {
+                            'listing_id': it.listing.id,
+                            'title': it.listing.title,
+                            'shipping_method': it.listing.shipping_method,
+                        }
+                        for it in in_person_items
+                    ] if in_person_items else [],
                 }
 
                 # Se nenhum serviço disponível, informar
