@@ -786,16 +786,12 @@ export function ListingForm() {
     setCepError(null);
     try {
       const data = await logisticsService.lookupCep(cep);
-      if (data.erro) {
-        setCepError("CEP não encontrado.");
-        return;
-      }
       setFormData((prev) => ({
         ...prev,
-        address_street: data.logradouro || "",
-        address_neighborhood: data.bairro || "",
-        address_city: data.localidade || "",
-        address_state: data.uf || "",
+        address_street: data.street || "",
+        address_neighborhood: data.neighborhood || "",
+        address_city: data.city || "",
+        address_state: data.state || "",
       }));
     } catch {
       setCepError("Erro ao buscar CEP. Tente novamente.");

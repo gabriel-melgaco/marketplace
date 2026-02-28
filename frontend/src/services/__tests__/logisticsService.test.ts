@@ -13,8 +13,8 @@
  *     a regression here breaks the saved-address flow entirely.
  *
  * Coverage matrix
- *   lookupCep            : strips non-digits, correct URL, maps response,
- *                          propagates API error flag (data.erro), network error
+ *   lookupCep            : strips non-digits, correct POST endpoint + body,
+ *                          maps response fields, propagates network error
  *   getAddresses         : handles array response, handles paginated object,
  *                          handles empty results
  *   createAddress        : posts correct payload, returns created object
@@ -73,73 +73,64 @@ const ADDRESS_FIXTURE: AddressData = {
 };
 
 const CEP_RESPONSE_FIXTURE: CepLookupResponse = {
-  cep: "01310-100",
-  logradouro: "Avenida Paulista",
-  complemento: "",
-  bairro: "Bela Vista",
-  localidade: "São Paulo",
-  uf: "SP",
+  zipcode: "01310-100",
+  street: "Avenida Paulista",
+  complement: "",
+  neighborhood: "Bela Vista",
+  city: "São Paulo",
+  state: "SP",
 };
 
 // ─── lookupCep ────────────────────────────────────────────────────────────────
 
 describe("logisticsService.lookupCep", () => {
-  it("calls the correct endpoint with the cleaned CEP (digits only)", async () => {
-    mockApi.get.mockResolvedValueOnce({ data: CEP_RESPONSE_FIXTURE });
+  it("posts to the correct endpoint with zipcode in the body (formatted CEP)", async () => {
+    mockApi.post.mockResolvedValueOnce({ data: CEP_RESPONSE_FIXTURE });
 
     await logisticsService.lookupCep("01310-100");
 
-    expect(mockApi.get).toHaveBeenCalledWith(
-      "/logistics/cep/lookup/?cep=01310100",
+    expect(mockApi.post).toHaveBeenCalledWith(
+      "/logistics/cep/lookup/",
+      { zipcode: "01310100" },
     );
   });
 
-  it("strips all non-digit characters from the CEP before the request", async () => {
-    mockApi.get.mockResolvedValueOnce({ data: CEP_RESPONSE_FIXTURE });
+  it("strips all non-digit characters from the CEP before posting", async () => {
+    mockApi.post.mockResolvedValueOnce({ data: CEP_RESPONSE_FIXTURE });
 
     await logisticsService.lookupCep("01.310-100");
 
-    expect(mockApi.get).toHaveBeenCalledWith(
-      "/logistics/cep/lookup/?cep=01310100",
+    expect(mockApi.post).toHaveBeenCalledWith(
+      "/logistics/cep/lookup/",
+      { zipcode: "01310100" },
     );
   });
 
   it("accepts a CEP already without formatting characters", async () => {
-    mockApi.get.mockResolvedValueOnce({ data: CEP_RESPONSE_FIXTURE });
+    mockApi.post.mockResolvedValueOnce({ data: CEP_RESPONSE_FIXTURE });
 
     await logisticsService.lookupCep("01310100");
 
-    expect(mockApi.get).toHaveBeenCalledWith(
-      "/logistics/cep/lookup/?cep=01310100",
+    expect(mockApi.post).toHaveBeenCalledWith(
+      "/logistics/cep/lookup/",
+      { zipcode: "01310100" },
     );
   });
 
-  it("returns the full API response object", async () => {
-    mockApi.get.mockResolvedValueOnce({ data: CEP_RESPONSE_FIXTURE });
+  it("returns the full API response with correct field names", async () => {
+    mockApi.post.mockResolvedValueOnce({ data: CEP_RESPONSE_FIXTURE });
 
     const result = await logisticsService.lookupCep("01310100");
 
-    expect(result.logradouro).toBe("Avenida Paulista");
-    expect(result.bairro).toBe("Bela Vista");
-    expect(result.localidade).toBe("São Paulo");
-    expect(result.uf).toBe("SP");
-  });
-
-  it("returns the response with erro=true for invalid CEPs", async () => {
-    const errResponse: CepLookupResponse = {
-      ...CEP_RESPONSE_FIXTURE,
-      erro: true,
-    };
-    mockApi.get.mockResolvedValueOnce({ data: errResponse });
-
-    const result = await logisticsService.lookupCep("99999999");
-
-    expect(result.erro).toBe(true);
+    expect(result.street).toBe("Avenida Paulista");
+    expect(result.neighborhood).toBe("Bela Vista");
+    expect(result.city).toBe("São Paulo");
+    expect(result.state).toBe("SP");
   });
 
   it("propagates network errors to the caller", async () => {
     const networkError = new Error("Network Error");
-    mockApi.get.mockRejectedValueOnce(networkError);
+    mockApi.post.mockRejectedValueOnce(networkError);
 
     await expect(logisticsService.lookupCep("01310100")).rejects.toThrow(
       "Network Error",
