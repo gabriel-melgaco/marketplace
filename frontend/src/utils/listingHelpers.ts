@@ -72,6 +72,15 @@ export function validateStep(
         errors.address_state = "Estado é obrigatório";
       if (!formData.address_number?.trim())
         errors.address_number = "Número é obrigatório";
+      if (!formData.address_recipient_name?.trim())
+        errors.address_recipient_name = "Nome do destinatário é obrigatório";
+      if (!formData.address_recipient_phone?.trim()) {
+        errors.address_recipient_phone = "Telefone do destinatário é obrigatório";
+      } else {
+        const digits = formData.address_recipient_phone.replace(/\D/g, "");
+        if (digits.length < 10 || digits.length > 11)
+          errors.address_recipient_phone = "Telefone inválido (10 ou 11 dígitos)";
+      }
       break;
     case 8: // Images - optional, no validation required
       break;
