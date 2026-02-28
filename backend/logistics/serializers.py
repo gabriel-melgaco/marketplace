@@ -189,10 +189,10 @@ class ShippingQuoteSerializer(serializers.ModelSerializer):
 # =================== Shipment Serializers ===================
 class ShipmentTrackingSerializer(serializers.ModelSerializer):
     """Serializer de rastreamento"""
-    
+
     class Meta:
         model = ShipmentTracking
-        fields = ['id', 'status', 'description', 'location', 'occurred_at', 'created_at']
+        fields = ['id', 'package_me_id', 'status', 'description', 'location', 'occurred_at', 'created_at']
 
 
 class ShipmentSerializer(serializers.ModelSerializer):
@@ -204,7 +204,8 @@ class ShipmentSerializer(serializers.ModelSerializer):
         model = Shipment
         fields = [
             'id', 'order', 'order_number',
-            'melhorenvio_order_id', 'melhorenvio_order_ids', 'melhorenvio_tracking_code',
+            'melhorenvio_order_id', 'melhorenvio_order_ids',
+            'melhorenvio_tracking_code', 'melhorenvio_tracking_codes',
             'carrier_name', 'carrier_service',
             'shipping_cost', 'insurance_value',
             'status', 'tracking_url',

@@ -1782,34 +1782,68 @@ class MelhorEnvioService:
             response.raise_for_status()
             data = response.json()
 
-            # Processar dados de rastreamento (usar primeiro ID disponível)
+            # Processar dados de rastreamento de TODOS os pacotes
             if data and isinstance(data, dict):
-                tracking_data = data.get(all_ids[0], {})
+                # Ordem dos status do menos para o mais avançado.
+                # Usamos o status do pacote menos avançado como status geral
+                # (o pedido só está "entregue" quando TODOS os pacotes estiverem entregues).
+                STATUS_ORDER = [
+                    'pending', 'created', 'released', 'generated',
+                    'posted', 'in_transit', 'out_for_delivery', 'delivered',
+                ]
 
-                # Atualizar código de rastreamento
-                if tracking_data.get('tracking'):
-                    shipment.melhorenvio_tracking_code = tracking_data['tracking']
+                def _status_rank(s):
+                    mapped = self._map_status(s)
+                    try:
+                        return STATUS_ORDER.index(mapped)
+                    except ValueError:
+                        return -1
 
-                # Criar eventos de rastreamento
-                events = tracking_data.get('events', [])
-                for event in events:
-                    ShipmentTracking.objects.get_or_create(
-                        shipment=shipment,
-                        occurred_at=event.get('datetime'),
-                        defaults={
-                            'status': event.get('status', ''),
-                            'description': event.get('description', ''),
-                            'location': event.get('location', '')
-                        }
-                    )
+                tracking_codes = []
+                pkg_statuses = []
 
-                # Atualizar status do envio
-                last_status = tracking_data.get('status')
-                if last_status:
-                    shipment.status = self._map_status(last_status)
+                for me_id in all_ids:
+                    pkg_data = data.get(me_id, {})
+                    if not pkg_data:
+                        logger.warning(f'Nenhum dado retornado pelo ME para o pacote {me_id}')
+                        continue
 
-                    # Atualizar data de entrega se foi entregue
-                    if last_status == 'delivered' and not shipment.delivered_at:
+                    # Coletar tracking code deste pacote
+                    if pkg_data.get('tracking'):
+                        tracking_codes.append(pkg_data['tracking'])
+
+                    # Coletar status deste pacote
+                    if pkg_data.get('status'):
+                        pkg_statuses.append(pkg_data['status'])
+
+                    # Criar/atualizar eventos deste pacote.
+                    # A unicidade é (shipment, occurred_at, package_me_id), portanto
+                    # dois pacotes do mesmo shipment com evento no mesmo instante
+                    # geram registros separados e identificáveis.
+                    for event in pkg_data.get('events', []):
+                        ShipmentTracking.objects.get_or_create(
+                            shipment=shipment,
+                            occurred_at=event.get('datetime'),
+                            package_me_id=me_id,
+                            defaults={
+                                'status': event.get('status', ''),
+                                'description': event.get('description', ''),
+                                'location': event.get('location', ''),
+                            }
+                        )
+
+                # Persistir tracking codes
+                if tracking_codes:
+                    shipment.melhorenvio_tracking_code = tracking_codes[0]   # retrocompat
+                    shipment.melhorenvio_tracking_codes = tracking_codes     # lista completa
+
+                # Determinar status geral a partir do pacote menos avançado
+                if pkg_statuses:
+                    least_advanced_raw = min(pkg_statuses, key=_status_rank)
+                    overall_status = self._map_status(least_advanced_raw)
+                    shipment.status = overall_status
+
+                    if overall_status == 'delivered' and not shipment.delivered_at:
                         shipment.delivered_at = timezone.now()
 
                 shipment.save()

@@ -757,7 +757,16 @@ def generate_shipping_label(request, pk):
 @extend_schema(
     tags=['Logistics - Shipping'],
     summary='Track shipment',
-    description='Update shipment tracking information from Melhor Envio. Seller, buyer, or admin can track.',
+    description=(
+        'Update shipment tracking information from Melhor Envio. Seller, buyer, or admin can track.\n\n'
+        'When the shipment has multiple physical packages (melhorenvio_order_ids contains more than one ID), '
+        'the Melhor Envio API returns a dict keyed by cart/order ID — one entry per package.\n\n'
+        '`tracking_data` mirrors that raw dict so callers can inspect each package individually.\n\n'
+        '`melhorenvio_tracking_codes` lists all tracking codes in the same order as `melhorenvio_order_ids`; '
+        '`melhorenvio_tracking_code` keeps only the first code for backward compatibility.\n\n'
+        'The overall shipment `status` is derived from the **least-advanced** package '
+        '(e.g. the order is only marked "delivered" when every package is delivered).'
+    ),
     request=None,
     responses={
         200: inline_serializer(
