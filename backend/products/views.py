@@ -294,7 +294,7 @@ class MyListingsView(generics.ListAPIView):
     def get_queryset(self):
         return MarketplaceListing.objects.filter(
             seller=self.request.user
-        ).select_related('product', 'brand', 'condition', 'shipping_address').prefetch_related('images')
+        ).select_related('product', 'brand', 'condition', 'shipping_address').prefetch_related('images', 'packages')
 
 
 @extend_schema(tags=['Products'], summary='Update listing', description='Update a marketplace listing. Only the seller who created it can update.')
