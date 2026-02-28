@@ -196,10 +196,6 @@ class DeliveryOrchestrationService:
         scheduled_time = choice.get('scheduled_time')
         meeting_notes = choice.get('meeting_notes', '')
 
-        # Validar campos obrigatórios
-        if not all([meeting_location_name, seller_contact_phone, buyer_contact_phone]):
-            raise ValueError('Dados obrigatórios ausentes para entrega presencial')
-
         # Criar entrega presencial usando o serviço dedicado
         order_delivery = InPersonDeliveryService.create_order_delivery_in_person(
             order=order,

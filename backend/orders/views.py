@@ -223,15 +223,13 @@ class OrderDetailView(generics.RetrieveAPIView):
             'shipping_services': rf_serializers.DictField(
                 child=rf_serializers.DictField(),
                 help_text=(
-                    'Mapa de seller_id para configuração de entrega. '
-                    'Cada valor pode ser: '
-                    '(1) Shipping: {"delivery_method": "shipping", "service_id": int, "cost": float} '
-                    '(2) In-person: {"delivery_method": "in_person", "meeting_location_name": str, '
-                    '"meeting_address": {"street": str, "number": str, "city": str, "state": str, "zipcode": str}, '
-                    '"seller_contact_phone": str, "buyer_contact_phone": str, '
-                    '"scheduled_date": str (opcional), "scheduled_time": str (opcional), '
-                    '"meeting_notes": str (opcional)} '
-                    '(3) Legado: integer (service_id direto)'
+                    'Mapa de seller_id para configuração de entrega. Cada valor pode ser: '
+                    '(1) Shipping: {"delivery_method": "shipping", "service_id": int} '
+                    '(2) In-person: {"delivery_method": "in_person"} — todos os campos de encontro são opcionais '
+                    '(3) Split (vendedor com itens mistos): {"shipping": {"service_id": int}, "in_person": {}} '
+                    '(4) Legado: integer (service_id direto). '
+                    'Campos opcionais de in_person: meeting_location_name, meeting_address, '
+                    'seller_contact_phone, buyer_contact_phone, scheduled_date, scheduled_time, meeting_notes'
                 )
             ),
             'payment_method': rf_serializers.ChoiceField(
@@ -255,9 +253,14 @@ class OrderDetailView(generics.RetrieveAPIView):
         "- Fields: `delivery_method`, `service_id`, `cost`\n\n"
         "**In-person** (pickup with seller):\n"
         "- No freight quote needed\n"
-        "- Required fields: `delivery_method`, `meeting_location_name`, `meeting_address`, "
-        "`seller_contact_phone`, `buyer_contact_phone`\n"
-        "- Optional fields: `scheduled_date`, `scheduled_time`, `meeting_notes`\n\n"
+        "- `delivery_method: 'in_person'` is the only required field\n"
+        "- Optional meeting fields: `meeting_location_name`, `meeting_address`, "
+        "`seller_contact_phone`, `buyer_contact_phone`, `scheduled_date`, `scheduled_time`, `meeting_notes`\n"
+        "- Meeting details can be added later via update endpoint\n\n"
+        "**Split** (seller has mixed listing types — some `both`/`melhor_envio`, some `in_person`):\n"
+        "- Use sub-keys `shipping` and `in_person` instead of a top-level `delivery_method`\n"
+        "- `shipping`: `{service_id: int}` — only eligible items are sent to Melhor Envio\n"
+        "- `in_person`: `{}` or meeting details — in_person-only items are handled separately\n\n"
         "**Legacy format** (backward compatible): `{seller_id: service_id}` as integer"
     ),
     examples=[
@@ -329,6 +332,36 @@ class OrderDetailView(generics.RetrieveAPIView):
                         },
                         'seller_contact_phone': '11999999999',
                         'buyer_contact_phone': '11888888888'
+                    }
+                },
+                'payment_method': 'pix'
+            },
+            request_only=True,
+        ),
+        OpenApiExample(
+            name='Split delivery (mixed shipping_method per seller)',
+            description=(
+                'Seller 9 has listing 30 (shipping_method=both) and listing 31 (shipping_method=in_person). '
+                'Use the split format to ship listing 30 via Melhor Envio and deliver listing 31 in-person. '
+                'The "in_person" sub-object can be empty {} — meeting details are optional.'
+            ),
+            value={
+                'shipping_address_id': 5,
+                'shipping_services': {
+                    '9': {
+                        'shipping': {'service_id': 3},
+                        'in_person': {
+                            'meeting_location_name': 'Shopping Iguatemi',
+                            'meeting_address': {
+                                'street': 'Av. Brigadeiro Faria Lima',
+                                'number': '2232',
+                                'city': 'São Paulo',
+                                'state': 'SP',
+                                'zipcode': '01451-000'
+                            },
+                            'seller_contact_phone': '11999999999',
+                            'buyer_contact_phone': '11888888888'
+                        }
                     }
                 },
                 'payment_method': 'pix'

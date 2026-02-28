@@ -218,14 +218,28 @@ class OrderCreationService:
         for seller_id_str, seller_config in shipping_services_data.items():
             if not isinstance(seller_config, dict):
                 continue
-            if seller_config.get('delivery_method', 'shipping') != 'shipping':
-                continue
-            service_id = seller_config.get('service_id')
+            delivery_method = seller_config.get('delivery_method', 'shipping')
+            if delivery_method == 'split':
+                service_id = seller_config.get('shipping', {}).get('service_id')
+            elif delivery_method == 'shipping':
+                service_id = seller_config.get('service_id')
+            else:
+                continue  # in_person — skip
             if not service_id:
                 continue
 
             seller_id = int(seller_id_str)
-            seller_items = items_by_seller.get(seller_id, [])
+            all_items = items_by_seller.get(seller_id, [])
+
+            # For split delivery, only include items eligible for shipping (not in_person-only)
+            if delivery_method == 'split':
+                from products.models import ShippingMethodChoices as SMC
+                seller_items = [
+                    i for i in all_items
+                    if i['listing'].shipping_method != SMC.IN_PERSON
+                ]
+            else:
+                seller_items = all_items
             if not seller_items:
                 continue
 
@@ -334,12 +348,21 @@ class OrderCreationService:
         """
         from logistics.services.delivery_orchestration_service import DeliveryOrchestrationService
 
-        delivery_choices = [
-            {'seller_id': int(seller_id), **shipping_info}
-            for seller_id, shipping_info in shipping_services_data.items()
-            if isinstance(shipping_info, dict)
-            and shipping_info.get('delivery_method') == 'in_person'
-        ]
+        delivery_choices = []
+        for seller_id, shipping_info in shipping_services_data.items():
+            if not isinstance(shipping_info, dict):
+                continue
+            dm = shipping_info.get('delivery_method')
+            if dm == 'in_person':
+                delivery_choices.append({'seller_id': int(seller_id), **shipping_info})
+            elif dm == 'split':
+                # Create in_person delivery for the in_person-only items portion
+                in_person_sub = shipping_info.get('in_person', {})
+                delivery_choices.append({
+                    'seller_id': int(seller_id),
+                    'delivery_method': 'in_person',
+                    **in_person_sub,
+                })
 
         if not delivery_choices:
             return
@@ -433,9 +456,14 @@ class OrderCreationService:
                     f"presencialmente: {', '.join(me_only_titles)}"
                 )
 
-            if delivery_method == 'shipping':
-                # --- Shipping via carrier ---
-                service_id = delivery_config.get('service_id')
+            if delivery_method in ('shipping', 'split'):
+                # --- Shipping via carrier (or split: shipping part) ---
+                if delivery_method == 'split':
+                    shipping_sub = delivery_config.get('shipping', {})
+                    service_id = shipping_sub.get('service_id')
+                else:
+                    service_id = delivery_config.get('service_id')
+
                 if not service_id:
                     raise OrderCreationError(
                         f"service_id is required for shipping delivery of seller {seller_id}"
@@ -480,14 +508,26 @@ class OrderCreationService:
                 # Store service data
                 company = service_found.get('company', '')
                 company_name = company.get('name', '') if isinstance(company, dict) else str(company)
-                shipping_services_data[str(seller_id)] = {
-                    'delivery_method': 'shipping',
+                shipping_part = {
                     'service_id': service_id,
                     'service_name': service_found.get('name', ''),
                     'company': company_name,
                     'cost': float(shipping_cost),
-                    'delivery_time': service_found.get('delivery_time', 0)
+                    'delivery_time': service_found.get('delivery_time', 0),
                 }
+
+                if delivery_method == 'split':
+                    # Preserve in_person sub-config alongside shipping data
+                    shipping_services_data[str(seller_id)] = {
+                        'delivery_method': 'split',
+                        'shipping': shipping_part,
+                        'in_person': delivery_config.get('in_person', {}),
+                    }
+                else:
+                    shipping_services_data[str(seller_id)] = {
+                        'delivery_method': 'shipping',
+                        **shipping_part,
+                    }
 
                 shipping_by_seller[seller_id] = shipping_cost
 
