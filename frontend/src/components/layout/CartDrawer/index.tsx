@@ -53,7 +53,7 @@ export function CartDrawer() {
         {totalItems > 0 && (
           <span
             aria-hidden="true"
-            className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center px-1 leading-none"
+            className="absolute -top-1.5 -right-1.5 min-w-4.5 h-4.5 bg-blue-900 text-white text-xs font-bold rounded-full flex items-center justify-center px-1 leading-none"
           >
             {totalItems > 99 ? "99+" : totalItems}
           </span>
@@ -64,7 +64,7 @@ export function CartDrawer() {
         <>
           <div
             className={`
-              fixed inset-0 z-[9998] bg-black/40 transition-opacity
+              fixed inset-0 z-9998 bg-black/40 transition-opacity
               ${isOpen ? "opacity-100" : "opacity-0 pointer-events-none"}
             `}
             onClick={() => setIsOpen(false)}
@@ -76,7 +76,7 @@ export function CartDrawer() {
             aria-modal="true"
             aria-labelledby="cart-drawer-heading"
             className={`
-              fixed top-0 bottom-0 right-0 z-[9999]
+              fixed top-0 bottom-0 right-0 z-9999
               w-3/4 md:w-1/2 lg:w-1/3
               bg-white shadow-xl
               transform transition-transform duration-300
@@ -85,7 +85,10 @@ export function CartDrawer() {
             `}
           >
             <div className="flex items-center justify-between px-4 py-4 border-b">
-              <h2 id="cart-drawer-heading" className="font-semibold text-lg text-gray-900">
+              <h2
+                id="cart-drawer-heading"
+                className="font-semibold text-lg text-gray-900"
+              >
                 Carrinho
                 {totalItems > 0 && (
                   <span className="ml-2 text-sm font-normal text-gray-400">
@@ -111,29 +114,38 @@ export function CartDrawer() {
               {items.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full gap-3 px-6 text-center py-16">
                   <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center">
-                    <ShoppingBag size={28} className="text-gray-400" aria-hidden="true" />
+                    <ShoppingBag
+                      size={28}
+                      className="text-gray-400"
+                      aria-hidden="true"
+                    />
                   </div>
                   <p className="font-semibold text-gray-700 text-sm">
                     Carrinho vazio
                   </p>
-                  <p className="text-gray-400 text-xs max-w-[180px] leading-relaxed">
+                  <p className="text-gray-400 text-xs max-w-45 leading-relaxed">
                     Adicione produtos para começar suas compras.
                   </p>
                 </div>
               ) : (
-                <ul className="divide-y divide-gray-100" aria-label="Lista de itens">
+                <ul
+                  className="divide-y divide-gray-100"
+                  aria-label="Lista de itens"
+                >
                   {items.map((item) => {
-                    const imgSrc = item.listing.primary_image
-                      ? toPublicUrl(item.listing.primary_image)
-                      : item.listing.images?.[0]?.image_url
-                        ? toPublicUrl(item.listing.images[0].image_url)
-                        : null;
+                    const imgs = item.listing.images;
+                    const primaryImg =
+                      imgs?.find((i) => i.is_primary) ?? imgs?.[0];
+                    const imgSrc = primaryImg
+                      ? toPublicUrl(primaryImg.image_url)
+                      : null;
 
-                    const productName = item.listing.title || item.listing.product.name;
+                    const productName =
+                      item.listing.title || item.listing.product.name;
 
                     return (
                       <li key={item.listing.id} className="flex gap-3 p-4">
-                        <div className="w-16 h-16 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
+                        <div className="w-16 h-16 bg-gray-100 rounded-lg overflow-hidden shrink-0">
                           {imgSrc ? (
                             <img
                               src={imgSrc}
@@ -143,7 +155,11 @@ export function CartDrawer() {
                             />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center">
-                              <ShoppingBag size={18} className="text-gray-300" aria-hidden="true" />
+                              <ShoppingBag
+                                size={18}
+                                className="text-gray-300"
+                                aria-hidden="true"
+                              />
                             </div>
                           )}
                         </div>
@@ -160,7 +176,10 @@ export function CartDrawer() {
                             <button
                               type="button"
                               onClick={() =>
-                                updateQuantity(item.listing.id, item.quantity - 1)
+                                updateQuantity(
+                                  item.listing.id,
+                                  item.quantity - 1,
+                                )
                               }
                               disabled={item.quantity <= 1}
                               className="w-7 h-7 rounded-lg border border-gray-200 flex items-center justify-center text-gray-600 hover:bg-gray-100 active:bg-gray-200 transition disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-blue-900/30"
@@ -169,7 +188,7 @@ export function CartDrawer() {
                               <Minus size={12} aria-hidden="true" />
                             </button>
                             <span
-                              className="text-sm font-medium text-gray-800 min-w-[24px] text-center"
+                              className="text-sm font-medium text-gray-800 min-w-6 text-center"
                               aria-label={`Quantidade: ${item.quantity}`}
                             >
                               {item.quantity}
@@ -177,7 +196,10 @@ export function CartDrawer() {
                             <button
                               type="button"
                               onClick={() =>
-                                updateQuantity(item.listing.id, item.quantity + 1)
+                                updateQuantity(
+                                  item.listing.id,
+                                  item.quantity + 1,
+                                )
                               }
                               disabled={item.quantity >= item.listing.quantity}
                               className="w-7 h-7 rounded-lg border border-gray-200 flex items-center justify-center text-gray-600 hover:bg-gray-100 active:bg-gray-200 transition disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-blue-900/30"
@@ -206,9 +228,14 @@ export function CartDrawer() {
             {items.length > 0 && (
               <div className="border-t px-4 py-4 space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-600">Total</span>
+                  <span className="text-sm font-medium text-gray-600">
+                    Total
+                  </span>
                   <span className="text-lg font-bold text-blue-800">
-                    R$ {totalPrice.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                    R${" "}
+                    {totalPrice.toLocaleString("pt-BR", {
+                      minimumFractionDigits: 2,
+                    })}
                   </span>
                 </div>
                 <Link

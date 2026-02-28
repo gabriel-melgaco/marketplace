@@ -18,13 +18,12 @@ export interface SellerMEConnectResponse {
 }
 
 export interface CepLookupResponse {
-  cep: string;
-  logradouro: string;
-  complemento: string;
-  bairro: string;
-  localidade: string;
-  uf: string;
-  erro?: boolean;
+  zipcode: string;
+  street: string;
+  neighborhood: string;
+  city: string;
+  state: string;
+  complement: string;
 }
 
 export interface AddressData {
@@ -68,7 +67,7 @@ export const logisticsService = {
 
   async lookupCep(cep: string): Promise<CepLookupResponse> {
     const cleanCep = cep.replace(/\D/g, "");
-    const response = await api.get<CepLookupResponse>(`/logistics/cep/lookup/?cep=${cleanCep}`);
+    const response = await api.post<CepLookupResponse>("/logistics/cep/lookup/", { zipcode: cleanCep });
     return response.data;
   },
 
