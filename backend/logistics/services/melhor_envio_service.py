@@ -367,6 +367,25 @@ class MelhorEnvioService:
                 }
                 continue
 
+            # VALIDAÇÃO: shipping_method — se todos os itens do vendedor forem
+            # 'in_person', o envio via Melhor Envio não está disponível.
+            from products.models import ShippingMethodChoices
+            all_in_person = all(
+                item.listing.shipping_method == ShippingMethodChoices.IN_PERSON
+                for item in items
+            )
+            if all_in_person:
+                quotes_by_seller[seller.id] = {
+                    'error': (
+                        'Este produto aceita somente entrega presencial. '
+                        'O envio via transportadora (Melhor Envio) não está disponível.'
+                    ),
+                    'seller_name': seller.get_full_name() or seller.email,
+                    'seller_id': seller.id,
+                    'in_person_only': True,
+                }
+                continue
+
             # Buscar endereço de envio do listing (primeiro item do vendedor)
             # Todos os itens do mesmo vendedor devem ter o mesmo shipping_address
             first_listing = items[0].listing
@@ -1621,10 +1640,12 @@ class MelhorEnvioService:
             order, seller, shipping_service_id
         )
 
-        melhorenvio_order_id = shipment.melhorenvio_order_id
-
-        # ETAPA 2: Fazer checkout
-        checkout_result = self.checkout_cart([melhorenvio_order_id])
+        # ETAPA 2: Fazer checkout com TODOS os cart IDs do shipment.
+        # Quando o listing tem múltiplos pacotes físicos, o ME gera um cart ID
+        # por volume. Usar melhorenvio_order_ids (lista completa) garante que
+        # todos os volumes sejam enviados ao checkout, não apenas o primeiro.
+        all_me_ids = shipment.melhorenvio_order_ids or [shipment.melhorenvio_order_id]
+        checkout_result = self.checkout_cart(all_me_ids)
 
         # Verificar se checkout foi bem-sucedido
         purchase = checkout_result.get('purchase', {})

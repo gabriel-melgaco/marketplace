@@ -251,7 +251,13 @@ class MarketplaceListingDetailView(generics.RetrieveAPIView):
         '- Seller must have a connected Melhor Envio account '
         '(`GET /api/logistics/me/connect/`).\n\n'
         '**Shipping address:** automatically assigned from the seller\'s connected '
-        'Melhor Envio account. No need to provide `shipping_address` in the request.'
+        'Melhor Envio account. No need to provide `shipping_address` in the request.\n\n'
+        '**`shipping_method` field:**\n'
+        '- `"in_person"` — product only accepts in-person pickup. '
+        'Melhor Envio shipping quotes and shipment creation will be blocked for this listing.\n'
+        '- `"melhor_envio"` — product only accepts carrier delivery via Melhor Envio. '
+        'In-person delivery will be blocked at order creation.\n'
+        '- `"both"` (default) — both methods are accepted.'
     ),
 )
 class MarketplaceListingCreateView(generics.CreateAPIView):

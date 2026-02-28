@@ -97,6 +97,19 @@ class Brand(models.Model):
         return self.name
 
 
+class ShippingMethodChoices(models.TextChoices):
+    """
+    Método de envio disponível para o anúncio.
+
+    - IN_PERSON: entrega exclusivamente presencial (não suporta Melhor Envio)
+    - MELHOR_ENVIO: envio exclusivamente via transportadora (Melhor Envio)
+    - BOTH: ambos os métodos são aceitos (padrão)
+    """
+    IN_PERSON = 'in_person', 'Somente Entrega Presencial'
+    MELHOR_ENVIO = 'melhor_envio', 'Somente Melhor Envio'
+    BOTH = 'both', 'Ambos (Presencial e Melhor Envio)'
+
+
 class MarketplaceListing(models.Model):
     product = models.ForeignKey(
         Products,
@@ -113,6 +126,17 @@ class MarketplaceListing(models.Model):
         help_text="Título do anúncio"
     )
     price = models.DecimalField(max_digits=10, decimal_places=2)
+    shipping_method = models.CharField(
+        max_length=20,
+        choices=ShippingMethodChoices.choices,
+        default=ShippingMethodChoices.BOTH,
+        help_text=(
+            "Método de envio aceito pelo vendedor para este anúncio. "
+            "'in_person' = somente entrega presencial; "
+            "'melhor_envio' = somente via transportadora; "
+            "'both' = ambos os métodos são aceitos."
+        )
+    )
     brand = models.ForeignKey(
         Brand,
         on_delete=models.PROTECT,
