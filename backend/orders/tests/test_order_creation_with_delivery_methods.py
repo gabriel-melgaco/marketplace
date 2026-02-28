@@ -439,8 +439,13 @@ class OrderCreationServiceTestCase(TestCase):
         CartItem.objects.create(cart=self.cart, listing=self.listing2, quantity=1)
 
     def test_shipping_calculates_cost_from_quote(self):
-        """Test that shipping cost is calculated from server-side quote, not client input"""
-        # Create shipping quote for seller1
+        """Test that shipping cost is calculated from server-side quote, not client input.
+
+        quotes_data is stored as a flat list by MelhorEnvioService (one entry per service).
+        Each entry has 'custom_price' (string) set by the aggregation logic, with 'price' as
+        fallback. The service_id lookup compares integer-to-integer.
+        """
+        # Create shipping quote for seller1 — flat list format (real production format)
         quote = ShippingQuote.objects.create(
             user=self.buyer,
             seller=self.seller1,
@@ -453,12 +458,26 @@ class OrderCreationServiceTestCase(TestCase):
             width=Decimal('80.00'),
             length=Decimal('150.00'),
             declared_value=Decimal('1500.00'),
-            quotes_data={
-                'services': [
-                    {'id': 1, 'name': 'PAC', 'price': 45.90, 'company': 'Correios'},
-                    {'id': 2, 'name': 'SEDEX', 'price': 75.50, 'company': 'Correios'}
-                ]
-            },
+            quotes_data=[
+                {
+                    'id': 1,
+                    'name': 'PAC',
+                    'price': '45.90',
+                    'custom_price': '45.90',
+                    'delivery_time': 5,
+                    'custom_delivery_time': 5,
+                    'company': {'id': 1, 'name': 'Correios', 'picture': ''},
+                },
+                {
+                    'id': 2,
+                    'name': 'SEDEX',
+                    'price': '75.50',
+                    'custom_price': '75.50',
+                    'delivery_time': 2,
+                    'custom_delivery_time': 2,
+                    'company': {'id': 1, 'name': 'Correios', 'picture': ''},
+                },
+            ],
             expires_at=timezone.now() + timedelta(hours=24)
         )
 
@@ -610,8 +629,11 @@ class OrderCreationServiceTestCase(TestCase):
         self.assertEqual(shipping_data['shipping_by_seller'][self.seller2.id], Decimal('0.00'))
 
     def test_mixed_order_totals_shipping_correctly(self):
-        """Test that mixed order (shipping + in-person) calculates total correctly"""
-        # Create quote for seller1 only
+        """Test that mixed order (shipping + in-person) calculates total correctly.
+
+        Uses flat-list quotes_data format matching real MelhorEnvioService output.
+        """
+        # Create quote for seller1 only — flat list format
         quote = ShippingQuote.objects.create(
             user=self.buyer,
             seller=self.seller1,
@@ -624,11 +646,17 @@ class OrderCreationServiceTestCase(TestCase):
             width=Decimal('80.00'),
             length=Decimal('150.00'),
             declared_value=Decimal('1500.00'),
-            quotes_data={
-                'services': [
-                    {'id': 1, 'name': 'PAC', 'price': 45.90, 'company': 'Correios'}
-                ]
-            },
+            quotes_data=[
+                {
+                    'id': 1,
+                    'name': 'PAC',
+                    'price': '45.90',
+                    'custom_price': '45.90',
+                    'delivery_time': 5,
+                    'custom_delivery_time': 5,
+                    'company': {'id': 1, 'name': 'Correios', 'picture': ''},
+                },
+            ],
             expires_at=timezone.now() + timedelta(hours=24)
         )
 
@@ -788,6 +816,205 @@ class OrderCreationServiceTestCase(TestCase):
                 )
 
         self.assertIn('Invalid delivery method', str(context.exception))
+
+    def test_shipping_uses_custom_price_over_price(self):
+        """Test that custom_price (string) takes precedence over price when both present.
+
+        MelhorEnvioService stores custom_price as a string (e.g. '45.90').
+        _validate_and_calculate_shipping must handle both string and numeric values
+        when constructing the Decimal shipping cost.
+        """
+        # custom_price differs from price to verify which one is used
+        quote = ShippingQuote.objects.create(
+            user=self.buyer,
+            seller=self.seller1,
+            origin_zipcode='02310-100',
+            origin_address={},
+            destination_zipcode='01310-100',
+            destination_address={},
+            weight=Decimal('50.00'),
+            height=Decimal('120.00'),
+            width=Decimal('80.00'),
+            length=Decimal('150.00'),
+            declared_value=Decimal('1500.00'),
+            quotes_data=[
+                {
+                    'id': 1,
+                    'name': 'PAC',
+                    'price': '40.00',        # raw price
+                    'custom_price': '45.90', # custom_price should win
+                    'delivery_time': 5,
+                    'custom_delivery_time': 5,
+                    'company': {'id': 1, 'name': 'Correios', 'picture': ''},
+                },
+            ],
+            expires_at=timezone.now() + timedelta(hours=24)
+        )
+
+        shipping_services_input = {
+            self.seller1.id: {
+                'delivery_method': 'shipping',
+                'service_id': 1,
+            }
+        }
+
+        with patch('orders.services.product_validation_service.ProductValidationService.validate_cart_items') as mock_validate:
+            mock_validate.return_value = [
+                {
+                    'listing': self.listing1,
+                    'seller': self.seller1,
+                    'quantity': 1,
+                    'unit_price': self.listing1.price,
+                    'product_snapshot': {
+                        'name': self.product1.name,
+                        'code': self.product1.code,
+                        'brand': self.brand.name,
+                        'condition': self.condition.name
+                    },
+                    'dimensions': {
+                        'weight_kg': self.listing1.weight_kg,
+                        'height_cm': self.listing1.height_cm,
+                        'width_cm': self.listing1.width_cm,
+                        'length_cm': self.listing1.length_cm
+                    }
+                }
+            ]
+
+            shipping_data = OrderCreationService._validate_and_calculate_shipping(
+                self.buyer,
+                mock_validate.return_value,
+                shipping_services_input
+            )
+
+        # custom_price ('45.90') must be used, not price ('40.00')
+        self.assertEqual(shipping_data['total_shipping'], Decimal('45.90'))
+        self.assertEqual(shipping_data['shipping_by_seller'][self.seller1.id], Decimal('45.90'))
+
+    def test_shipping_falls_back_to_price_when_no_custom_price(self):
+        """Test that price is used as fallback when custom_price is absent."""
+        quote = ShippingQuote.objects.create(
+            user=self.buyer,
+            seller=self.seller1,
+            origin_zipcode='02310-100',
+            origin_address={},
+            destination_zipcode='01310-100',
+            destination_address={},
+            weight=Decimal('50.00'),
+            height=Decimal('120.00'),
+            width=Decimal('80.00'),
+            length=Decimal('150.00'),
+            declared_value=Decimal('1500.00'),
+            quotes_data=[
+                {
+                    'id': 1,
+                    'name': 'PAC',
+                    'price': '38.00',   # no custom_price present
+                    'delivery_time': 6,
+                    'company': {'id': 1, 'name': 'Correios', 'picture': ''},
+                },
+            ],
+            expires_at=timezone.now() + timedelta(hours=24)
+        )
+
+        shipping_services_input = {
+            self.seller1.id: {
+                'delivery_method': 'shipping',
+                'service_id': 1,
+            }
+        }
+
+        with patch('orders.services.product_validation_service.ProductValidationService.validate_cart_items') as mock_validate:
+            mock_validate.return_value = [
+                {
+                    'listing': self.listing1,
+                    'seller': self.seller1,
+                    'quantity': 1,
+                    'unit_price': self.listing1.price,
+                    'product_snapshot': {
+                        'name': self.product1.name,
+                        'code': self.product1.code,
+                        'brand': self.brand.name,
+                        'condition': self.condition.name
+                    },
+                    'dimensions': {
+                        'weight_kg': self.listing1.weight_kg,
+                        'height_cm': self.listing1.height_cm,
+                        'width_cm': self.listing1.width_cm,
+                        'length_cm': self.listing1.length_cm
+                    }
+                }
+            ]
+
+            shipping_data = OrderCreationService._validate_and_calculate_shipping(
+                self.buyer,
+                mock_validate.return_value,
+                shipping_services_input
+            )
+
+        self.assertEqual(shipping_data['total_shipping'], Decimal('38.00'))
+
+    def test_legacy_dict_wrapped_quotes_data_still_supported(self):
+        """Regression test: quotes_data stored as {'services': [...]} (old format) must still work.
+
+        Before the per-volume refactor, quotes_data was stored as a dict with a 'services' key.
+        The _validate_and_calculate_shipping guard handles this for existing DB records.
+        """
+        quote = ShippingQuote.objects.create(
+            user=self.buyer,
+            seller=self.seller1,
+            origin_zipcode='02310-100',
+            origin_address={},
+            destination_zipcode='01310-100',
+            destination_address={},
+            weight=Decimal('50.00'),
+            height=Decimal('120.00'),
+            width=Decimal('80.00'),
+            length=Decimal('150.00'),
+            declared_value=Decimal('1500.00'),
+            quotes_data={
+                'services': [
+                    {'id': 1, 'name': 'PAC', 'price': 22.00, 'company': 'Correios'},
+                ]
+            },
+            expires_at=timezone.now() + timedelta(hours=24)
+        )
+
+        shipping_services_input = {
+            self.seller1.id: {
+                'delivery_method': 'shipping',
+                'service_id': 1,
+            }
+        }
+
+        with patch('orders.services.product_validation_service.ProductValidationService.validate_cart_items') as mock_validate:
+            mock_validate.return_value = [
+                {
+                    'listing': self.listing1,
+                    'seller': self.seller1,
+                    'quantity': 1,
+                    'unit_price': self.listing1.price,
+                    'product_snapshot': {
+                        'name': self.product1.name,
+                        'code': self.product1.code,
+                        'brand': self.brand.name,
+                        'condition': self.condition.name
+                    },
+                    'dimensions': {
+                        'weight_kg': self.listing1.weight_kg,
+                        'height_cm': self.listing1.height_cm,
+                        'width_cm': self.listing1.width_cm,
+                        'length_cm': self.listing1.length_cm
+                    }
+                }
+            ]
+
+            shipping_data = OrderCreationService._validate_and_calculate_shipping(
+                self.buyer,
+                mock_validate.return_value,
+                shipping_services_input
+            )
+
+        self.assertEqual(shipping_data['total_shipping'], Decimal('22.00'))
 
 
 class OrderCreationSignalTestCase(TestCase):

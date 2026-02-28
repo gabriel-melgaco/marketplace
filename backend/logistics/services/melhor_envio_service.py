@@ -396,45 +396,73 @@ class MelhorEnvioService:
                 }
                 continue
 
-            # Preparar produtos para API (OPÇÃO 1 - Recomendada).
-            # Para o endpoint de cálculo de frete, o ME aceita o formato "products"
-            # onde cada entrada representa um item com suas dimensões. Quando o listing
-            # tem múltiplos pacotes, expandimos cada pacote como um produto separado.
-            products = []
+            # Construir volumes (1 por ListingPackage × quantidade, igual ao carrinho).
+            # Isso garante que a cotação reflita exatamente o custo real das etiquetas.
+            volumes = []
             total_value = 0
 
             for item in items:
                 listing = item.listing
                 packages = list(listing.packages.all())
-                product_insurance = min(float(listing.price), settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE)
-
-                if packages:
-                    # Cada pacote do listing vira um produto no cálculo de frete
-                    for pkg in packages:
-                        products.append({
-                            'id': f'{listing.id}-pkg{pkg.id}',
-                            'width': int(round(float(pkg.width_cm))),
-                            'height': int(round(float(pkg.height_cm))),
-                            'length': int(round(float(pkg.length_cm))),
-                            'weight': round(float(pkg.weight_kg), 3),
-                            'insurance_value': product_insurance,
-                            'quantity': item.quantity,
-                        })
-                else:
-                    # Fallback: campos legados do listing
-                    products.append({
-                        'id': str(listing.id),
-                        'width': float(listing.width_cm or 0),
-                        'height': float(listing.height_cm or 0),
-                        'length': float(listing.length_cm or 0),
-                        'weight': float(listing.weight_kg or 0),
-                        'insurance_value': product_insurance,
-                        'quantity': item.quantity,
-                    })
 
                 total_value += float(listing.price) * item.quantity
 
-            # Opções adicionais (cap no limite de envios não comerciais)
+                if packages:
+                    for pkg in packages:
+                        for _ in range(item.quantity):
+                            vol_height = int(round(float(pkg.height_cm)))
+                            vol_width = int(round(float(pkg.width_cm)))
+                            vol_length = int(round(float(pkg.length_cm)))
+                            vol_weight = round(float(pkg.weight_kg), 3)
+
+                            dims_sorted = sorted(
+                                [vol_height, vol_width, vol_length], reverse=True
+                            )
+                            girth = dims_sorted[0] + 2 * (dims_sorted[1] + dims_sorted[2])
+                            if girth > 200:
+                                logger.warning(
+                                    f'[create_shipping_quote_by_seller] Volume do pacote '
+                                    f'{pkg.id} (listing {listing.id}) excede o limite de '
+                                    f'girth dos Correios: {girth}cm > 200cm. '
+                                    f'h={vol_height}, w={vol_width}, l={vol_length}. '
+                                    f'Verifique os dados no DB.'
+                                )
+
+                            volumes.append({
+                                'height': vol_height,
+                                'width': vol_width,
+                                'length': vol_length,
+                                'weight': vol_weight,
+                            })
+                else:
+                    # Fallback: campos legados do listing
+                    for _ in range(item.quantity):
+                        vol_height = int(round(float(listing.height_cm or 0)))
+                        vol_width = int(round(float(listing.width_cm or 0)))
+                        vol_length = int(round(float(listing.length_cm or 0)))
+                        vol_weight = round(float(listing.weight_kg or 0), 3)
+                        volumes.append({
+                            'height': vol_height,
+                            'width': vol_width,
+                            'length': vol_length,
+                            'weight': vol_weight,
+                        })
+
+            if not volumes:
+                raise ShippingValidationError(
+                    'Nenhum volume encontrado para o pedido. '
+                    'Verifique se os produtos possuem dimensões configuradas.'
+                )
+
+            # Calcular dimensões consolidadas do pacote (para armazenamento no ShippingQuote)
+            package_weight = sum(v['weight'] for v in volumes)
+            package_height = max(v['height'] for v in volumes)
+            package_width = max(v['width'] for v in volumes)
+            package_length = sum(v['length'] for v in volumes)
+
+            # Opções adicionais (cap no limite de envios não comerciais).
+            # O mesmo capped_total é usado como insurance_value em TODAS as chamadas
+            # (igual ao comportamento do add_to_cart_raw).
             capped_total = min(total_value, settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE)
             options = {
                 'insurance_value': capped_total,
@@ -444,24 +472,113 @@ class MelhorEnvioService:
             }
 
             try:
-                # Calcular frete usando token OAuth do vendedor (garante só serviços
-                # disponíveis na conta do vendedor apareçam para o comprador).
-                quotes_data = self.calculate_shipping(
-                    from_zipcode=seller_address.zipcode,
-                    to_zipcode=destination_zipcode,
-                    products=products,
-                    options=options,
-                    seller=seller,
-                    services=settings.MELHOR_ENVIO_DEFAULT_SERVICES,
+                # Para cada volume, chamar calculate_shipping com package=vol.
+                # Isso espelha exatamente o que o carrinho faz (_post_to_cart por volume),
+                # garantindo que a cotação exibida ao comprador = custo real das etiquetas.
+                logger.info(
+                    f'[create_shipping_quote_by_seller] Calculando frete para '
+                    f'{len(volumes)} volume(s) — vendedor {seller.id}, '
+                    f'origem {seller_address.zipcode}, destino {destination_zipcode}'
                 )
 
-                # Calcular dimensoes consolidadas do pacote (para armazenamento no ShippingQuote)
-                package_weight = sum(p['weight'] * p['quantity'] for p in products)
-                package_height = max(p['height'] for p in products)
-                package_width = max(p['width'] for p in products)
-                package_length = sum(p['length'] * p['quantity'] for p in products)
+                # Mapa: service_id -> dados agregados do serviço
+                # Estrutura: {service_id: {'base': <primeiro response>, 'total_price': float,
+                #                          'max_delivery_time': int, 'has_error': bool}}
+                service_aggregates: dict = {}
 
-                # Salvar cotação no banco (com dados originais completos)
+                for vol_idx, vol in enumerate(volumes):
+                    vol_quotes = self.calculate_shipping(
+                        from_zipcode=seller_address.zipcode,
+                        to_zipcode=destination_zipcode,
+                        package=vol,
+                        options=options,
+                        seller=seller,
+                        services=settings.MELHOR_ENVIO_DEFAULT_SERVICES,
+                    )
+
+                    if not isinstance(vol_quotes, list):
+                        logger.warning(
+                            f'[create_shipping_quote_by_seller] Resposta inesperada do ME '
+                            f'para o volume {vol_idx}: {vol_quotes!r}'
+                        )
+                        continue
+
+                    for quote_entry in vol_quotes:
+                        if not isinstance(quote_entry, dict):
+                            continue
+
+                        service_id = quote_entry.get('id')
+                        if service_id is None:
+                            continue
+
+                        has_error = bool(quote_entry.get('error'))
+
+                        if service_id not in service_aggregates:
+                            # Primeiro volume: inicializar com os metadados do serviço
+                            service_aggregates[service_id] = {
+                                'base': quote_entry,
+                                'total_price': 0.0,
+                                'max_delivery_time': 0,
+                                'has_error': has_error,
+                            }
+
+                        agg = service_aggregates[service_id]
+
+                        if has_error:
+                            # Qualquer erro em qualquer volume torna o serviço indisponível
+                            agg['has_error'] = True
+                        else:
+                            vol_price = float(
+                                quote_entry.get('custom_price', quote_entry.get('price', 0)) or 0
+                            )
+                            vol_delivery = int(
+                                quote_entry.get('custom_delivery_time',
+                                                quote_entry.get('delivery_time', 0)) or 0
+                            )
+                            logger.info(
+                                f'[create_shipping_quote_by_seller] volume {vol_idx} | '
+                                f'service_id={service_id} | '
+                                f'price=R${vol_price:.2f} | '
+                                f'delivery_time={vol_delivery}d'
+                            )
+                            agg['total_price'] += vol_price
+                            agg['max_delivery_time'] = max(agg['max_delivery_time'], vol_delivery)
+
+                # Montar quotes_data final com a mesma estrutura que a API ME retorna,
+                # mas com os valores agregados (soma de preços, máximo de prazo).
+                # _format_services e _format_unavailable_services leem:
+                #   custom_price / price  → total agregado (string decimal)
+                #   custom_delivery_time / delivery_time → prazo máximo
+                #   error → marca o serviço como indisponível
+                quotes_data = []
+                for service_id, agg in service_aggregates.items():
+                    entry = dict(agg['base'])  # cópia rasa do primeiro response
+
+                    if agg['has_error']:
+                        # Preservar o campo 'error' do serviço base para _format_unavailable_services
+                        if not entry.get('error'):
+                            entry['error'] = (
+                                'Serviço indisponível para um ou mais volumes do pedido.'
+                            )
+                    else:
+                        total_price_str = f'{agg["total_price"]:.2f}'
+                        entry['price'] = total_price_str
+                        entry['custom_price'] = total_price_str
+                        entry['delivery_time'] = agg['max_delivery_time']
+                        entry['custom_delivery_time'] = agg['max_delivery_time']
+                        # Remover 'error' caso o serviço base tenha retornado erro em
+                        # outro momento mas todos os volumes foram bem-sucedidos
+                        entry.pop('error', None)
+
+                    quotes_data.append(entry)
+
+                logger.info(
+                    f'[create_shipping_quote_by_seller] Cotação agregada para '
+                    f'{len(quotes_data)} serviço(s). '
+                    f'Total de chamadas ao ME: {len(volumes)}'
+                )
+
+                # Salvar cotação no banco (com dados agregados)
                 quote = ShippingQuote.objects.create(
                     user=user,
                     seller=seller,
