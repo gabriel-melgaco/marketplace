@@ -17,7 +17,11 @@
  *                          maps response fields, propagates network error
  *   getAddresses         : handles array response, handles paginated object,
  *                          handles empty results
- *   createAddress        : posts correct payload, returns created object
+ *   createAddress        : posts correct payload, returns created object,
+ *                          forwards recipient_phone verbatim (sanitisation is
+ *                          the caller's responsibility), forwards nickname
+ *                          verbatim including the fallback-to-recipient_name
+ *                          case, full CreateAddressRequest with all fields
  *   updateAddress        : patches correct endpoint with partial payload
  *   setDefaultAddress    : posts to the set-default endpoint
  *   getMelhorEnvioStatus : delegates to correct endpoint
@@ -263,6 +267,144 @@ describe("logisticsService.createAddress", () => {
     expect(mockApi.post).toHaveBeenCalledWith(
       "/logistics/addresses/",
       expect.objectContaining({ complement: "Sala 5" }),
+    );
+  });
+
+  // ── recipient_phone forwarding ─────────────────────────────────────────────
+  //
+  // The phone sanitization (.replace(/\D/g, "")) happens in ListingForm before
+  // createAddress is called.  The service must forward recipient_phone exactly
+  // as received — it must NOT strip or transform the value itself.
+
+  it("forwards recipient_phone verbatim when already sanitised to digits only", async () => {
+    mockApi.post.mockResolvedValueOnce({ data: ADDRESS_FIXTURE });
+
+    await logisticsService.createAddress({
+      address_type: "Residencial",
+      nickname: "Casa",
+      recipient_name: "João Silva",
+      recipient_phone: "11999998888",
+      zipcode: "01310100",
+      street: "Avenida Paulista",
+      number: "1000",
+      neighborhood: "Bela Vista",
+      city: "São Paulo",
+      state: "SP",
+    });
+
+    expect(mockApi.post).toHaveBeenCalledWith(
+      "/logistics/addresses/",
+      expect.objectContaining({ recipient_phone: "11999998888" }),
+    );
+  });
+
+  it("forwards recipient_phone containing formatting characters without altering it", async () => {
+    // The service is a thin HTTP wrapper; it must not apply its own sanitisation.
+    // The caller (ListingForm) is responsible for stripping non-digits upstream.
+    mockApi.post.mockResolvedValueOnce({ data: ADDRESS_FIXTURE });
+
+    await logisticsService.createAddress({
+      address_type: "Residencial",
+      nickname: "Casa",
+      recipient_name: "João Silva",
+      recipient_phone: "(11) 99999-8888",
+      zipcode: "01310100",
+      street: "Avenida Paulista",
+      number: "1000",
+      neighborhood: "Bela Vista",
+      city: "São Paulo",
+      state: "SP",
+    });
+
+    expect(mockApi.post).toHaveBeenCalledWith(
+      "/logistics/addresses/",
+      expect.objectContaining({ recipient_phone: "(11) 99999-8888" }),
+    );
+  });
+
+  // ── nickname forwarding ────────────────────────────────────────────────────
+  //
+  // The nickname fallback (address_nickname.trim() || address_recipient_name.trim())
+  // is resolved in ListingForm before createAddress is called.
+  // The service must forward whichever nickname string it receives unchanged.
+
+  it("forwards nickname verbatim when an explicit nickname is provided", async () => {
+    mockApi.post.mockResolvedValueOnce({ data: ADDRESS_FIXTURE });
+
+    await logisticsService.createAddress({
+      address_type: "Residencial",
+      nickname: "Escritório",
+      recipient_name: "João Silva",
+      recipient_phone: "11999998888",
+      zipcode: "01310100",
+      street: "Avenida Paulista",
+      number: "1000",
+      neighborhood: "Bela Vista",
+      city: "São Paulo",
+      state: "SP",
+    });
+
+    expect(mockApi.post).toHaveBeenCalledWith(
+      "/logistics/addresses/",
+      expect.objectContaining({ nickname: "Escritório" }),
+    );
+  });
+
+  it("forwards nickname that was derived from recipient_name as the fallback value", async () => {
+    // ListingForm resolves: address_nickname.trim() || address_recipient_name.trim()
+    // When address_nickname is blank, it passes recipient_name as the nickname.
+    // The service must accept and forward that fallback unchanged.
+    mockApi.post.mockResolvedValueOnce({ data: ADDRESS_FIXTURE });
+
+    await logisticsService.createAddress({
+      address_type: "Residencial",
+      nickname: "João Silva",        // ← fallback value computed by the caller
+      recipient_name: "João Silva",
+      recipient_phone: "11999998888",
+      zipcode: "01310100",
+      street: "Avenida Paulista",
+      number: "1000",
+      neighborhood: "Bela Vista",
+      city: "São Paulo",
+      state: "SP",
+    });
+
+    expect(mockApi.post).toHaveBeenCalledWith(
+      "/logistics/addresses/",
+      expect.objectContaining({ nickname: "João Silva" }),
+    );
+  });
+
+  it("posts a complete CreateAddressRequest with all required fields", async () => {
+    mockApi.post.mockResolvedValueOnce({ data: ADDRESS_FIXTURE });
+
+    await logisticsService.createAddress({
+      address_type: "Residencial",
+      nickname: "Casa",
+      recipient_name: "Maria Souza",
+      recipient_phone: "11988887777",
+      zipcode: "01310100",
+      street: "Avenida Paulista",
+      number: "500",
+      complement: "Apto 10",
+      neighborhood: "Bela Vista",
+      city: "São Paulo",
+      state: "SP",
+      is_default: true,
+      is_shipping_address: true,
+    });
+
+    expect(mockApi.post).toHaveBeenCalledWith(
+      "/logistics/addresses/",
+      expect.objectContaining({
+        address_type: "Residencial",
+        nickname: "Casa",
+        recipient_name: "Maria Souza",
+        recipient_phone: "11988887777",
+        zipcode: "01310100",
+        is_default: true,
+        is_shipping_address: true,
+      }),
     );
   });
 });
