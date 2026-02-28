@@ -42,7 +42,10 @@ export interface AddressData {
 }
 
 export interface CreateAddressRequest {
-  address_type?: string;
+  address_type: string;        // "Residencial" | "Comercial" | "Outro"
+  nickname: string;
+  recipient_name: string;
+  recipient_phone: string;
   zipcode: string;
   street: string;
   number: string;
@@ -52,6 +55,7 @@ export interface CreateAddressRequest {
   state: string;
   country?: string;
   is_default?: boolean;
+  is_shipping_address?: boolean;
 }
 
 export const logisticsService = {

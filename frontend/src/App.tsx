@@ -35,9 +35,11 @@ const router = createBrowserRouter([
       { path: "productdetail/:id", element: <ProductDetail /> },
       { path: "estado/:uf", element: <StateProductList /> },
       { path: "products", element: <CategoryProductList /> },
-      { path: "*", element: <NotFound /> },
     ],
   },
+
+  // CATCH-ALL — no layout (standalone NotFound page)
+  { path: "*", element: <NotFound /> },
 
   // AUTH — no shared header
   { path: "/auth/google/callback", element: <GoogleCallback /> },

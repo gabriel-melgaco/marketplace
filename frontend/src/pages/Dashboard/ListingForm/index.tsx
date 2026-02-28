@@ -75,6 +75,10 @@ const FIELD_TO_STEP: Record<string, number> = {
   address_neighborhood: 7,
   address_city: 7,
   address_state: 7,
+  address_type: 7,
+  address_nickname: 7,
+  address_recipient_name: 7,
+  address_recipient_phone: 7,
 };
 
 const STEP_NAMES: Record<number, string> = {
@@ -422,6 +426,11 @@ export function ListingForm() {
           width_cm: firstPkg.width_cm || "",
           length_cm: firstPkg.length_cm || "",
           package_description: firstPkg.description || "",
+          address_type: listing.seller_shipping_address?.address_type || "Residencial",
+          address_nickname: listing.seller_shipping_address?.nickname || "",
+          address_recipient_name: listing.seller_shipping_address?.recipient_name || "",
+          address_recipient_phone: listing.seller_shipping_address?.recipient_phone || "",
+          address_is_shipping_address: listing.seller_shipping_address?.is_shipping_address ?? true,
           address_zipcode: listing.seller_shipping_address?.zipcode || "",
           address_street: listing.seller_shipping_address?.street || "",
           address_number: listing.seller_shipping_address?.number || "",
@@ -827,7 +836,10 @@ export function ListingForm() {
 
       try {
         const addrData = await logisticsService.createAddress({
-          address_type: "shipping",
+          address_type: formData.address_type || "Residencial",
+          nickname: formData.address_nickname,
+          recipient_name: formData.address_recipient_name,
+          recipient_phone: formData.address_recipient_phone,
           zipcode: formData.address_zipcode.replace(/\D/g, ""),
           street: formData.address_street,
           number: formData.address_number,
@@ -835,13 +847,16 @@ export function ListingForm() {
           neighborhood: formData.address_neighborhood,
           city: formData.address_city,
           state: formData.address_state,
-          country: "BR",
-          is_default: false,
+          is_default: true,
+          is_shipping_address: true,
         });
         setAddressId(addrData.id);
 
         const listingData = buildListingData();
-        const createdListing = await productService.createListing(listingData);
+        const createdListing = await productService.createListing({
+          ...listingData,
+          seller_shipping_address: addrData.id,
+        });
         const newListingId = createdListing.id;
 
         if (!newListingId) {
@@ -1773,6 +1788,107 @@ export function ListingForm() {
                     Informe o endereço de onde o produto será enviado. Usado
                     para calcular o frete.
                   </p>
+
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="address_type"
+                      className="block text-sm font-medium text-gray-700"
+                    >
+                      Tipo de endereço
+                    </label>
+                    <select
+                      id="address_type"
+                      name="address_type"
+                      value={formData.address_type}
+                      onChange={handleChange}
+                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition bg-white"
+                    >
+                      <option value="Residencial">Residencial</option>
+                      <option value="Comercial">Comercial</option>
+                      <option value="Outro">Outro</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="address_recipient_name"
+                      className="block text-sm font-medium text-gray-700"
+                    >
+                      Nome do destinatário
+                    </label>
+                    <input
+                      id="address_recipient_name"
+                      type="text"
+                      name="address_recipient_name"
+                      value={formData.address_recipient_name}
+                      onChange={handleChange}
+                      placeholder="Nome completo"
+                      autoComplete="name"
+                      aria-describedby={errors.address_recipient_name ? "recipient-name-error" : undefined}
+                      aria-invalid={!!errors.address_recipient_name}
+                      className={`w-full px-4 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition ${
+                        errors.address_recipient_name
+                          ? "border-red-400 bg-red-50/30"
+                          : "border-gray-200"
+                      }`}
+                    />
+                    {errors.address_recipient_name && (
+                      <p id="recipient-name-error" role="alert" className="text-xs text-red-500">
+                        {errors.address_recipient_name}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="address_recipient_phone"
+                      className="block text-sm font-medium text-gray-700"
+                    >
+                      Telefone do destinatário
+                    </label>
+                    <input
+                      id="address_recipient_phone"
+                      type="text"
+                      name="address_recipient_phone"
+                      value={formData.address_recipient_phone}
+                      onChange={handleChange}
+                      placeholder="(11) 99999-9999"
+                      inputMode="tel"
+                      autoComplete="tel"
+                      maxLength={15}
+                      aria-describedby={errors.address_recipient_phone ? "recipient-phone-error" : undefined}
+                      aria-invalid={!!errors.address_recipient_phone}
+                      className={`w-full px-4 py-2.5 border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition ${
+                        errors.address_recipient_phone
+                          ? "border-red-400 bg-red-50/30"
+                          : "border-gray-200"
+                      }`}
+                    />
+                    {errors.address_recipient_phone && (
+                      <p id="recipient-phone-error" role="alert" className="text-xs text-red-500">
+                        {errors.address_recipient_phone}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="address_nickname"
+                      className="block text-sm font-medium text-gray-700"
+                    >
+                      Apelido do endereço{" "}
+                      <span className="text-gray-400 font-normal">(opcional)</span>
+                    </label>
+                    <input
+                      id="address_nickname"
+                      type="text"
+                      name="address_nickname"
+                      value={formData.address_nickname}
+                      onChange={handleChange}
+                      placeholder="Ex: Casa, Trabalho"
+                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                    />
+                  </div>
 
                   <div className="space-y-2">
                     <label

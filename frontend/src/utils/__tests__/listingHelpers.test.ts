@@ -312,6 +312,8 @@ describe("validateStep", () => {
           address_neighborhood: "Bela Vista",
           address_city: "São Paulo",
           address_state: "SP",
+          address_recipient_name: "João Silva",
+          address_recipient_phone: "11999998888",
         }),
       );
       expect(errors).toEqual({});

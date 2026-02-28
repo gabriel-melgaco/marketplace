@@ -140,6 +140,7 @@ export interface CreateListingRequest {
   price: string;
   quantity?: number;
   packages: ListingPackageRequest[];
+  seller_shipping_address?: number | null;
 }
 
 export interface UpdateListingRequest {
@@ -152,6 +153,7 @@ export interface UpdateListingRequest {
   quantity?: number;
   is_active?: boolean;
   packages?: ListingPackageRequest[];
+  seller_shipping_address?: number | null;
 }
 
 export interface PresignedUrlRequest {
@@ -252,6 +254,11 @@ export interface FormData {
   width_cm: string;
   length_cm: string;
   package_description: string;
+  address_type: string;
+  address_nickname: string;
+  address_recipient_name: string;
+  address_recipient_phone: string;
+  address_is_shipping_address: boolean;
   address_zipcode: string;
   address_street: string;
   address_number: string;
