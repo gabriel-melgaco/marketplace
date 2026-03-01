@@ -393,16 +393,7 @@ export function ProductDetail() {
               </h2>
               <div className="flex items-start gap-3 text-gray-700">
                 <MapPin size={20} className="text-blue-800 shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-medium">{getLocation(listing) || "Não informada"}</p>
-                  {listing.seller_shipping_address && (
-                    <p className="text-sm text-gray-500 mt-1">
-                      {listing.seller_shipping_address.neighborhood},{" "}
-                      {listing.seller_shipping_address.city} -{" "}
-                      {listing.seller_shipping_address.state}
-                    </p>
-                  )}
-                </div>
+                <p className="font-medium">{getLocation(listing) || "Não informada"}</p>
               </div>
             </div>
 
