@@ -98,6 +98,27 @@ class ShipmentTrackingAdmin(admin.ModelAdmin):
 admin.site.register(ShipmentTracking, ShipmentTrackingAdmin)
 
 
+class ShipmentInline(admin.TabularInline):
+    """Inline to show all Shipments linked to an OrderDelivery."""
+    model = Shipment
+    fk_name = 'order_delivery'
+    extra = 0
+    readonly_fields = (
+        'order',
+        'seller',
+        'melhorenvio_order_id',
+        'melhorenvio_tracking_code',
+        'carrier_name',
+        'carrier_service',
+        'shipping_cost',
+        'status',
+        'created_at',
+    )
+    fields = readonly_fields
+    can_delete = False
+    show_change_link = True
+
+
 class OrderDeliveryAdmin(admin.ModelAdmin):
     list_display = (
         'id',
@@ -116,6 +137,7 @@ class OrderDeliveryAdmin(admin.ModelAdmin):
         'seller__email',
     )
     readonly_fields = ('created_at', 'updated_at', 'confirmed_at', 'completed_at')
+    inlines = [ShipmentInline]
 
 
 admin.site.register(OrderDelivery, OrderDeliveryAdmin)

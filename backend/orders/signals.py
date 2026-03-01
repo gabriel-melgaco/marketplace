@@ -112,27 +112,28 @@ def auto_create_shipments_on_payment(sender, instance, created, **kwargs):
 
                 if seller_id_int in existing_seller_ids:
                     # For split: the OrderDelivery(split) was created at order creation.
-                    # Link the Shipment (also created at order creation) to it now.
+                    # Link ALL Shipments for this seller to that OrderDelivery now.
                     if delivery_method == 'split':
                         try:
                             from logistics.models import Shipment, OrderDelivery as OD
-                            shipment = Shipment.objects.filter(
-                                order=instance, seller_id=seller_id_int
-                            ).first()
                             order_delivery = OD.objects.get(
                                 order=instance, seller_id=seller_id_int
                             )
-                            if shipment and order_delivery.shipment is None:
-                                order_delivery.shipment = shipment
-                                order_delivery.save(update_fields=['shipment', 'updated_at'])
-                                logger.info(
-                                    f"Linked Shipment {shipment.id} to split "
-                                    f"OrderDelivery {order_delivery.id} "
-                                    f"(order {instance.order_number})"
-                                )
+                            all_shipments = Shipment.objects.filter(
+                                order=instance, seller_id=seller_id_int
+                            )
+                            for s in all_shipments:
+                                if s.order_delivery_id is None:
+                                    s.order_delivery = order_delivery
+                                    s.save(update_fields=['order_delivery', 'updated_at'])
+                                    logger.info(
+                                        f"Linked Shipment {s.id} to split "
+                                        f"OrderDelivery {order_delivery.id} "
+                                        f"(order {instance.order_number})"
+                                    )
                         except Exception as e:
                             logger.error(
-                                f"Failed to link Shipment to split OrderDelivery "
+                                f"Failed to link Shipments to split OrderDelivery "
                                 f"for seller {seller_id_int} in order "
                                 f"{instance.order_number}: {e}",
                                 exc_info=True,
@@ -186,21 +187,24 @@ def auto_create_shipments_on_payment(sender, instance, created, **kwargs):
                     delivery_choices=delivery_choices
                 )
 
-                # Link Shipments (created at order creation) to shipping OrderDeliveries
+                # Link ALL Shipments (created at order creation) to shipping OrderDeliveries.
+                # A seller can have multiple Shipments (one per listing) for a single
+                # OrderDelivery, so we link every unlinked Shipment for that seller.
                 from logistics.models import Shipment
                 for order_delivery in created_deliveries:
-                    if order_delivery.delivery_method == 'shipping' and order_delivery.shipment is None:
-                        shipment = Shipment.objects.filter(
+                    if order_delivery.delivery_method == 'shipping':
+                        all_shipments = Shipment.objects.filter(
                             order=instance, seller=order_delivery.seller
-                        ).first()
-                        if shipment:
-                            order_delivery.shipment = shipment
-                            order_delivery.save(update_fields=['shipment', 'updated_at'])
-                            logger.info(
-                                f"Linked Shipment {shipment.id} to shipping "
-                                f"OrderDelivery {order_delivery.id} "
-                                f"(order {instance.order_number})"
-                            )
+                        )
+                        for s in all_shipments:
+                            if s.order_delivery_id is None:
+                                s.order_delivery = order_delivery
+                                s.save(update_fields=['order_delivery', 'updated_at'])
+                                logger.info(
+                                    f"Linked Shipment {s.id} to shipping "
+                                    f"OrderDelivery {order_delivery.id} "
+                                    f"(order {instance.order_number})"
+                                )
 
                 logger.info(
                     f"Auto-created {len(created_deliveries)} deliveries for order {instance.order_number}",
@@ -235,6 +239,13 @@ def auto_create_shipments_on_payment(sender, instance, created, **kwargs):
             },
             exc_info=True
         )
+
+        # Per Django docs: after catching an exception inside an atomic() block,
+        # reset needs_rollback so further database use is possible (e.g. the view
+        # that calls this signal via order.save() can still use the connection).
+        from django.db import connection as _db_connection
+        if _db_connection.needs_rollback:
+            _db_connection.needs_rollback = False
 
         # TODO: Send alert to ops team for manual intervention
         # For now, just log the error

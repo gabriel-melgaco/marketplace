@@ -1978,8 +1978,10 @@ def melhor_envio_webhook(request):
         )
 
         # --- 2. Atualizar OrderDelivery correspondente ---
-        try:
-            order_delivery = shipment.order_delivery
+        # shipment.order_delivery é uma FK direta (nullable). Quando None, o Shipment
+        # não tem OrderDelivery associado (ex: criado manualmente).
+        order_delivery = shipment.order_delivery
+        if order_delivery is not None:
             new_delivery_status = SHIPMENT_TO_DELIVERY_STATUS_MAP.get(new_shipment_status)
             old_delivery_status = order_delivery.status
 
@@ -2019,8 +2021,7 @@ def melhor_envio_webhook(request):
                     f'OrderDelivery {order_delivery.id} não alterado: '
                     f'status={old_delivery_status}, mapeamento={new_delivery_status}'
                 )
-
-        except OrderDelivery.DoesNotExist:
+        else:
             # Shipment pode não ter um OrderDelivery associado (ex: criado manualmente)
             logger.info(
                 f'Webhook: Shipment {shipment.id} não possui OrderDelivery associado. '

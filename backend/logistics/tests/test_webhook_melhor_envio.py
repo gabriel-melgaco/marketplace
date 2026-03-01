@@ -849,15 +849,21 @@ class MelhorEnvioWebhookTest(TestCase):
     # =================== OrderDelivery update tests ===================
 
     def _create_order_delivery_for_shipment(self, shipment, initial_status='confirmed'):
-        """Helper: creates an OrderDelivery linked to the given shipment."""
-        return OrderDelivery.objects.create(
+        """Helper: creates an OrderDelivery and links the given Shipment to it.
+
+        The relationship direction is now Shipment.order_delivery (FK), so we
+        create the OrderDelivery first, then set shipment.order_delivery = it.
+        """
+        order_delivery = OrderDelivery.objects.create(
             order=shipment.order,
             seller=shipment.seller,
             delivery_method=DeliveryMethod.SHIPPING,
             status=initial_status,
-            shipment=shipment,
             delivery_cost=shipment.shipping_cost,
         )
+        shipment.order_delivery = order_delivery
+        shipment.save(update_fields=['order_delivery', 'updated_at'])
+        return order_delivery
 
     def test_webhook_updates_order_delivery_status_to_in_transit_on_posted(self):
         """Webhook order.posted should update linked OrderDelivery status to in_transit"""

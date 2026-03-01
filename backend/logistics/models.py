@@ -92,6 +92,15 @@ class Shipment(models.Model):
         related_name='shipments'
     )
     
+    # Referência ao OrderDelivery (FK invertida: múltiplos Shipments por OrderDelivery)
+    order_delivery = models.ForeignKey(
+        'OrderDelivery',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='delivery_shipments',
+    )
+
     # IDs do Melhor Envio
     melhorenvio_order_id = models.CharField(max_length=255, unique=True)
     # Quando o listing tem múltiplos pacotes, cada pacote gera uma chamada
@@ -314,15 +323,7 @@ class OrderDelivery(models.Model):
     )
 
     # Informações específicas para cada tipo
-    # Para SHIPPING: referência ao Shipment
-    shipment = models.OneToOneField(
-        'Shipment',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='order_delivery'
-    )
-
+    # Para SHIPPING: os Shipments referenciiam este OrderDelivery via Shipment.order_delivery (FK)
     # Para IN_PERSON: referência ao InPersonDelivery
     in_person_delivery = models.OneToOneField(
         'InPersonDelivery',
@@ -360,7 +361,12 @@ class OrderDelivery(models.Model):
 
     def clean(self):
         """Valida que apenas um tipo de entrega está preenchido"""
-        if self.delivery_method == DeliveryMethod.SHIPPING and not self.shipment:
+        # Shipments são verificados via FK reversa (Shipment.order_delivery).
+        # Quando clean() é chamado antes do save() o objeto pode ainda não ter pk,
+        # então verificamos self.pk antes de consultar a relação inversa.
+        has_shipments = bool(self.pk) and self.delivery_shipments.exists()
+
+        if self.delivery_method == DeliveryMethod.SHIPPING and not has_shipments:
             if self.status not in ['pending', 'cancelled']:
                 raise ValidationError('Envio via transportadora requer um Shipment associado')
 
@@ -370,7 +376,7 @@ class OrderDelivery(models.Model):
 
         if self.delivery_method == DeliveryMethod.SPLIT:
             if self.status not in ['pending', 'cancelled']:
-                if not self.shipment:
+                if not has_shipments:
                     raise ValidationError('Entrega mista requer um Shipment associado')
                 if not self.in_person_delivery:
                     raise ValidationError('Entrega mista requer um InPersonDelivery associado')
@@ -382,7 +388,7 @@ class OrderDelivery(models.Model):
         (um por listing, pois cada listing pode usar um serviço diferente).
         """
         if self.delivery_method == DeliveryMethod.SHIPPING:
-            all_shipments = list(self.order.shipments.filter(seller=self.seller))
+            all_shipments = list(self.delivery_shipments.all())
             if not all_shipments:
                 return {'type': 'shipping', 'cost': float(self.delivery_cost), 'shipments': []}
             return {
@@ -412,7 +418,7 @@ class OrderDelivery(models.Model):
                 'cost': 0
             }
         elif self.delivery_method == DeliveryMethod.SPLIT:
-            all_shipments = list(self.order.shipments.filter(seller=self.seller))
+            all_shipments = list(self.delivery_shipments.all())
             info = {'type': 'split', 'cost': float(self.delivery_cost)}
             if all_shipments:
                 info['shipping'] = {
