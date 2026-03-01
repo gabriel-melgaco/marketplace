@@ -6,8 +6,9 @@ from django.core.exceptions import ValidationError
 
 class DeliveryMethod(models.TextChoices):
     """Tipos de método de entrega"""
-    SHIPPING = 'shipping', 'Envio via Transportadora'
+    SHIPPING  = 'shipping',  'Envio via Transportadora'
     IN_PERSON = 'in_person', 'Frete por conta do Vendedor'
+    SPLIT     = 'split',     'Entrega Mista (Transportadora + Presencial)'
 
 
 class ShippingQuote(models.Model):
@@ -367,6 +368,13 @@ class OrderDelivery(models.Model):
             if self.status not in ['pending', 'cancelled']:
                 raise ValidationError('Entrega presencial requer um InPersonDelivery associado')
 
+        if self.delivery_method == DeliveryMethod.SPLIT:
+            if self.status not in ['pending', 'cancelled']:
+                if not self.shipment:
+                    raise ValidationError('Entrega mista requer um Shipment associado')
+                if not self.in_person_delivery:
+                    raise ValidationError('Entrega mista requer um InPersonDelivery associado')
+
     def get_delivery_info(self):
         """Retorna informações consolidadas da entrega"""
         if self.delivery_method == DeliveryMethod.SHIPPING and self.shipment:
@@ -389,6 +397,25 @@ class OrderDelivery(models.Model):
                 'contact_phone': self.in_person_delivery.seller_contact_phone,
                 'cost': 0
             }
+        elif self.delivery_method == DeliveryMethod.SPLIT:
+            info = {'type': 'split', 'cost': float(self.delivery_cost)}
+            if self.shipment:
+                info['shipping'] = {
+                    'carrier': self.shipment.carrier_name,
+                    'service': self.shipment.carrier_service,
+                    'tracking_code': self.shipment.melhorenvio_tracking_code,
+                    'tracking_url': self.shipment.tracking_url,
+                    'estimated_delivery': self.shipment.estimated_delivery_date,
+                }
+            if self.in_person_delivery:
+                info['in_person'] = {
+                    'location_name': self.in_person_delivery.meeting_location_name,
+                    'address': self.in_person_delivery.meeting_address,
+                    'scheduled_date': self.in_person_delivery.scheduled_date,
+                    'scheduled_time': self.in_person_delivery.scheduled_time,
+                    'contact_phone': self.in_person_delivery.seller_contact_phone,
+                }
+            return info
         return {}
 
 

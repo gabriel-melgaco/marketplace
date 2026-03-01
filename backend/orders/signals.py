@@ -99,7 +99,8 @@ def auto_create_shipments_on_payment(sender, instance, created, **kwargs):
         # Attempt to create shipments/deliveries
         # This will create OrderDelivery records based on order's shipping_services
         if instance.shipping_services:
-            # Create deliveries for each seller that doesn't have one yet
+            # Create deliveries for each seller that doesn't have one yet,
+            # and link Shipments to existing split/shipping OrderDeliveries.
             delivery_choices = []
 
             for seller_id, shipping_info in instance.shipping_services.items():
@@ -107,46 +108,84 @@ def auto_create_shipments_on_payment(sender, instance, created, **kwargs):
                     continue
 
                 seller_id_int = int(seller_id)
-
-                # Skip sellers whose OrderDelivery was already created at order creation
-                if seller_id_int in existing_seller_ids:
-                    logger.debug(
-                        f"OrderDelivery already exists for seller {seller_id_int} "
-                        f"in order {instance.order_number}, skipping."
-                    )
-                    continue
-
                 delivery_method = shipping_info.get('delivery_method', 'shipping')
+
+                if seller_id_int in existing_seller_ids:
+                    # For split: the OrderDelivery(split) was created at order creation.
+                    # Link the Shipment (also created at order creation) to it now.
+                    if delivery_method == 'split':
+                        try:
+                            from logistics.models import Shipment, OrderDelivery as OD
+                            shipment = Shipment.objects.filter(
+                                order=instance, seller_id=seller_id_int
+                            ).first()
+                            order_delivery = OD.objects.get(
+                                order=instance, seller_id=seller_id_int
+                            )
+                            if shipment and order_delivery.shipment is None:
+                                order_delivery.shipment = shipment
+                                order_delivery.save(update_fields=['shipment', 'updated_at'])
+                                logger.info(
+                                    f"Linked Shipment {shipment.id} to split "
+                                    f"OrderDelivery {order_delivery.id} "
+                                    f"(order {instance.order_number})"
+                                )
+                        except Exception as e:
+                            logger.error(
+                                f"Failed to link Shipment to split OrderDelivery "
+                                f"for seller {seller_id_int} in order "
+                                f"{instance.order_number}: {e}",
+                                exc_info=True,
+                            )
+                    else:
+                        logger.debug(
+                            f"OrderDelivery already exists for seller {seller_id_int} "
+                            f"in order {instance.order_number}, skipping."
+                        )
+                    continue
 
                 if delivery_method == 'shipping':
                     delivery_choices.append({
                         'seller_id': seller_id_int,
                         'delivery_method': 'shipping',
                         'shipping_service_id': shipping_info.get('service_id'),
-                        'delivery_cost': shipping_info.get('cost', 0)
-                    })
-                elif delivery_method == 'split':
-                    # split: shipping OrderDelivery created here; in_person already created at order creation
-                    shipping_sub = shipping_info.get('shipping', {})
-                    delivery_choices.append({
-                        'seller_id': seller_id_int,
-                        'delivery_method': 'shipping',
-                        'shipping_service_id': shipping_sub.get('service_id'),
-                        'delivery_cost': shipping_sub.get('cost', 0),
+                        'delivery_cost': shipping_info.get('cost', 0),
                     })
                 elif delivery_method == 'in_person':
                     # in_person already created at order creation — only as fallback
                     delivery_choices.append({
                         'seller_id': seller_id_int,
                         'delivery_method': 'in_person',
-                        **shipping_info
+                        **shipping_info,
                     })
+                else:
+                    logger.warning(
+                        f"Unexpected delivery_method '{delivery_method}' for seller "
+                        f"{seller_id_int} without existing OrderDelivery in order "
+                        f"{instance.order_number}."
+                    )
 
             if delivery_choices:
                 created_deliveries = DeliveryOrchestrationService.create_order_deliveries(
                     order=instance,
                     delivery_choices=delivery_choices
                 )
+
+                # Link Shipments (created at order creation) to shipping OrderDeliveries
+                from logistics.models import Shipment
+                for order_delivery in created_deliveries:
+                    if order_delivery.delivery_method == 'shipping' and order_delivery.shipment is None:
+                        shipment = Shipment.objects.filter(
+                            order=instance, seller=order_delivery.seller
+                        ).first()
+                        if shipment:
+                            order_delivery.shipment = shipment
+                            order_delivery.save(update_fields=['shipment', 'updated_at'])
+                            logger.info(
+                                f"Linked Shipment {shipment.id} to shipping "
+                                f"OrderDelivery {order_delivery.id} "
+                                f"(order {instance.order_number})"
+                            )
 
                 logger.info(
                     f"Auto-created {len(created_deliveries)} deliveries for order {instance.order_number}",

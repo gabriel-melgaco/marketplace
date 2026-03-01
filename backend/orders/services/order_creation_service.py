@@ -356,12 +356,11 @@ class OrderCreationService:
             if dm == 'in_person':
                 delivery_choices.append({'seller_id': int(seller_id), **shipping_info})
             elif dm == 'split':
-                # Create in_person delivery for the in_person-only items portion
-                in_person_sub = shipping_info.get('in_person', {})
                 delivery_choices.append({
                     'seller_id': int(seller_id),
-                    'delivery_method': 'in_person',
-                    **in_person_sub,
+                    'delivery_method': 'split',
+                    'shipping': shipping_info.get('shipping', {}),
+                    'in_person': shipping_info.get('in_person', {}),
                 })
 
         if not delivery_choices:

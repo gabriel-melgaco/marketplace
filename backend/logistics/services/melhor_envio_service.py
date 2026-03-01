@@ -1370,6 +1370,9 @@ class MelhorEnvioService:
         if not carrier_name or not carrier_service:
             seller_shipping = (order.shipping_services or {}).get(str(seller.id), {})
             if isinstance(seller_shipping, dict):
+                # Para split delivery, os dados de transportadora estão em 'shipping'
+                if seller_shipping.get('delivery_method') == 'split':
+                    seller_shipping = seller_shipping.get('shipping', {})
                 company = seller_shipping.get('company', '')
                 if isinstance(company, dict):
                     carrier_name = carrier_name or company.get('name', '')
