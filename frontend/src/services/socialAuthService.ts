@@ -12,7 +12,6 @@ export interface SocialAccount {
 
 export interface GoogleSocialLoginRequest {
   code: string;
-  redirect_uri: string;
 }
 
 interface GoogleSocialLoginApiResponse {
@@ -76,7 +75,7 @@ export const socialAuthService = {
   async googleLogin(data: GoogleSocialLoginRequest): Promise<GoogleSocialLoginResponse> {
     const response = await api.post<GoogleSocialLoginApiResponse>(
       "/auth/social/google/",
-      { code: data.code, redirect_uri: data.redirect_uri },
+      { code: data.code },
     );
 
     const user = mapSocialUserToUser(response.data.user);
