@@ -17,6 +17,15 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   const handleGoogleLogin = () => {
+    if (!GOOGLE_CLIENT_ID || !GOOGLE_REDIRECT_URI) {
+      console.error(
+        "[Google OAuth] Variáveis de ambiente ausentes:",
+        { GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI },
+      );
+      setError("Configuração do login com Google está incompleta. Contate o suporte.");
+      return;
+    }
+
     const state = crypto.randomUUID();
     sessionStorage.setItem("oauth_state", state);
 
@@ -26,14 +35,18 @@ export default function LoginPage() {
       response_type: "code",
       scope: "openid email profile",
       access_type: "offline",
-      // Forces the account-selection screen on every login attempt.
-      // Without this, Google may auto-select a previously authorised account
-      // and skip back to the callback immediately, which can confuse users
-      // who want to switch accounts or who have multiple Google accounts.
       prompt: "select_account",
       state,
     });
-    window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+
+    // TODO: remover logs antes de ir para produção
+    console.log("[Google OAuth] CLIENT_ID:", GOOGLE_CLIENT_ID);
+    console.log("[Google OAuth] REDIRECT_URI:", GOOGLE_REDIRECT_URI);
+    console.log("[Google OAuth] URL final:", authUrl);
+
+    window.location.href = authUrl;
   };
 
   const handleLogin = async (e: FormEvent<HTMLFormElement>) => {
