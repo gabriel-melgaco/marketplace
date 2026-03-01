@@ -26,6 +26,11 @@ export default function LoginPage() {
       response_type: "code",
       scope: "openid email profile",
       access_type: "offline",
+      // Forces the account-selection screen on every login attempt.
+      // Without this, Google may auto-select a previously authorised account
+      // and skip back to the callback immediately, which can confuse users
+      // who want to switch accounts or who have multiple Google accounts.
+      prompt: "select_account",
       state,
     });
     window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;

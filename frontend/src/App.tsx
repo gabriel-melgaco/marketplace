@@ -23,6 +23,7 @@ import { StateProductList } from "@/pages/public/StateProductList";
 import { GoogleCallback } from "@/pages/auth/GoogleCallback";
 import { CategoryProductList } from "@/pages/public/CategoryProductList";
 import { NotFound } from "@/pages/public/NotFound";
+import { ROUTES } from "@/routes/routePaths";
 
 const router = createBrowserRouter([
   // PUBLIC — with shared layout
@@ -42,7 +43,7 @@ const router = createBrowserRouter([
   { path: "*", element: <NotFound /> },
 
   // AUTH — no shared header
-  { path: "/auth/google/callback", element: <GoogleCallback /> },
+  { path: ROUTES.GOOGLE_CALLBACK, element: <GoogleCallback /> },
   { path: "/login", element: <LoginPage /> },
   { path: "/register", element: <Register /> },
   { path: "/forgotpassword", element: <ForgotPassword /> },
