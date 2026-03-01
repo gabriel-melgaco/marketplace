@@ -427,6 +427,48 @@ class MelhorEnvioService:
                 continue
 
             # ----------------------------------------------------------------
+            # Determinar quais serviços ME o vendedor tem ativos em sua conta.
+            # A API calculate retorna preços para todos os serviços independentemente
+            # de o vendedor tê-los configurados. A API de cart, porém, valida a
+            # conta e rejeita serviços não configurados com HTTP 500.
+            # Ao filtrar antecipadamente aqui, evitamos que o comprador selecione
+            # um serviço que o vendedor não pode usar.
+            # ----------------------------------------------------------------
+            seller_active_service_ids = self._get_seller_active_service_ids(seller)
+
+            # Montar a string de serviços filtrada para a API calculate
+            default_services_str = settings.MELHOR_ENVIO_DEFAULT_SERVICES
+            if seller_active_service_ids is not None:
+                default_service_ids = [
+                    int(s.strip())
+                    for s in default_services_str.split(',')
+                    if s.strip().isdigit()
+                ]
+                filtered_service_ids = [
+                    sid for sid in default_service_ids
+                    if sid in seller_active_service_ids
+                ]
+                if filtered_service_ids:
+                    effective_services = ','.join(str(s) for s in filtered_service_ids)
+                    if effective_services != default_services_str:
+                        excluded = set(default_service_ids) - seller_active_service_ids
+                        logger.info(
+                            f'[create_shipping_quote_by_seller] Vendedor {seller.email}: '
+                            f'serviços filtrados pela conta ME — '
+                            f'ativos={filtered_service_ids}, '
+                            f'excluídos={sorted(excluded)}'
+                        )
+                else:
+                    logger.warning(
+                        f'[create_shipping_quote_by_seller] Vendedor {seller.email}: '
+                        f'nenhum serviço ME ativo intersecta os serviços padrão '
+                        f'{default_services_str}. Usando lista padrão como fallback.'
+                    )
+                    effective_services = default_services_str
+            else:
+                effective_services = default_services_str
+
+            # ----------------------------------------------------------------
             # Calcular cotações POR LISTING para que o comprador possa
             # escolher serviços distintos por anúncio.
             # O agregado global (soma de preços) é mantido para compatibilidade.
@@ -518,7 +560,7 @@ class MelhorEnvioService:
                         package=vol,
                         options=options_base,
                         seller=seller,
-                        services=settings.MELHOR_ENVIO_DEFAULT_SERVICES,
+                        services=effective_services,
                     )
                     if not isinstance(vol_quotes, list):
                         logger.warning(
@@ -1082,10 +1124,14 @@ class MelhorEnvioService:
             )
             # Mensagem amigável para o erro genérico do ME (500)
             if status_code == 500 or (isinstance(error_detail, dict) and 'Houve um erro' in str(error_detail)):
-                raise Exception(
-                    f'O Melhor Envio rejeitou o serviço {service_id_int} para este vendedor. '
-                    f'Verifique se o vendedor tem o serviço/transportadora configurado e ativo '
-                    f'em sua conta Melhor Envio. Detalhe: {error_detail}'
+                raise ShippingValidationError(
+                    f'O serviço de frete selecionado (id={service_id_int}) não está '
+                    f'disponível para este vendedor no Melhor Envio. '
+                    f'Isso geralmente ocorre quando a transportadora não está configurada '
+                    f'na conta ME do vendedor, ou as dimensões do pacote excedem os '
+                    f'limites aceitos pela transportadora. '
+                    f'Por favor, selecione outra opção de frete. '
+                    f'Detalhe técnico: {error_detail}'
                 )
             raise Exception(f'Erro ao adicionar envio ao carrinho: {error_detail}')
         except requests.exceptions.RequestException as e:
@@ -1948,6 +1994,74 @@ class MelhorEnvioService:
         }
         return status_map.get(melhorenvio_status, 'pending')
     
+    def _get_seller_active_service_ids(self, seller) -> set:
+        """
+        Retorna o conjunto de IDs de serviços de frete ativos na conta ME do vendedor.
+
+        Chama GET /api/v2/me/shipment/services usando o token OAuth do vendedor.
+        Se o vendedor não tiver token ME conectado ou a chamada falhar,
+        retorna None (indica: não filtrar — usar lista padrão).
+
+        Importante: A API calculate do ME retorna preços para todos os serviços
+        independente de o vendedor tê-los ativados. A API de cart, porém,
+        valida a conta do vendedor e rejeita serviços não configurados com HTTP 500.
+        Este método é usado para sincronizar a cotação com o que o vendedor
+        realmente pode usar.
+
+        Args:
+            seller: Instância de CustomUser (vendedor)
+
+        Returns:
+            set[int]: IDs dos serviços ativos, ou None se não for possível determinar
+        """
+        from ..models import SellerMelhorEnvioToken
+        from .melhor_envio_oauth_service import MelhorEnvioOAuthService
+
+        oauth_service = MelhorEnvioOAuthService()
+        environment = oauth_service.environment
+
+        seller_me_token = SellerMelhorEnvioToken.objects.filter(
+            seller=seller,
+            environment=environment,
+            is_active=True,
+        ).first()
+
+        if not seller_me_token:
+            logger.debug(
+                f'[_get_seller_active_service_ids] Vendedor {seller.email} sem token ME — '
+                f'sem filtragem de serviços.'
+            )
+            return None
+
+        url = f'{self.base_url}/me/shipment/services'
+        try:
+            headers = self._get_headers(seller=seller)
+            response = requests.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+            services_data = response.json()
+            active_ids = {
+                int(svc['id']) for svc in services_data
+                if isinstance(svc, dict) and svc.get('id') is not None
+            }
+            logger.info(
+                f'[_get_seller_active_service_ids] Vendedor {seller.email}: '
+                f'{len(active_ids)} serviços ativos na conta ME: {sorted(active_ids)}'
+            )
+            return active_ids
+        except requests.exceptions.HTTPError as e:
+            status_code = e.response.status_code if e.response is not None else 'N/A'
+            logger.warning(
+                f'[_get_seller_active_service_ids] Falha ao buscar serviços ME do vendedor '
+                f'{seller.email} (HTTP {status_code}) — sem filtragem.'
+            )
+            return None
+        except Exception as e:
+            logger.warning(
+                f'[_get_seller_active_service_ids] Erro inesperado ao buscar serviços ME '
+                f'do vendedor {seller.email}: {e} — sem filtragem.'
+            )
+            return None
+
     def get_available_services(self) -> list:
         """
         Retorna todos os servicos de frete disponiveis no Melhor Envio.
