@@ -32,6 +32,11 @@ class MelhorEnvioService:
     (útil para cálculo de frete, que não depende do webhook).
     """
 
+    # Dimensões mínimas por serviço ME (especificações das transportadoras).
+    # A API /calculate é permissiva e não valida esses limites — a API /cart é estrita.
+    # Se qualquer volume de um listing violar os mínimos, o serviço é marcado como
+    # indisponível na cotação para evitar falha posterior no carrinho.
+    # Dimensões em cm. A validação usa as dimensões ordenadas (min, mid, max).
     def __init__(self):
         """
         Inicializa o serviço Melhor Envio.
@@ -602,9 +607,7 @@ class MelhorEnvioService:
                     entry = dict(la['base'])
                     if la['has_error']:
                         if not entry.get('error'):
-                            entry['error'] = (
-                                'Serviço indisponível para um ou mais volumes deste item.'
-                            )
+                            entry['error'] = 'Serviço indisponível para um ou mais volumes deste item.'
                     else:
                         price_str = f'{la["total_price"]:.2f}'
                         entry['price'] = price_str
