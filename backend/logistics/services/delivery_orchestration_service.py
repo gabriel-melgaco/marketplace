@@ -257,7 +257,11 @@ class DeliveryOrchestrationService:
         )
 
         shipping_sub = choice.get('shipping', {})
-        delivery_cost = Decimal(str(shipping_sub.get('cost', 0)))
+        per_listing = shipping_sub.get('per_listing', {})
+        if per_listing:
+            delivery_cost = Decimal(str(sum(float(cfg.get('cost', 0)) for cfg in per_listing.values())))
+        else:
+            delivery_cost = Decimal(str(shipping_sub.get('cost', 0)))
 
         order_delivery = OrderDelivery.objects.create(
             order=order,

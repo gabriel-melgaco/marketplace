@@ -1451,12 +1451,24 @@ class MelhorEnvioService:
                 # Para split delivery, os dados de transportadora estão em 'shipping'
                 if seller_shipping.get('delivery_method') == 'split':
                     seller_shipping = seller_shipping.get('shipping', {})
-                company = seller_shipping.get('company', '')
-                if isinstance(company, dict):
-                    carrier_name = carrier_name or company.get('name', '')
+                # Novo formato per_listing: buscar carrier info dentro de per_listing
+                per_listing = seller_shipping.get('per_listing', {})
+                if per_listing:
+                    first_listing_data = next(iter(per_listing.values()), {})
+                    company = first_listing_data.get('company', '')
+                    if isinstance(company, dict):
+                        carrier_name = carrier_name or company.get('name', '')
+                    else:
+                        carrier_name = carrier_name or str(company)
+                    carrier_service = carrier_service or first_listing_data.get('service_name', '')
                 else:
-                    carrier_name = carrier_name or str(company)
-                carrier_service = carrier_service or seller_shipping.get('service_name', '')
+                    # Formato antigo (retrocompatibilidade)
+                    company = seller_shipping.get('company', '')
+                    if isinstance(company, dict):
+                        carrier_name = carrier_name or company.get('name', '')
+                    else:
+                        carrier_name = carrier_name or str(company)
+                    carrier_service = carrier_service or seller_shipping.get('service_name', '')
 
         # Somar custos e seguros de todos os volumes (cada chamada retorna price individual)
         total_shipping_cost = sum(float(r.get('price', 0) or 0) for r in cart_data_list)

@@ -362,7 +362,7 @@ class OrderDeliverySerializer(serializers.ModelSerializer):
 
     seller_name = serializers.CharField(source='seller.get_full_name', read_only=True)
     delivery_info = serializers.SerializerMethodField()
-    shipment_details = ShipmentSerializer(source='shipment', read_only=True)
+    shipment_details = ShipmentSerializer(source='delivery_shipments', many=True, read_only=True)
     in_person_details = InPersonDeliverySerializer(source='in_person_delivery', read_only=True)
 
     class Meta:
@@ -370,7 +370,7 @@ class OrderDeliverySerializer(serializers.ModelSerializer):
         fields = [
             'id', 'order', 'seller', 'seller_name',
             'delivery_method', 'status', 'delivery_cost',
-            'shipment', 'shipment_details',
+            'shipment_details',
             'in_person_delivery', 'in_person_details',
             'delivery_info',
             'created_at', 'updated_at', 'confirmed_at', 'completed_at'
