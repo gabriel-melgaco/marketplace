@@ -106,6 +106,15 @@ class DeliveryOrchestrationService:
                     )
                     created_deliveries.append(delivery)
 
+                elif delivery_method == DeliveryMethod.SPLIT:
+                    # Criar entrega mista (shipping + in_person)
+                    delivery = DeliveryOrchestrationService._create_split_delivery(
+                        order=order,
+                        seller=seller,
+                        choice=choice
+                    )
+                    created_deliveries.append(delivery)
+
                 else:
                     errors.append({
                         'seller_id': seller_id,
@@ -207,6 +216,64 @@ class DeliveryOrchestrationService:
             scheduled_date=scheduled_date,
             scheduled_time=scheduled_time,
             meeting_notes=meeting_notes
+        )
+
+        return order_delivery
+
+    @staticmethod
+    def _create_split_delivery(
+        order: Order,
+        seller: CustomUser,
+        choice: Dict[str, Any]
+    ) -> OrderDelivery:
+        """
+        Cria OrderDelivery do tipo SPLIT (in_person + shipping).
+
+        Cria o InPersonDelivery imediatamente e vincula ao OrderDelivery.
+        O Shipment será linkado após o pagamento ser confirmado pelo signal.
+
+        Args:
+            order: Pedido
+            seller: Vendedor
+            choice: Dados com sub-chaves 'shipping' e 'in_person'
+
+        Returns:
+            OrderDelivery criado
+        """
+        in_person_sub = choice.get('in_person', {})
+        buyer = order.buyer
+
+        in_person_delivery = InPersonDeliveryService.create_in_person_delivery(
+            order=order,
+            seller=seller,
+            buyer=buyer,
+            meeting_location_name=in_person_sub.get('meeting_location_name', ''),
+            meeting_address=in_person_sub.get('meeting_address', {}),
+            seller_contact_phone=in_person_sub.get('seller_contact_phone', ''),
+            buyer_contact_phone=in_person_sub.get('buyer_contact_phone', ''),
+            scheduled_date=in_person_sub.get('scheduled_date'),
+            scheduled_time=in_person_sub.get('scheduled_time'),
+            meeting_notes=in_person_sub.get('meeting_notes', ''),
+        )
+
+        shipping_sub = choice.get('shipping', {})
+        delivery_cost = Decimal(str(shipping_sub.get('cost', 0)))
+
+        order_delivery = OrderDelivery.objects.create(
+            order=order,
+            seller=seller,
+            delivery_method=DeliveryMethod.SPLIT,
+            status='pending',
+            delivery_cost=delivery_cost,
+            in_person_delivery=in_person_delivery,
+            shipment=None,  # será linkado após pagamento
+        )
+
+        DeliveryStatusLog.objects.create(
+            order_delivery=order_delivery,
+            from_status='',
+            to_status='pending',
+            notes='Entrega mista criada. Parte presencial configurada; envio pendente de pagamento.',
         )
 
         return order_delivery
