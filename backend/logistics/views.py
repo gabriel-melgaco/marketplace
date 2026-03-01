@@ -218,10 +218,12 @@ def get_shipping_addresses(request):
         'excluded — even when mixed with eligible items from the same seller.\n\n'
         'When a seller has a mix of item types, the response entry for that seller includes:\n'
         '- `services`: freight quotes (calculated only from eligible items)\n'
+        '- `melhor_envio_items`: list of items included in the ME freight calculation '
+        '(each with `listing_id`, `title`, `shipping_method`)\n'
         '- `in_person_items`: list of items excluded from the quote '
         '(each with `listing_id`, `title`, `shipping_method`)\n\n'
         'If **all** items from a seller are `in_person`, the entry will contain '
-        '`in_person_only: true` and no freight quotes.\n\n'
+        '`in_person_only: true`, no freight quotes, and `melhor_envio_items: []`.\n\n'
         '**Connecting to POST /api/orders/create/:**\n'
         'Use the response from this endpoint to build the `items_delivery` field in the order '
         'create request:\n'
@@ -253,6 +255,18 @@ def get_shipping_addresses(request):
                                 'services': rf_serializers.ListField(
                                     child=rf_serializers.DictField(),
                                     help_text='Lista de serviços de frete disponíveis (apenas itens elegíveis)'
+                                ),
+                                'melhor_envio_items': rf_serializers.ListField(
+                                    child=inline_serializer(
+                                        name='MelhorEnvioItem',
+                                        fields={
+                                            'listing_id': rf_serializers.IntegerField(),
+                                            'title': rf_serializers.CharField(),
+                                            'shipping_method': rf_serializers.CharField(),
+                                        }
+                                    ),
+                                    required=False,
+                                    help_text='Itens incluídos no cálculo de frete via Melhor Envio'
                                 ),
                                 'in_person_items': rf_serializers.ListField(
                                     child=inline_serializer(
