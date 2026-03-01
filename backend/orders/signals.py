@@ -145,11 +145,26 @@ def auto_create_shipments_on_payment(sender, instance, created, **kwargs):
                     continue
 
                 if delivery_method == 'shipping':
+                    # New format: per_listing with individual service_ids and costs
+                    per_listing = shipping_info.get('per_listing', {})
+                    total_cost = sum(
+                        cfg.get('cost', 0) for cfg in per_listing.values()
+                    ) if per_listing else shipping_info.get('cost', 0)
+                    # Aggregate service_ids for log (first one used as primary)
+                    service_ids = [
+                        str(cfg.get('service_id', ''))
+                        for cfg in per_listing.values()
+                        if cfg.get('service_id')
+                    ]
+                    service_id_label = (
+                        ','.join(service_ids) if service_ids
+                        else shipping_info.get('service_id', 'unknown')
+                    )
                     delivery_choices.append({
                         'seller_id': seller_id_int,
                         'delivery_method': 'shipping',
-                        'shipping_service_id': shipping_info.get('service_id'),
-                        'delivery_cost': shipping_info.get('cost', 0),
+                        'shipping_service_id': service_id_label,
+                        'delivery_cost': total_cost,
                     })
                 elif delivery_method == 'in_person':
                     # in_person already created at order creation — only as fallback

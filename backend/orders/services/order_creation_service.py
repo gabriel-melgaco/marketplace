@@ -213,6 +213,7 @@ class OrderCreationService:
         for item in validated_items:
             items_by_seller[item['seller'].id].append(item)
 
+        # me_cart_results keyed by (seller_id, listing_id) — one entry per listing
         me_cart_results = {}
 
         for seller_id_str, seller_config in shipping_services_data.items():
@@ -220,73 +221,91 @@ class OrderCreationService:
                 continue
             delivery_method = seller_config.get('delivery_method', 'shipping')
             if delivery_method == 'split':
-                service_id = seller_config.get('shipping', {}).get('service_id')
+                per_listing = seller_config.get('shipping', {}).get('per_listing', {})
             elif delivery_method == 'shipping':
-                service_id = seller_config.get('service_id')
+                per_listing = seller_config.get('per_listing', {})
             else:
                 continue  # in_person — skip
-            if not service_id:
+
+            if not per_listing:
                 continue
 
             seller_id = int(seller_id_str)
             all_items = items_by_seller.get(seller_id, [])
 
-            # For split delivery, only include items eligible for shipping (not in_person-only)
+            # For split: exclude in_person-only listings from ME cart
             if delivery_method == 'split':
                 from products.models import ShippingMethodChoices as SMC
-                seller_items = [
+                shippable_items = [
                     i for i in all_items
                     if i['listing'].shipping_method != SMC.IN_PERSON
                 ]
             else:
-                seller_items = all_items
-            if not seller_items:
+                shippable_items = all_items
+
+            if not shippable_items:
                 continue
 
-            seller = seller_items[0]['seller']
+            seller = shippable_items[0]['seller']
 
-            try:
-                # add_to_cart_raw retorna (cart_results: list, base_payload: dict)
-                # cart_results é uma lista de respostas — uma por volume/pacote
-                cart_results, sent_payload = melhor_envio.add_to_cart_raw(
-                    buyer=user,
-                    seller=seller,
-                    seller_validated_items=seller_items,
-                    shipping_address_dict=shipping_address_dict,
-                    service_id=service_id,
-                )
-                # Extrair insurance_warning da lista (injetado no primeiro item quando presente)
-                insurance_warning = None
-                if isinstance(cart_results, list) and cart_results:
-                    insurance_warning = cart_results[0].pop('_insurance_warning', None)
-                    first_cart_id = cart_results[0].get('id')
-                elif isinstance(cart_results, dict):
-                    # Retrocompatibilidade: se por algum motivo retornar dict
-                    insurance_warning = cart_results.pop('_insurance_warning', None)
-                    first_cart_id = cart_results.get('id')
-                else:
-                    first_cart_id = None
+            # Group shippable items by listing_id
+            items_by_listing: dict = {}
+            for item in shippable_items:
+                lid = item['listing'].id
+                items_by_listing.setdefault(lid, []).append(item)
 
-                me_cart_results[seller_id] = {
-                    'cart_response': cart_results,
-                    'sent_payload': sent_payload,
-                    'insurance_warning': insurance_warning,
-                    'seller': seller,
-                }
-                logger.info(
-                    f'Frete adicionado ao carrinho ME para vendedor {seller.email}: '
-                    f'cart_ids={[r.get("id") for r in cart_results] if isinstance(cart_results, list) else first_cart_id}'
-                )
-            except (ShippingValidationError, Exception) as e:
-                logger.error(
-                    f'Erro ao adicionar frete ao carrinho ME para vendedor '
-                    f'{seller.email}: {str(e)}',
-                    exc_info=True,
-                )
-                raise OrderCreationError(
-                    f'Erro ao adicionar frete ao carrinho Melhor Envio '
-                    f'para vendedor {seller.email}: {str(e)}'
-                ) from e
+            # One ME cart call per listing (each may use a different service)
+            for listing_id_str, listing_cfg in per_listing.items():
+                listing_id = int(listing_id_str)
+                service_id = listing_cfg.get('service_id')
+                if not service_id:
+                    continue
+
+                listing_items = items_by_listing.get(listing_id, [])
+                if not listing_items:
+                    logger.warning(
+                        f'Listing {listing_id} presente em per_listing mas sem itens '
+                        f'no carrinho para vendedor {seller.email} — ignorado.'
+                    )
+                    continue
+
+                try:
+                    cart_results, sent_payload = melhor_envio.add_to_cart_raw(
+                        buyer=user,
+                        seller=seller,
+                        seller_validated_items=listing_items,
+                        shipping_address_dict=shipping_address_dict,
+                        service_id=service_id,
+                    )
+                    # Extrair insurance_warning (injetado no primeiro item quando presente)
+                    insurance_warning = None
+                    if isinstance(cart_results, list) and cart_results:
+                        insurance_warning = cart_results[0].pop('_insurance_warning', None)
+                    elif isinstance(cart_results, dict):
+                        insurance_warning = cart_results.pop('_insurance_warning', None)
+
+                    me_cart_results[(seller_id, listing_id)] = {
+                        'cart_response': cart_results,
+                        'sent_payload': sent_payload,
+                        'insurance_warning': insurance_warning,
+                        'seller': seller,
+                        'listing_id': listing_id,
+                    }
+                    logger.info(
+                        f'Frete adicionado ao carrinho ME — vendedor {seller.email}, '
+                        f'listing {listing_id}, serviço {service_id}: '
+                        f'cart_ids={[r.get("id") for r in cart_results] if isinstance(cart_results, list) else "n/a"}'
+                    )
+                except (ShippingValidationError, Exception) as e:
+                    logger.error(
+                        f'Erro ao adicionar frete ME para vendedor {seller.email}, '
+                        f'listing {listing_id}: {str(e)}',
+                        exc_info=True,
+                    )
+                    raise OrderCreationError(
+                        f'Erro ao adicionar frete ao carrinho Melhor Envio '
+                        f'para vendedor {seller.email}, listing {listing_id}: {str(e)}'
+                    ) from e
 
         return me_cart_results
 
@@ -303,13 +322,13 @@ class OrderCreationService:
         from logistics.services.melhor_envio_service import MelhorEnvioService
 
         me_service = MelhorEnvioService()
-        for seller_id, data in me_cart_results.items():
+        # me_cart_results is keyed by (seller_id, listing_id)
+        for (seller_id, listing_id), data in me_cart_results.items():
             seller = data['seller']
             cart_response = data['cart_response']
             sent_payload = data['sent_payload']
             insurance_warning = data['insurance_warning']
 
-            # cart_response pode ser lista (multi-pacote) ou dict (retrocompat)
             # Reinjeta o warning no primeiro item para create_shipment_record() limpá-lo
             if insurance_warning:
                 if isinstance(cart_response, list) and cart_response:
@@ -325,8 +344,8 @@ class OrderCreationService:
             )
             logger.info(
                 f'Shipment criado para pedido {order.order_number}, '
-                f'vendedor {seller.email}: id={shipment.id}, '
-                f'melhorenvio_order_id={shipment.melhorenvio_order_id}'
+                f'vendedor {seller.email}, listing {listing_id}: '
+                f'id={shipment.id}, melhorenvio_order_id={shipment.melhorenvio_order_id}'
             )
             if insurance_warning:
                 logger.warning(
@@ -459,18 +478,19 @@ class OrderCreationService:
 
             if delivery_method in ('shipping', 'split'):
                 # --- Shipping via carrier (or split: shipping part) ---
+                # Per-listing service selection: each listing may choose a different service.
                 if delivery_method == 'split':
                     shipping_sub = delivery_config.get('shipping', {})
-                    service_id = shipping_sub.get('service_id')
+                    per_listing_input = shipping_sub.get('per_listing', {})
                 else:
-                    service_id = delivery_config.get('service_id')
+                    per_listing_input = delivery_config.get('per_listing', {})
 
-                if not service_id:
+                if not per_listing_input:
                     raise OrderCreationError(
-                        f"service_id is required for shipping delivery of seller {seller_id}"
+                        f"per_listing is required for shipping delivery of seller {seller_id}"
                     )
 
-                # Find valid shipping quote
+                # Find valid shipping quote (one per seller)
                 quote = ShippingQuote.objects.filter(
                     user=user,
                     seller_id=seller_id,
@@ -483,54 +503,81 @@ class OrderCreationService:
                         f"Please recalculate shipping."
                     )
 
-                # Find selected service in quote
-                quotes_list = quote.quotes_data
-                if isinstance(quotes_list, dict):
-                    quotes_list = quotes_list.get('services', [])
+                quotes_data = quote.quotes_data
+                by_listing_data = (
+                    quotes_data.get('by_listing', {}) if isinstance(quotes_data, dict) else {}
+                )
+                aggregate_services = (
+                    quotes_data.get('services', []) if isinstance(quotes_data, dict)
+                    else (quotes_data if isinstance(quotes_data, list) else [])
+                )
 
-                service_found = None
-                for service in quotes_list:
-                    if isinstance(service, dict) and service.get('id') == service_id:
-                        service_found = service
-                        break
+                # Build per-listing result with costs (server-side, trusted)
+                seller_shipping_cost = Decimal('0.00')
+                per_listing_result: dict = {}
 
-                if not service_found:
-                    raise OrderCreationError(
-                        f"Shipping service {service_id} not found for seller {seller_id}"
+                for listing_id_str, listing_cfg in per_listing_input.items():
+                    service_id = listing_cfg.get('service_id')
+                    if not service_id:
+                        raise OrderCreationError(
+                            f"service_id missing for listing {listing_id_str} of seller {seller_id}"
+                        )
+
+                    # Find cost: prefer per-listing quote, fall back to aggregate
+                    listing_quote_services = (
+                        by_listing_data.get(str(listing_id_str), {}).get('services', [])
+                        if by_listing_data else []
                     )
+                    service_found = next(
+                        (s for s in listing_quote_services
+                         if isinstance(s, dict) and s.get('id') == service_id),
+                        None
+                    )
+                    if service_found is None:
+                        # Fallback to aggregate
+                        service_found = next(
+                            (s for s in aggregate_services
+                             if isinstance(s, dict) and s.get('id') == service_id),
+                            None
+                        )
+                    if service_found is None:
+                        raise OrderCreationError(
+                            f"Shipping service {service_id} not found for listing "
+                            f"{listing_id_str} of seller {seller_id}"
+                        )
 
-                # Extract shipping cost from quote (server-side, trusted)
-                shipping_cost = Decimal(str(
-                    service_found.get('custom_price', service_found.get('price', 0))
-                ))
+                    listing_cost = Decimal(str(
+                        service_found.get('custom_price', service_found.get('price', 0))
+                    ))
+                    seller_shipping_cost += listing_cost
 
-                total_shipping += shipping_cost
+                    company = service_found.get('company', '')
+                    company_name = (
+                        company.get('name', '') if isinstance(company, dict) else str(company)
+                    )
+                    per_listing_result[str(listing_id_str)] = {
+                        'service_id': service_id,
+                        'service_name': service_found.get('name', ''),
+                        'company': company_name,
+                        'cost': float(listing_cost),
+                        'delivery_time': service_found.get('delivery_time', 0),
+                    }
 
-                # Store service data
-                company = service_found.get('company', '')
-                company_name = company.get('name', '') if isinstance(company, dict) else str(company)
-                shipping_part = {
-                    'service_id': service_id,
-                    'service_name': service_found.get('name', ''),
-                    'company': company_name,
-                    'cost': float(shipping_cost),
-                    'delivery_time': service_found.get('delivery_time', 0),
-                }
+                total_shipping += seller_shipping_cost
 
                 if delivery_method == 'split':
-                    # Preserve in_person sub-config alongside shipping data
                     shipping_services_data[str(seller_id)] = {
                         'delivery_method': 'split',
-                        'shipping': shipping_part,
+                        'shipping': {'per_listing': per_listing_result},
                         'in_person': delivery_config.get('in_person', {}),
                     }
                 else:
                     shipping_services_data[str(seller_id)] = {
                         'delivery_method': 'shipping',
-                        **shipping_part,
+                        'per_listing': per_listing_result,
                     }
 
-                shipping_by_seller[seller_id] = shipping_cost
+                shipping_by_seller[seller_id] = seller_shipping_cost
 
             elif delivery_method == 'in_person':
                 # --- In-person delivery ---

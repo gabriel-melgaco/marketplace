@@ -426,17 +426,36 @@ class MelhorEnvioService:
                 }
                 continue
 
-            # Construir volumes (1 por ListingPackage × quantidade, igual ao carrinho).
-            # Isso garante que a cotação reflita exatamente o custo real das etiquetas.
-            volumes = []
+            # ----------------------------------------------------------------
+            # Calcular cotações POR LISTING para que o comprador possa
+            # escolher serviços distintos por anúncio.
+            # O agregado global (soma de preços) é mantido para compatibilidade.
+            # ----------------------------------------------------------------
+
             total_value = 0
+            all_volumes = []          # agregado global (para dimensões do ShippingQuote)
+            by_listing: dict = {}     # {str(listing_id): {services, unavailable_services, ...}}
+            global_agg: dict = {}     # {service_id: agg} — agregado de TODOS os listings
+
+            capped_total_global = min(
+                sum(float(it.listing.price) * it.quantity for it in items),
+                settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE
+            )
+            options_base = {
+                'insurance_value': capped_total_global,
+                'receipt': False,
+                'own_hand': False,
+                'collect': False,
+            }
 
             for item in items:
                 listing = item.listing
                 packages = list(listing.packages.all())
+                item_value = float(listing.price) * item.quantity
+                total_value += item_value
 
-                total_value += float(listing.price) * item.quantity
-
+                # Montar volumes deste listing
+                listing_volumes = []
                 if packages:
                     for pkg in packages:
                         for _ in range(item.quantity):
@@ -457,8 +476,7 @@ class MelhorEnvioService:
                                     f'h={vol_height}, w={vol_width}, l={vol_length}. '
                                     f'Verifique os dados no DB.'
                                 )
-
-                            volumes.append({
+                            listing_volumes.append({
                                 'height': vol_height,
                                 'width': vol_width,
                                 'length': vol_length,
@@ -471,92 +489,60 @@ class MelhorEnvioService:
                         vol_width = int(round(float(listing.width_cm or 0)))
                         vol_length = int(round(float(listing.length_cm or 0)))
                         vol_weight = round(float(listing.weight_kg or 0), 3)
-                        volumes.append({
+                        listing_volumes.append({
                             'height': vol_height,
                             'width': vol_width,
                             'length': vol_length,
                             'weight': vol_weight,
                         })
 
-            if not volumes:
-                raise ShippingValidationError(
-                    'Nenhum volume encontrado para o pedido. '
-                    'Verifique se os produtos possuem dimensões configuradas.'
-                )
+                all_volumes.extend(listing_volumes)
 
-            # Calcular dimensões consolidadas do pacote (para armazenamento no ShippingQuote)
-            package_weight = sum(v['weight'] for v in volumes)
-            package_height = max(v['height'] for v in volumes)
-            package_width = max(v['width'] for v in volumes)
-            package_length = sum(v['length'] for v in volumes)
+                if not listing_volumes:
+                    logger.warning(
+                        f'[create_shipping_quote_by_seller] Listing {listing.id} sem '
+                        f'volumes — ignorado na cotação.'
+                    )
+                    continue
 
-            # Opções adicionais (cap no limite de envios não comerciais).
-            # O mesmo capped_total é usado como insurance_value em TODAS as chamadas
-            # (igual ao comportamento do add_to_cart_raw).
-            capped_total = min(total_value, settings.MELHOR_ENVIO_MAX_INSURANCE_VALUE)
-            options = {
-                'insurance_value': capped_total,
-                'receipt': False,
-                'own_hand': False,
-                'collect': False
-            }
-
-            try:
-                # Para cada volume, chamar calculate_shipping com package=vol.
-                # Isso espelha exatamente o que o carrinho faz (_post_to_cart por volume),
-                # garantindo que a cotação exibida ao comprador = custo real das etiquetas.
+                # Cotação por volume para este listing
+                listing_agg: dict = {}
                 logger.info(
-                    f'[create_shipping_quote_by_seller] Calculando frete para '
-                    f'{len(volumes)} volume(s) — vendedor {seller.id}, '
-                    f'origem {seller_address.zipcode}, destino {destination_zipcode}'
+                    f'[create_shipping_quote_by_seller] Listing {listing.id} '
+                    f'({listing.title[:40]}): {len(listing_volumes)} volume(s)'
                 )
-
-                # Mapa: service_id -> dados agregados do serviço
-                # Estrutura: {service_id: {'base': <primeiro response>, 'total_price': float,
-                #                          'max_delivery_time': int, 'has_error': bool}}
-                service_aggregates: dict = {}
-
-                for vol_idx, vol in enumerate(volumes):
+                for vol_idx, vol in enumerate(listing_volumes):
                     vol_quotes = self.calculate_shipping(
                         from_zipcode=seller_address.zipcode,
                         to_zipcode=destination_zipcode,
                         package=vol,
-                        options=options,
+                        options=options_base,
                         seller=seller,
                         services=settings.MELHOR_ENVIO_DEFAULT_SERVICES,
                     )
-
                     if not isinstance(vol_quotes, list):
                         logger.warning(
                             f'[create_shipping_quote_by_seller] Resposta inesperada do ME '
-                            f'para o volume {vol_idx}: {vol_quotes!r}'
+                            f'para listing {listing.id} vol {vol_idx}: {vol_quotes!r}'
                         )
                         continue
-
                     for quote_entry in vol_quotes:
                         if not isinstance(quote_entry, dict):
                             continue
-
-                        service_id = quote_entry.get('id')
-                        if service_id is None:
+                        svc_id = quote_entry.get('id')
+                        if svc_id is None:
                             continue
-
                         has_error = bool(quote_entry.get('error'))
-
-                        if service_id not in service_aggregates:
-                            # Primeiro volume: inicializar com os metadados do serviço
-                            service_aggregates[service_id] = {
+                        if svc_id not in listing_agg:
+                            listing_agg[svc_id] = {
                                 'base': quote_entry,
                                 'total_price': 0.0,
                                 'max_delivery_time': 0,
                                 'has_error': has_error,
                             }
-
-                        agg = service_aggregates[service_id]
-
+                        la = listing_agg[svc_id]
                         if has_error:
-                            # Qualquer erro em qualquer volume torna o serviço indisponível
-                            agg['has_error'] = True
+                            la['has_error'] = True
                         else:
                             vol_price = float(
                                 quote_entry.get('custom_price', quote_entry.get('price', 0)) or 0
@@ -565,50 +551,93 @@ class MelhorEnvioService:
                                 quote_entry.get('custom_delivery_time',
                                                 quote_entry.get('delivery_time', 0)) or 0
                             )
-                            logger.info(
-                                f'[create_shipping_quote_by_seller] volume {vol_idx} | '
-                                f'service_id={service_id} | '
-                                f'price=R${vol_price:.2f} | '
-                                f'delivery_time={vol_delivery}d'
+                            la['total_price'] += vol_price
+                            la['max_delivery_time'] = max(la['max_delivery_time'], vol_delivery)
+
+                # Montar quotes_data deste listing
+                listing_quotes_data = []
+                for svc_id, la in listing_agg.items():
+                    entry = dict(la['base'])
+                    if la['has_error']:
+                        if not entry.get('error'):
+                            entry['error'] = (
+                                'Serviço indisponível para um ou mais volumes deste item.'
                             )
-                            agg['total_price'] += vol_price
-                            agg['max_delivery_time'] = max(agg['max_delivery_time'], vol_delivery)
+                    else:
+                        price_str = f'{la["total_price"]:.2f}'
+                        entry['price'] = price_str
+                        entry['custom_price'] = price_str
+                        entry['delivery_time'] = la['max_delivery_time']
+                        entry['custom_delivery_time'] = la['max_delivery_time']
+                        entry.pop('error', None)
+                    listing_quotes_data.append(entry)
 
-                # Montar quotes_data final com a mesma estrutura que a API ME retorna,
-                # mas com os valores agregados (soma de preços, máximo de prazo).
-                # _format_services e _format_unavailable_services leem:
-                #   custom_price / price  → total agregado (string decimal)
-                #   custom_delivery_time / delivery_time → prazo máximo
-                #   error → marca o serviço como indisponível
+                by_listing[str(listing.id)] = {
+                    'listing_id': listing.id,
+                    'title': listing.title,
+                    'shipping_method': listing.shipping_method,
+                    'packages_count': len(listing_volumes),
+                    'services': self._format_services(listing_quotes_data),
+                    'unavailable_services': self._format_unavailable_services(listing_quotes_data),
+                }
+
+                # Acumular no agregado global
+                for svc_id, la in listing_agg.items():
+                    if svc_id not in global_agg:
+                        global_agg[svc_id] = {
+                            'base': la['base'],
+                            'total_price': 0.0,
+                            'max_delivery_time': 0,
+                            'has_error': la['has_error'],
+                        }
+                    ga = global_agg[svc_id]
+                    if la['has_error']:
+                        ga['has_error'] = True
+                    else:
+                        if not ga['has_error']:
+                            ga['total_price'] += la['total_price']
+                            ga['max_delivery_time'] = max(
+                                ga['max_delivery_time'], la['max_delivery_time']
+                            )
+
+            if not all_volumes:
+                raise ShippingValidationError(
+                    'Nenhum volume encontrado para o pedido. '
+                    'Verifique se os produtos possuem dimensões configuradas.'
+                )
+
+            # Calcular dimensões consolidadas (para armazenamento no ShippingQuote)
+            package_weight = sum(v['weight'] for v in all_volumes)
+            package_height = max(v['height'] for v in all_volumes)
+            package_width = max(v['width'] for v in all_volumes)
+            package_length = sum(v['length'] for v in all_volumes)
+
+            try:
+                # Montar quotes_data global agregado
                 quotes_data = []
-                for service_id, agg in service_aggregates.items():
-                    entry = dict(agg['base'])  # cópia rasa do primeiro response
-
-                    if agg['has_error']:
-                        # Preservar o campo 'error' do serviço base para _format_unavailable_services
+                for svc_id, ga in global_agg.items():
+                    entry = dict(ga['base'])
+                    if ga['has_error']:
                         if not entry.get('error'):
                             entry['error'] = (
                                 'Serviço indisponível para um ou mais volumes do pedido.'
                             )
                     else:
-                        total_price_str = f'{agg["total_price"]:.2f}'
-                        entry['price'] = total_price_str
-                        entry['custom_price'] = total_price_str
-                        entry['delivery_time'] = agg['max_delivery_time']
-                        entry['custom_delivery_time'] = agg['max_delivery_time']
-                        # Remover 'error' caso o serviço base tenha retornado erro em
-                        # outro momento mas todos os volumes foram bem-sucedidos
+                        price_str = f'{ga["total_price"]:.2f}'
+                        entry['price'] = price_str
+                        entry['custom_price'] = price_str
+                        entry['delivery_time'] = ga['max_delivery_time']
+                        entry['custom_delivery_time'] = ga['max_delivery_time']
                         entry.pop('error', None)
-
                     quotes_data.append(entry)
 
                 logger.info(
-                    f'[create_shipping_quote_by_seller] Cotação agregada para '
-                    f'{len(quotes_data)} serviço(s). '
-                    f'Total de chamadas ao ME: {len(volumes)}'
+                    f'[create_shipping_quote_by_seller] Cotação por listing concluída — '
+                    f'{len(by_listing)} listing(s), {len(quotes_data)} serviço(s) no agregado. '
+                    f'Total de volumes: {len(all_volumes)}'
                 )
 
-                # Salvar cotação no banco (com dados agregados)
+                # Salvar cotação no banco (com dados agregados + by_listing)
                 quote = ShippingQuote.objects.create(
                     user=user,
                     seller=seller,
@@ -623,14 +652,13 @@ class MelhorEnvioService:
                     declared_value=total_value,
                     quotes_data={
                         'services': quotes_data,
+                        'by_listing': by_listing,
                         'melhor_envio_listing_ids': [it.listing.id for it in me_items],
                     },
                     expires_at=timezone.now() + timedelta(hours=2)
                 )
 
-                # Separar serviços disponíveis dos indisponíveis.
-                # A API do ME retorna erros inline para transportadoras que não
-                # aceitam o pacote (dimensões/peso excedidos, CEP não atendido).
+                # Separar serviços disponíveis dos indisponíveis (agregado global).
                 formatted_services = self._format_services(quotes_data)
                 unavailable_services = self._format_unavailable_services(quotes_data)
 
@@ -642,6 +670,7 @@ class MelhorEnvioService:
                     'seller_state': seller_address.state,
                     'services': formatted_services,
                     'unavailable_services': unavailable_services,
+                    'by_listing': by_listing,
                     'total_value': total_value,
                     'items_count': len(items),
                     # Itens incluídos no cálculo de frete via Melhor Envio
