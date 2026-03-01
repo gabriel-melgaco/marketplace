@@ -356,19 +356,7 @@ class OrderCreateSerializer(serializers.Serializer):
             if not me_entries:
                 continue
 
-            # All me_entries for a seller must use the SAME service_id
-            service_ids = {e['service_id'] for e in me_entries}
-            if len(service_ids) > 1:
-                raise serializers.ValidationError({
-                    'items_delivery': (
-                        f"Todos os itens de entrega via Melhor Envio do vendedor {seller_id} "
-                        f"devem usar o mesmo service_id. Encontrados: {service_ids}"
-                    )
-                })
-
-            service_id = me_entries[0]['service_id']
-
-            # Validate ShippingQuote exists and contains the service
+            # Validate ShippingQuote exists for this seller
             quote = ShippingQuote.objects.filter(
                 user=user,
                 seller_id=seller_id,
@@ -383,26 +371,14 @@ class OrderCreateSerializer(serializers.Serializer):
                     )
                 })
 
-            quotes_list = quote.quotes_data
-            if isinstance(quotes_list, dict):
-                quotes_list = quotes_list.get('services', [])
-
-            service_found = next(
-                (s for s in quotes_list if isinstance(s, dict) and s.get('id') == service_id),
-                None
+            quotes_data = quote.quotes_data
+            by_listing = quotes_data.get('by_listing', {}) if isinstance(quotes_data, dict) else {}
+            aggregate_services = (
+                quotes_data.get('services', []) if isinstance(quotes_data, dict) else
+                (quotes_data if isinstance(quotes_data, list) else [])
             )
-            if not service_found:
-                raise serializers.ValidationError({
-                    'items_delivery': (
-                        f"Serviço {service_id} não encontrado na cotação do vendedor {seller_id}. "
-                        f"Recalcule o frete e escolha um serviço válido."
-                    )
-                })
 
             # Validate that all ME listing_ids for this seller were part of the original quote.
-            # Only applies when the new quote format includes 'melhor_envio_listing_ids'.
-            # Older quotes (flat list or dict without this key) are skipped for backward compatibility.
-            quotes_data = quote.quotes_data
             if isinstance(quotes_data, dict) and 'melhor_envio_listing_ids' in quotes_data:
                 quoted_listing_ids = set(quotes_data['melhor_envio_listing_ids'])
                 me_listing_ids = {e['listing_id'] for e in me_entries}
@@ -414,6 +390,41 @@ class OrderCreateSerializer(serializers.Serializer):
                             f'no carrinho quando o frete foi calculado. Recalcule o frete.'
                         )
                     })
+
+            # Validate service_id for each ME listing individually.
+            # If the quote has per-listing breakdown (by_listing), validate against it.
+            # Otherwise fall back to the aggregate services list (backward compat).
+            for entry in me_entries:
+                listing_id = entry['listing_id']
+                service_id = entry['service_id']
+
+                if by_listing and str(listing_id) in by_listing:
+                    # New format: validate against per-listing services
+                    listing_services = by_listing[str(listing_id)].get('services', [])
+                    service_found = next(
+                        (s for s in listing_services if isinstance(s, dict) and s.get('id') == service_id),
+                        None
+                    )
+                    if not service_found:
+                        raise serializers.ValidationError({
+                            'items_delivery': (
+                                f"Serviço {service_id} não disponível para o listing {listing_id} "
+                                f"(vendedor {seller_id}). Recalcule o frete e escolha um serviço válido."
+                            )
+                        })
+                else:
+                    # Old format: validate against aggregate services list
+                    service_found = next(
+                        (s for s in aggregate_services if isinstance(s, dict) and s.get('id') == service_id),
+                        None
+                    )
+                    if not service_found:
+                        raise serializers.ValidationError({
+                            'items_delivery': (
+                                f"Serviço {service_id} não encontrado na cotação do vendedor {seller_id}. "
+                                f"Recalcule o frete e escolha um serviço válido."
+                            )
+                        })
 
         # 5. Convert items_delivery + in_person_by_seller → shipping_services (internal format)
         shipping_services = self._build_shipping_services(
@@ -455,12 +466,18 @@ class OrderCreateSerializer(serializers.Serializer):
                 'meeting_notes': ip_details_raw.get('meeting_notes', ''),
             }
 
+            # Build per_listing map: {str(listing_id): service_id} for ME entries
+            per_listing = {
+                str(e['listing_id']): {'service_id': e['service_id']}
+                for e in seller_entries
+                if e['delivery_method'] == 'melhor_envio'
+            }
+
             if has_me and not has_ip:
                 # All items shipped via Melhor Envio
-                service_id = next(e['service_id'] for e in seller_entries if e['delivery_method'] == 'melhor_envio')
                 shipping_services[str(seller_id)] = {
                     'delivery_method': 'shipping',
-                    'service_id': service_id,
+                    'per_listing': per_listing,
                 }
 
             elif has_ip and not has_me:
@@ -473,10 +490,9 @@ class OrderCreateSerializer(serializers.Serializer):
 
             else:
                 # Split: seller has both melhor_envio and in_person items
-                service_id = next(e['service_id'] for e in seller_entries if e['delivery_method'] == 'melhor_envio')
                 shipping_services[str(seller_id)] = {
                     'delivery_method': 'split',
-                    'shipping': {'service_id': service_id},
+                    'shipping': {'per_listing': per_listing},
                     'in_person': ip_details,
                 }
 

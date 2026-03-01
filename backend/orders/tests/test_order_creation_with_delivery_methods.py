@@ -217,9 +217,11 @@ class OrderCreateSerializerTestCase(TestCase):
 
         ss = serializer.validated_data['shipping_services']
         self.assertEqual(ss[str(self.seller1.id)]['delivery_method'], 'shipping')
-        self.assertEqual(ss[str(self.seller1.id)]['service_id'], 1)
+        pl1 = ss[str(self.seller1.id)]['per_listing']
+        self.assertEqual(pl1[str(self.listing1.id)]['service_id'], 1)
         self.assertEqual(ss[str(self.seller2.id)]['delivery_method'], 'shipping')
-        self.assertEqual(ss[str(self.seller2.id)]['service_id'], 1)
+        pl2 = ss[str(self.seller2.id)]['per_listing']
+        self.assertEqual(pl2[str(self.listing2.id)]['service_id'], 1)
 
     def test_all_in_person_accepted_and_converts_to_shipping_services(self):
         """Both items in-person → shipping_services has 'in_person' for each seller."""
@@ -285,7 +287,8 @@ class OrderCreateSerializerTestCase(TestCase):
 
         ss = serializer.validated_data['shipping_services']
         self.assertEqual(ss[str(self.seller1.id)]['delivery_method'], 'shipping')
-        self.assertEqual(ss[str(self.seller1.id)]['service_id'], 2)
+        pl1 = ss[str(self.seller1.id)]['per_listing']
+        self.assertEqual(pl1[str(self.listing1.id)]['service_id'], 2)
         self.assertEqual(ss[str(self.seller2.id)]['delivery_method'], 'in_person')
         self.assertEqual(ss[str(self.seller2.id)]['cost'], 0)
         self.assertEqual(ss[str(self.seller2.id)]['meeting_location_name'], 'Loja Física')
@@ -394,7 +397,8 @@ class OrderCreateSerializerTestCase(TestCase):
         ss = serializer.validated_data['shipping_services']
         # seller1 has mixed → split
         self.assertEqual(ss[str(self.seller1.id)]['delivery_method'], 'split')
-        self.assertEqual(ss[str(self.seller1.id)]['shipping']['service_id'], 1)
+        pl1 = ss[str(self.seller1.id)]['shipping']['per_listing']
+        self.assertEqual(pl1[str(self.listing1.id)]['service_id'], 1)
         self.assertEqual(
             ss[str(self.seller1.id)]['in_person']['meeting_location_name'],
             'Portaria do Prédio'
@@ -523,7 +527,8 @@ class OrderCreateSerializerTestCase(TestCase):
 
         # seller1 has both melhor_envio and in_person items → split
         self.assertEqual(ss[str(self.seller1.id)]['delivery_method'], 'split')
-        self.assertEqual(ss[str(self.seller1.id)]['shipping']['service_id'], 3)
+        pl1 = ss[str(self.seller1.id)]['shipping']['per_listing']
+        self.assertEqual(pl1[str(listing_both.id)]['service_id'], 3)
         self.assertIn('in_person', ss[str(self.seller1.id)])
 
     # ---- Validation rejection tests ----
@@ -1025,8 +1030,10 @@ class OrderCreationServiceTestCase(TestCase):
         shipping_services_input = {
             self.seller1.id: {
                 'delivery_method': 'shipping',
-                'service_id': 2,
-                'cost': 999.99  # Client tries to send fake cost
+                'per_listing': {
+                    str(self.listing1.id): {'service_id': 2},
+                },
+                'cost': 999.99  # Client tries to send fake cost (ignored server-side)
             },
             self.seller2.id: {
                 'delivery_method': 'in_person',
@@ -1203,7 +1210,9 @@ class OrderCreationServiceTestCase(TestCase):
         shipping_services_input = {
             self.seller1.id: {
                 'delivery_method': 'shipping',
-                'service_id': 1
+                'per_listing': {
+                    str(self.listing1.id): {'service_id': 1},
+                },
             },
             self.seller2.id: {
                 'delivery_method': 'in_person',
@@ -1274,7 +1283,9 @@ class OrderCreationServiceTestCase(TestCase):
         shipping_services_input = {
             self.seller1.id: {
                 'delivery_method': 'shipping',
-                'service_id': 1
+                'per_listing': {
+                    str(self.listing1.id): {'service_id': 1},
+                },
             }
         }
 
@@ -1394,7 +1405,9 @@ class OrderCreationServiceTestCase(TestCase):
         shipping_services_input = {
             self.seller1.id: {
                 'delivery_method': 'shipping',
-                'service_id': 1,
+                'per_listing': {
+                    str(self.listing1.id): {'service_id': 1},
+                },
             }
         }
 
@@ -1459,7 +1472,9 @@ class OrderCreationServiceTestCase(TestCase):
         shipping_services_input = {
             self.seller1.id: {
                 'delivery_method': 'shipping',
-                'service_id': 1,
+                'per_listing': {
+                    str(self.listing1.id): {'service_id': 1},
+                },
             }
         }
 
@@ -1496,8 +1511,9 @@ class OrderCreationServiceTestCase(TestCase):
     def test_legacy_dict_wrapped_quotes_data_still_supported(self):
         """Regression test: quotes_data stored as {'services': [...]} (old format) must still work.
 
-        Before the per-volume refactor, quotes_data was stored as a dict with a 'services' key.
-        The _validate_and_calculate_shipping guard handles this for existing DB records.
+        Before the per-listing refactor, quotes_data was stored as a dict with a 'services' key
+        but without a 'by_listing' sub-dict. The service falls back to aggregate services when
+        'by_listing' is absent, so old DB records are still supported.
         """
         quote = ShippingQuote.objects.create(
             user=self.buyer,
@@ -1522,7 +1538,9 @@ class OrderCreationServiceTestCase(TestCase):
         shipping_services_input = {
             self.seller1.id: {
                 'delivery_method': 'shipping',
-                'service_id': 1,
+                'per_listing': {
+                    str(self.listing1.id): {'service_id': 1},
+                },
             }
         }
 

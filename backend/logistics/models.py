@@ -376,16 +376,30 @@ class OrderDelivery(models.Model):
                     raise ValidationError('Entrega mista requer um InPersonDelivery associado')
 
     def get_delivery_info(self):
-        """Retorna informações consolidadas da entrega"""
-        if self.delivery_method == DeliveryMethod.SHIPPING and self.shipment:
+        """Retorna informações consolidadas da entrega.
+
+        Para SHIPPING e SPLIT, agrega todos os Shipments do vendedor no pedido
+        (um por listing, pois cada listing pode usar um serviço diferente).
+        """
+        if self.delivery_method == DeliveryMethod.SHIPPING:
+            all_shipments = list(self.order.shipments.filter(seller=self.seller))
+            if not all_shipments:
+                return {'type': 'shipping', 'cost': float(self.delivery_cost), 'shipments': []}
             return {
                 'type': 'shipping',
-                'carrier': self.shipment.carrier_name,
-                'service': self.shipment.carrier_service,
-                'tracking_code': self.shipment.melhorenvio_tracking_code,
-                'tracking_url': self.shipment.tracking_url,
-                'estimated_delivery': self.shipment.estimated_delivery_date,
-                'cost': float(self.delivery_cost)
+                'cost': float(self.delivery_cost),
+                'shipments': [
+                    {
+                        'carrier': s.carrier_name,
+                        'service': s.carrier_service,
+                        'tracking_code': s.melhorenvio_tracking_code,
+                        'tracking_url': s.tracking_url,
+                        'estimated_delivery': str(s.estimated_delivery_date)
+                        if s.estimated_delivery_date else None,
+                        'status': s.status,
+                    }
+                    for s in all_shipments
+                ],
             }
         elif self.delivery_method == DeliveryMethod.IN_PERSON and self.in_person_delivery:
             return {
@@ -398,14 +412,22 @@ class OrderDelivery(models.Model):
                 'cost': 0
             }
         elif self.delivery_method == DeliveryMethod.SPLIT:
+            all_shipments = list(self.order.shipments.filter(seller=self.seller))
             info = {'type': 'split', 'cost': float(self.delivery_cost)}
-            if self.shipment:
+            if all_shipments:
                 info['shipping'] = {
-                    'carrier': self.shipment.carrier_name,
-                    'service': self.shipment.carrier_service,
-                    'tracking_code': self.shipment.melhorenvio_tracking_code,
-                    'tracking_url': self.shipment.tracking_url,
-                    'estimated_delivery': self.shipment.estimated_delivery_date,
+                    'shipments': [
+                        {
+                            'carrier': s.carrier_name,
+                            'service': s.carrier_service,
+                            'tracking_code': s.melhorenvio_tracking_code,
+                            'tracking_url': s.tracking_url,
+                            'estimated_delivery': str(s.estimated_delivery_date)
+                            if s.estimated_delivery_date else None,
+                            'status': s.status,
+                        }
+                        for s in all_shipments
+                    ]
                 }
             if self.in_person_delivery:
                 info['in_person'] = {
