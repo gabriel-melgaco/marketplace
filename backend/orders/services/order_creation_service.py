@@ -411,7 +411,9 @@ class OrderCreationService:
         shipping_services_data = {}
         shipping_by_seller = {}
 
-        for seller_id, delivery_config in shipping_services_input.items():
+        for seller_id_str, delivery_config in shipping_services_input.items():
+            seller_id = int(seller_id_str)
+
             # Validate seller has items in cart
             if seller_id not in items_by_seller:
                 raise OrderCreationError(
