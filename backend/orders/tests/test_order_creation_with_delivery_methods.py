@@ -1,11 +1,12 @@
 """
 Test Order Creation with Multiple Delivery Methods
 
-Tests the new order creation flow that supports both shipping and in-person delivery methods.
+Tests the order creation flow using per-item delivery method selection.
 
 Test Coverage:
-- OrderCreateSerializer validation for legacy and new formats
-- OrderCreationService shipping/in-person validation and calculation
+- OrderCreateSerializer validation for new items_delivery + in_person_by_seller format
+- Internal conversion from per-item to per-seller shipping_services format
+- OrderCreationService shipping/in-person validation and calculation (unchanged internals)
 - auto_create_shipments_on_payment signal handling both delivery methods
 """
 
@@ -25,7 +26,13 @@ from logistics.models import Address, ShippingQuote
 
 
 class OrderCreateSerializerTestCase(TestCase):
-    """Test OrderCreateSerializer validation and normalization"""
+    """
+    Test OrderCreateSerializer validation and conversion.
+
+    Uses the new per-item delivery format:
+      items_delivery: list of {listing_id, delivery_method, [service_id]}
+      in_person_by_seller: optional dict of seller_id → meeting details
+    """
 
     def setUp(self):
         """Set up test fixtures"""
@@ -86,7 +93,7 @@ class OrderCreateSerializerTestCase(TestCase):
             description='Bike profissional'
         )
 
-        # Create listings
+        # Create listings (default shipping_method='both')
         self.listing1 = MarketplaceListing.objects.create(
             product=self.product1,
             seller=self.seller1,
@@ -98,7 +105,8 @@ class OrderCreateSerializerTestCase(TestCase):
             weight_kg=Decimal('50.00'),
             height_cm=Decimal('120.00'),
             width_cm=Decimal('80.00'),
-            length_cm=Decimal('150.00')
+            length_cm=Decimal('150.00'),
+            shipping_method='both',
         )
         self.listing2 = MarketplaceListing.objects.create(
             product=self.product2,
@@ -111,7 +119,8 @@ class OrderCreateSerializerTestCase(TestCase):
             weight_kg=Decimal('30.00'),
             height_cm=Decimal('100.00'),
             width_cm=Decimal('60.00'),
-            length_cm=Decimal('120.00')
+            length_cm=Decimal('120.00'),
+            shipping_method='both',
         )
 
         # Create cart with items
@@ -119,216 +128,460 @@ class OrderCreateSerializerTestCase(TestCase):
         CartItem.objects.create(cart=self.cart, listing=self.listing1, quantity=1)
         CartItem.objects.create(cart=self.cart, listing=self.listing2, quantity=1)
 
+        # Create a valid ShippingQuote for seller1 (needed when choosing melhor_envio)
+        self.quote1 = ShippingQuote.objects.create(
+            user=self.buyer,
+            seller=self.seller1,
+            origin_zipcode='02310-100',
+            origin_address={},
+            destination_zipcode='01310-100',
+            destination_address={},
+            weight=Decimal('50.00'),
+            height=Decimal('120.00'),
+            width=Decimal('80.00'),
+            length=Decimal('150.00'),
+            declared_value=Decimal('1500.00'),
+            quotes_data=[
+                {
+                    'id': 1,
+                    'name': 'PAC',
+                    'price': '45.90',
+                    'custom_price': '45.90',
+                    'delivery_time': 5,
+                    'company': {'id': 1, 'name': 'Correios', 'picture': ''},
+                },
+                {
+                    'id': 2,
+                    'name': 'SEDEX',
+                    'price': '75.50',
+                    'custom_price': '75.50',
+                    'delivery_time': 2,
+                    'company': {'id': 1, 'name': 'Correios', 'picture': ''},
+                },
+            ],
+            expires_at=timezone.now() + timedelta(hours=24),
+        )
+        self.quote2 = ShippingQuote.objects.create(
+            user=self.buyer,
+            seller=self.seller2,
+            origin_zipcode='03310-100',
+            origin_address={},
+            destination_zipcode='01310-100',
+            destination_address={},
+            weight=Decimal('30.00'),
+            height=Decimal('100.00'),
+            width=Decimal('60.00'),
+            length=Decimal('120.00'),
+            declared_value=Decimal('800.00'),
+            quotes_data=[
+                {
+                    'id': 1,
+                    'name': 'PAC',
+                    'price': '30.00',
+                    'custom_price': '30.00',
+                    'delivery_time': 7,
+                    'company': {'id': 1, 'name': 'Correios', 'picture': ''},
+                },
+            ],
+            expires_at=timezone.now() + timedelta(hours=24),
+        )
+
         # Create request factory
         self.factory = RequestFactory()
         self.request = self.factory.post('/api/orders/')
         self.request.user = self.buyer
 
-    def test_legacy_format_accepted(self):
-        """Test that legacy format (seller_id: service_id) is accepted and normalized"""
+    # ---- Happy path tests ----
+
+    def test_all_melhor_envio_accepted_and_converts_to_shipping_services(self):
+        """Both items via Melhor Envio → shipping_services has 'shipping' for each seller."""
         data = {
             'shipping_address_id': self.address.id,
-            'shipping_services': {
-                str(self.seller1.id): 2,  # seller1: service_id 2
-                str(self.seller2.id): 1   # seller2: service_id 1
-            },
+            'items_delivery': [
+                {'listing_id': self.listing1.id, 'delivery_method': 'melhor_envio', 'service_id': 1},
+                {'listing_id': self.listing2.id, 'delivery_method': 'melhor_envio', 'service_id': 1},
+            ],
+            'in_person_by_seller': {},
             'payment_method': 'pix',
-            'buyer_notes': ''
+            'buyer_notes': '',
         }
 
         serializer = OrderCreateSerializer(data=data, context={'request': self.request})
-
-        # Should be valid
         self.assertTrue(serializer.is_valid(), serializer.errors)
 
-        # Check normalization
-        normalized = serializer.validated_data['shipping_services']
-        self.assertEqual(normalized[self.seller1.id]['delivery_method'], 'shipping')
-        self.assertEqual(normalized[self.seller1.id]['service_id'], 2)
-        self.assertEqual(normalized[self.seller2.id]['delivery_method'], 'shipping')
-        self.assertEqual(normalized[self.seller2.id]['service_id'], 1)
+        ss = serializer.validated_data['shipping_services']
+        self.assertEqual(ss[str(self.seller1.id)]['delivery_method'], 'shipping')
+        self.assertEqual(ss[str(self.seller1.id)]['service_id'], 1)
+        self.assertEqual(ss[str(self.seller2.id)]['delivery_method'], 'shipping')
+        self.assertEqual(ss[str(self.seller2.id)]['service_id'], 1)
 
-    def test_shipping_format_accepted(self):
-        """Test that new shipping format is accepted"""
+    def test_all_in_person_accepted_and_converts_to_shipping_services(self):
+        """Both items in-person → shipping_services has 'in_person' for each seller."""
         data = {
             'shipping_address_id': self.address.id,
-            'shipping_services': {
+            'items_delivery': [
+                {'listing_id': self.listing1.id, 'delivery_method': 'in_person'},
+                {'listing_id': self.listing2.id, 'delivery_method': 'in_person'},
+            ],
+            'in_person_by_seller': {
                 str(self.seller1.id): {
-                    'delivery_method': 'shipping',
-                    'service_id': 2,
-                    'cost': 25.90
-                },
-                str(self.seller2.id): {
-                    'delivery_method': 'shipping',
-                    'service_id': 1,
-                    'cost': 15.50
-                }
-            },
-            'payment_method': 'credit_card',
-            'buyer_notes': 'Entregar após 18h'
-        }
-
-        serializer = OrderCreateSerializer(data=data, context={'request': self.request})
-
-        self.assertTrue(serializer.is_valid(), serializer.errors)
-
-        normalized = serializer.validated_data['shipping_services']
-        self.assertEqual(normalized[self.seller1.id]['delivery_method'], 'shipping')
-        self.assertEqual(normalized[self.seller1.id]['service_id'], 2)
-
-    def test_in_person_format_accepted(self):
-        """Test that in-person delivery format is accepted"""
-        data = {
-            'shipping_address_id': self.address.id,
-            'shipping_services': {
-                str(self.seller1.id): {
-                    'delivery_method': 'in_person',
                     'meeting_location_name': 'Shopping Iguatemi',
                     'meeting_address': {
                         'street': 'Av. Brigadeiro Faria Lima',
                         'number': '2232',
                         'city': 'São Paulo',
                         'state': 'SP',
-                        'zipcode': '01451-000'
+                        'zipcode': '01451-000',
                     },
                     'seller_contact_phone': '11999999999',
                     'buyer_contact_phone': '11888888888',
-                    'scheduled_date': '2026-02-15',
+                    'scheduled_date': '2026-03-10',
                     'scheduled_time': '14:00',
-                    'meeting_notes': 'Próximo à entrada principal'
+                    'meeting_notes': 'Próximo à entrada principal',
                 },
-                str(self.seller2.id): {
-                    'delivery_method': 'shipping',
-                    'service_id': 1
-                }
+                str(self.seller2.id): {},
             },
             'payment_method': 'pix',
-            'buyer_notes': ''
+            'buyer_notes': '',
         }
 
         serializer = OrderCreateSerializer(data=data, context={'request': self.request})
-
         self.assertTrue(serializer.is_valid(), serializer.errors)
 
-        normalized = serializer.validated_data['shipping_services']
+        ss = serializer.validated_data['shipping_services']
+        self.assertEqual(ss[str(self.seller1.id)]['delivery_method'], 'in_person')
+        self.assertEqual(ss[str(self.seller1.id)]['cost'], 0)
+        self.assertEqual(ss[str(self.seller1.id)]['meeting_location_name'], 'Shopping Iguatemi')
+        self.assertIn('meeting_address', ss[str(self.seller1.id)])
+        self.assertEqual(ss[str(self.seller2.id)]['delivery_method'], 'in_person')
 
-        # Check in-person delivery
-        self.assertEqual(normalized[self.seller1.id]['delivery_method'], 'in_person')
-        self.assertEqual(normalized[self.seller1.id]['cost'], 0)
-        self.assertEqual(normalized[self.seller1.id]['meeting_location_name'], 'Shopping Iguatemi')
-        self.assertIn('meeting_address', normalized[self.seller1.id])
-
-        # Check shipping delivery
-        self.assertEqual(normalized[self.seller2.id]['delivery_method'], 'shipping')
-
-    def test_mixed_format_accepted(self):
-        """Test that mixed shipping and in-person format is accepted"""
+    def test_mixed_delivery_accepted_and_converts_to_shipping_services(self):
+        """Seller1 via ME, seller2 in-person → correct per-seller shipping_services."""
         data = {
             'shipping_address_id': self.address.id,
-            'shipping_services': {
-                str(self.seller1.id): {
-                    'delivery_method': 'shipping',
-                    'service_id': 3
-                },
+            'items_delivery': [
+                {'listing_id': self.listing1.id, 'delivery_method': 'melhor_envio', 'service_id': 2},
+                {'listing_id': self.listing2.id, 'delivery_method': 'in_person'},
+            ],
+            'in_person_by_seller': {
                 str(self.seller2.id): {
-                    'delivery_method': 'in_person',
-                    'meeting_location_name': 'Loja Fisica',
-                    'meeting_address': {
-                        'street': 'Rua Augusta',
-                        'number': '100',
-                        'city': 'São Paulo',
-                        'state': 'SP'
-                    },
+                    'meeting_location_name': 'Loja Física',
                     'seller_contact_phone': '11777777777',
-                    'buyer_contact_phone': '11666666666'
-                }
+                    'buyer_contact_phone': '11666666666',
+                },
             },
-            'payment_method': 'boleto',
-            'buyer_notes': ''
+            'payment_method': 'credit_card',
+            'buyer_notes': 'Entregar após 18h',
         }
 
         serializer = OrderCreateSerializer(data=data, context={'request': self.request})
-
         self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        ss = serializer.validated_data['shipping_services']
+        self.assertEqual(ss[str(self.seller1.id)]['delivery_method'], 'shipping')
+        self.assertEqual(ss[str(self.seller1.id)]['service_id'], 2)
+        self.assertEqual(ss[str(self.seller2.id)]['delivery_method'], 'in_person')
+        self.assertEqual(ss[str(self.seller2.id)]['cost'], 0)
+        self.assertEqual(ss[str(self.seller2.id)]['meeting_location_name'], 'Loja Física')
+
+    def test_in_person_with_no_details_accepted(self):
+        """in_person items with empty in_person_by_seller → all optional fields blank."""
+        data = {
+            'shipping_address_id': self.address.id,
+            'items_delivery': [
+                {'listing_id': self.listing1.id, 'delivery_method': 'in_person'},
+                {'listing_id': self.listing2.id, 'delivery_method': 'in_person'},
+            ],
+            'payment_method': 'pix',
+        }
+
+        serializer = OrderCreateSerializer(data=data, context={'request': self.request})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        ss = serializer.validated_data['shipping_services']
+        for seller_id in [str(self.seller1.id), str(self.seller2.id)]:
+            self.assertEqual(ss[seller_id]['delivery_method'], 'in_person')
+            self.assertEqual(ss[seller_id]['cost'], 0)
+            self.assertEqual(ss[seller_id]['meeting_location_name'], '')
+
+    def test_split_delivery_produces_split_format(self):
+        """
+        Seller1 has two listings: one chosen melhor_envio, one in_person.
+        Result should be delivery_method='split' for that seller.
+        """
+        # Create a second listing for seller1 with shipping_method=in_person
+        listing1b = MarketplaceListing.objects.create(
+            product=self.product2,
+            seller=self.seller1,
+            brand=self.brand,
+            condition=self.condition,
+            price=Decimal('200.00'),
+            quantity=2,
+            is_active=True,
+            weight_kg=Decimal('5.00'),
+            height_cm=Decimal('20.00'),
+            width_cm=Decimal('20.00'),
+            length_cm=Decimal('20.00'),
+            shipping_method='in_person',
+        )
+        CartItem.objects.create(cart=self.cart, listing=listing1b, quantity=1)
+
+        data = {
+            'shipping_address_id': self.address.id,
+            'items_delivery': [
+                {'listing_id': self.listing1.id, 'delivery_method': 'melhor_envio', 'service_id': 1},
+                {'listing_id': listing1b.id, 'delivery_method': 'in_person'},
+                {'listing_id': self.listing2.id, 'delivery_method': 'in_person'},
+            ],
+            'in_person_by_seller': {
+                str(self.seller1.id): {
+                    'meeting_location_name': 'Portaria do Prédio',
+                    'seller_contact_phone': '11911111111',
+                },
+            },
+            'payment_method': 'pix',
+        }
+
+        serializer = OrderCreateSerializer(data=data, context={'request': self.request})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        ss = serializer.validated_data['shipping_services']
+        # seller1 has mixed → split
+        self.assertEqual(ss[str(self.seller1.id)]['delivery_method'], 'split')
+        self.assertEqual(ss[str(self.seller1.id)]['shipping']['service_id'], 1)
+        self.assertEqual(
+            ss[str(self.seller1.id)]['in_person']['meeting_location_name'],
+            'Portaria do Prédio'
+        )
+        # seller2 → in_person only
+        self.assertEqual(ss[str(self.seller2.id)]['delivery_method'], 'in_person')
+
+    # ---- Validation rejection tests ----
 
     def test_invalid_delivery_method_rejected(self):
-        """Test that invalid delivery_method is rejected"""
+        """delivery_method must be 'melhor_envio' or 'in_person'."""
         data = {
             'shipping_address_id': self.address.id,
-            'shipping_services': {
-                str(self.seller1.id): {
-                    'delivery_method': 'teleport',  # Invalid
-                    'service_id': 1
-                }
-            },
-            'payment_method': 'pix'
+            'items_delivery': [
+                {'listing_id': self.listing1.id, 'delivery_method': 'teleport', 'service_id': 1},
+                {'listing_id': self.listing2.id, 'delivery_method': 'in_person'},
+            ],
+            'payment_method': 'pix',
         }
 
         serializer = OrderCreateSerializer(data=data, context={'request': self.request})
-
         self.assertFalse(serializer.is_valid())
-        self.assertIn('shipping_services', serializer.errors)
+        self.assertIn('items_delivery', serializer.errors)
 
-    def test_missing_required_in_person_fields_rejected(self):
-        """Test that missing required in-person fields are rejected"""
+    def test_missing_service_id_for_melhor_envio_rejected(self):
+        """delivery_method='melhor_envio' without service_id must be rejected."""
         data = {
             'shipping_address_id': self.address.id,
-            'shipping_services': {
-                str(self.seller1.id): {
-                    'delivery_method': 'in_person',
-                    'meeting_location_name': 'Shopping',
-                    # Missing: meeting_address, seller_contact_phone, buyer_contact_phone
-                }
-            },
-            'payment_method': 'pix'
+            'items_delivery': [
+                {'listing_id': self.listing1.id, 'delivery_method': 'melhor_envio'},
+                # Missing service_id ^
+                {'listing_id': self.listing2.id, 'delivery_method': 'in_person'},
+            ],
+            'payment_method': 'pix',
         }
 
         serializer = OrderCreateSerializer(data=data, context={'request': self.request})
-
         self.assertFalse(serializer.is_valid())
-        self.assertIn('shipping_services', serializer.errors)
+        self.assertIn('items_delivery', serializer.errors)
 
-    def test_missing_service_id_for_shipping_rejected(self):
-        """Test that missing service_id for shipping is rejected"""
+    def test_listing_not_in_cart_rejected(self):
+        """listing_id not in buyer's cart must be rejected."""
+        other_listing = MarketplaceListing.objects.create(
+            product=self.product1,
+            seller=self.seller2,
+            brand=self.brand,
+            condition=self.condition,
+            price=Decimal('500.00'),
+            quantity=1,
+            is_active=True,
+            weight_kg=Decimal('10.00'),
+            height_cm=Decimal('30.00'),
+            width_cm=Decimal('30.00'),
+            length_cm=Decimal('30.00'),
+            shipping_method='both',
+        )
+        # other_listing is NOT added to the cart
+
         data = {
             'shipping_address_id': self.address.id,
-            'shipping_services': {
-                str(self.seller1.id): {
-                    'delivery_method': 'shipping',
-                    # Missing service_id
-                }
-            },
-            'payment_method': 'pix'
+            'items_delivery': [
+                {'listing_id': self.listing1.id, 'delivery_method': 'in_person'},
+                {'listing_id': self.listing2.id, 'delivery_method': 'in_person'},
+                {'listing_id': other_listing.id, 'delivery_method': 'in_person'},  # extra
+            ],
+            'payment_method': 'pix',
         }
 
         serializer = OrderCreateSerializer(data=data, context={'request': self.request})
-
         self.assertFalse(serializer.is_valid())
-        self.assertIn('shipping_services', serializer.errors)
+        self.assertIn('items_delivery', serializer.errors)
 
-    def test_missing_meeting_address_fields_rejected(self):
-        """Test that missing required meeting_address fields are rejected"""
+    def test_missing_cart_item_in_items_delivery_rejected(self):
+        """If a cart listing has no entry in items_delivery, must be rejected."""
         data = {
             'shipping_address_id': self.address.id,
-            'shipping_services': {
-                str(self.seller1.id): {
-                    'delivery_method': 'in_person',
-                    'meeting_location_name': 'Shopping',
-                    'meeting_address': {
-                        'street': 'Rua A',
-                        # Missing: city, state
-                    },
-                    'seller_contact_phone': '11999999999',
-                    'buyer_contact_phone': '11888888888'
-                }
-            },
-            'payment_method': 'pix'
+            'items_delivery': [
+                # listing2 is missing
+                {'listing_id': self.listing1.id, 'delivery_method': 'in_person'},
+            ],
+            'payment_method': 'pix',
         }
 
         serializer = OrderCreateSerializer(data=data, context={'request': self.request})
-
         self.assertFalse(serializer.is_valid())
-        self.assertIn('shipping_services', serializer.errors)
+        self.assertIn('items_delivery', serializer.errors)
+
+    def test_duplicate_listing_id_rejected(self):
+        """Same listing_id appearing twice in items_delivery must be rejected."""
+        data = {
+            'shipping_address_id': self.address.id,
+            'items_delivery': [
+                {'listing_id': self.listing1.id, 'delivery_method': 'in_person'},
+                {'listing_id': self.listing1.id, 'delivery_method': 'in_person'},  # duplicate
+                {'listing_id': self.listing2.id, 'delivery_method': 'in_person'},
+            ],
+            'payment_method': 'pix',
+        }
+
+        serializer = OrderCreateSerializer(data=data, context={'request': self.request})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('items_delivery', serializer.errors)
+
+    def test_shipping_method_in_person_only_listing_rejects_melhor_envio(self):
+        """Listing with shipping_method='in_person' must not accept delivery_method='melhor_envio'."""
+        self.listing1.shipping_method = 'in_person'
+        self.listing1.save()
+
+        data = {
+            'shipping_address_id': self.address.id,
+            'items_delivery': [
+                {
+                    'listing_id': self.listing1.id,
+                    'delivery_method': 'melhor_envio',  # conflict: listing is in_person-only
+                    'service_id': 1,
+                },
+                {'listing_id': self.listing2.id, 'delivery_method': 'in_person'},
+            ],
+            'payment_method': 'pix',
+        }
+
+        serializer = OrderCreateSerializer(data=data, context={'request': self.request})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('items_delivery', serializer.errors)
+
+    def test_shipping_method_melhor_envio_only_listing_rejects_in_person(self):
+        """Listing with shipping_method='melhor_envio' must not accept delivery_method='in_person'."""
+        self.listing1.shipping_method = 'melhor_envio'
+        self.listing1.save()
+
+        data = {
+            'shipping_address_id': self.address.id,
+            'items_delivery': [
+                {
+                    'listing_id': self.listing1.id,
+                    'delivery_method': 'in_person',  # conflict: listing is melhor_envio-only
+                },
+                {'listing_id': self.listing2.id, 'delivery_method': 'in_person'},
+            ],
+            'payment_method': 'pix',
+        }
+
+        serializer = OrderCreateSerializer(data=data, context={'request': self.request})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('items_delivery', serializer.errors)
+
+    def test_expired_shipping_quote_rejected(self):
+        """Choosing melhor_envio with an expired quote must be rejected."""
+        self.quote1.expires_at = timezone.now() - timedelta(hours=1)
+        self.quote1.save()
+
+        data = {
+            'shipping_address_id': self.address.id,
+            'items_delivery': [
+                {'listing_id': self.listing1.id, 'delivery_method': 'melhor_envio', 'service_id': 1},
+                {'listing_id': self.listing2.id, 'delivery_method': 'in_person'},
+            ],
+            'payment_method': 'pix',
+        }
+
+        serializer = OrderCreateSerializer(data=data, context={'request': self.request})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('items_delivery', serializer.errors)
+
+    def test_service_id_not_in_quote_rejected(self):
+        """Choosing a service_id not present in the ShippingQuote must be rejected."""
+        data = {
+            'shipping_address_id': self.address.id,
+            'items_delivery': [
+                {
+                    'listing_id': self.listing1.id,
+                    'delivery_method': 'melhor_envio',
+                    'service_id': 999,  # not in quote
+                },
+                {'listing_id': self.listing2.id, 'delivery_method': 'in_person'},
+            ],
+            'payment_method': 'pix',
+        }
+
+        serializer = OrderCreateSerializer(data=data, context={'request': self.request})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('items_delivery', serializer.errors)
+
+    def test_in_person_fields_all_optional(self):
+        """in_person delivery requires NO additional fields — all optional."""
+        data = {
+            'shipping_address_id': self.address.id,
+            'items_delivery': [
+                {'listing_id': self.listing1.id, 'delivery_method': 'in_person'},
+                {'listing_id': self.listing2.id, 'delivery_method': 'in_person'},
+            ],
+            # in_person_by_seller completely omitted
+            'payment_method': 'pix',
+        }
+
+        serializer = OrderCreateSerializer(data=data, context={'request': self.request})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_different_service_ids_per_item_same_seller_rejected(self):
+        """
+        Two items from the same seller via melhor_envio must use the same service_id,
+        because there is only one carrier shipment per seller.
+        """
+        listing1b = MarketplaceListing.objects.create(
+            product=self.product2,
+            seller=self.seller1,
+            brand=self.brand,
+            condition=self.condition,
+            price=Decimal('300.00'),
+            quantity=1,
+            is_active=True,
+            weight_kg=Decimal('5.00'),
+            height_cm=Decimal('20.00'),
+            width_cm=Decimal('20.00'),
+            length_cm=Decimal('20.00'),
+            shipping_method='both',
+        )
+        CartItem.objects.create(cart=self.cart, listing=listing1b, quantity=1)
+
+        data = {
+            'shipping_address_id': self.address.id,
+            'items_delivery': [
+                {'listing_id': self.listing1.id, 'delivery_method': 'melhor_envio', 'service_id': 1},
+                {'listing_id': listing1b.id, 'delivery_method': 'melhor_envio', 'service_id': 2},
+                # ^^ different service_id for same seller → should be rejected
+                {'listing_id': self.listing2.id, 'delivery_method': 'in_person'},
+            ],
+            'payment_method': 'pix',
+        }
+
+        serializer = OrderCreateSerializer(data=data, context={'request': self.request})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('items_delivery', serializer.errors)
 
 
 class OrderCreationServiceTestCase(TestCase):
