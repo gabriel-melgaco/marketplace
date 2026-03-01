@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Package, ChevronLeft, ChevronRight } from "lucide-react";
+import { Package, ChevronLeft, ChevronRight, MapPin } from "lucide-react";
 import { toPublicUrl } from "@/services/storageService";
 import type { MarketplaceListing } from "@/types/product";
 
@@ -24,7 +24,7 @@ export function getListingLocation(listing: MarketplaceListing): string {
   const addr = listing.seller_shipping_address;
   if (!addr) return "";
   const parts: string[] = [];
-  if (addr.neighborhood) parts.push(addr.neighborhood);
+  if (addr.city) parts.push(addr.city);
   if (addr.state) parts.push(addr.state);
   return parts.join(" - ");
 }
@@ -63,10 +63,6 @@ export function ProductCard({ listing }: { listing: MarketplaceListing }) {
 
   const location = getListingLocation(listing);
   const dateStr = formatListingDate(listing.created_at);
-
-  const subtitle = location
-    ? `Publicado em ${dateStr} · ${location}`
-    : `Publicado em ${dateStr}`;
 
   const handlePrev = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -171,7 +167,13 @@ export function ProductCard({ listing }: { listing: MarketplaceListing }) {
         <p className="text-lg font-bold text-blue-800 mt-1">
           R$ {formatPrice(listing.price)}
         </p>
-        <p className="text-xs text-gray-500 truncate mt-1">{subtitle}</p>
+        {location && (
+          <div className="flex items-center gap-1 mt-1.5">
+            <MapPin size={12} className="text-gray-400 shrink-0" aria-hidden="true" />
+            <p className="text-xs text-gray-500 truncate">{location}</p>
+          </div>
+        )}
+        <p className="text-xs text-gray-400 mt-0.5">Publicado em {dateStr}</p>
       </div>
     </Link>
   );
