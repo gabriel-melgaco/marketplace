@@ -399,6 +399,22 @@ class OrderCreateSerializer(serializers.Serializer):
                     )
                 })
 
+            # Validate that all ME listing_ids for this seller were part of the original quote.
+            # Only applies when the new quote format includes 'melhor_envio_listing_ids'.
+            # Older quotes (flat list or dict without this key) are skipped for backward compatibility.
+            quotes_data = quote.quotes_data
+            if isinstance(quotes_data, dict) and 'melhor_envio_listing_ids' in quotes_data:
+                quoted_listing_ids = set(quotes_data['melhor_envio_listing_ids'])
+                me_listing_ids = {e['listing_id'] for e in me_entries}
+                invalid_ids = me_listing_ids - quoted_listing_ids
+                if invalid_ids:
+                    raise serializers.ValidationError({
+                        'items_delivery': (
+                            f'Listing(s) {invalid_ids} do vendedor {seller_id} não estavam '
+                            f'no carrinho quando o frete foi calculado. Recalcule o frete.'
+                        )
+                    })
+
         # 5. Convert items_delivery + in_person_by_seller → shipping_services (internal format)
         shipping_services = self._build_shipping_services(
             entries_by_seller=entries_by_seller,

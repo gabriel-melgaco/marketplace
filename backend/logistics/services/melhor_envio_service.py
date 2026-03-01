@@ -390,6 +390,7 @@ class MelhorEnvioService:
                     'seller_name': seller.get_full_name() or seller.email,
                     'seller_id': seller.id,
                     'in_person_only': True,
+                    'melhor_envio_items': [],
                 }
                 continue
 
@@ -620,8 +621,11 @@ class MelhorEnvioService:
                     width=package_width,
                     length=package_length,
                     declared_value=total_value,
-                    quotes_data=quotes_data,
-                    expires_at=timezone.now() + timedelta(hours=24)
+                    quotes_data={
+                        'services': quotes_data,
+                        'melhor_envio_listing_ids': [it.listing.id for it in me_items],
+                    },
+                    expires_at=timezone.now() + timedelta(hours=2)
                 )
 
                 # Separar serviços disponíveis dos indisponíveis.
@@ -640,6 +644,15 @@ class MelhorEnvioService:
                     'unavailable_services': unavailable_services,
                     'total_value': total_value,
                     'items_count': len(items),
+                    # Itens incluídos no cálculo de frete via Melhor Envio
+                    'melhor_envio_items': [
+                        {
+                            'listing_id': it.listing.id,
+                            'title': it.listing.title,
+                            'shipping_method': it.listing.shipping_method,
+                        }
+                        for it in me_items
+                    ],
                     # Itens excluídos do cálculo (somente in_person)
                     'in_person_items': [
                         {

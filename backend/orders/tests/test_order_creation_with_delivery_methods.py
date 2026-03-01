@@ -141,24 +141,27 @@ class OrderCreateSerializerTestCase(TestCase):
             width=Decimal('80.00'),
             length=Decimal('150.00'),
             declared_value=Decimal('1500.00'),
-            quotes_data=[
-                {
-                    'id': 1,
-                    'name': 'PAC',
-                    'price': '45.90',
-                    'custom_price': '45.90',
-                    'delivery_time': 5,
-                    'company': {'id': 1, 'name': 'Correios', 'picture': ''},
-                },
-                {
-                    'id': 2,
-                    'name': 'SEDEX',
-                    'price': '75.50',
-                    'custom_price': '75.50',
-                    'delivery_time': 2,
-                    'company': {'id': 1, 'name': 'Correios', 'picture': ''},
-                },
-            ],
+            quotes_data={
+                'services': [
+                    {
+                        'id': 1,
+                        'name': 'PAC',
+                        'price': '45.90',
+                        'custom_price': '45.90',
+                        'delivery_time': 5,
+                        'company': {'id': 1, 'name': 'Correios', 'picture': ''},
+                    },
+                    {
+                        'id': 2,
+                        'name': 'SEDEX',
+                        'price': '75.50',
+                        'custom_price': '75.50',
+                        'delivery_time': 2,
+                        'company': {'id': 1, 'name': 'Correios', 'picture': ''},
+                    },
+                ],
+                'melhor_envio_listing_ids': [self.listing1.id],
+            },
             expires_at=timezone.now() + timedelta(hours=24),
         )
         self.quote2 = ShippingQuote.objects.create(
@@ -173,16 +176,19 @@ class OrderCreateSerializerTestCase(TestCase):
             width=Decimal('60.00'),
             length=Decimal('120.00'),
             declared_value=Decimal('800.00'),
-            quotes_data=[
-                {
-                    'id': 1,
-                    'name': 'PAC',
-                    'price': '30.00',
-                    'custom_price': '30.00',
-                    'delivery_time': 7,
-                    'company': {'id': 1, 'name': 'Correios', 'picture': ''},
-                },
-            ],
+            quotes_data={
+                'services': [
+                    {
+                        'id': 1,
+                        'name': 'PAC',
+                        'price': '30.00',
+                        'custom_price': '30.00',
+                        'delivery_time': 7,
+                        'company': {'id': 1, 'name': 'Correios', 'picture': ''},
+                    },
+                ],
+                'melhor_envio_listing_ids': [self.listing2.id],
+            },
             expires_at=timezone.now() + timedelta(hours=24),
         )
 
@@ -324,7 +330,47 @@ class OrderCreateSerializerTestCase(TestCase):
             length_cm=Decimal('20.00'),
             shipping_method='in_person',
         )
+        # Adding this cart item fires the invalidation signal and deletes seller1's quote.
         CartItem.objects.create(cart=self.cart, listing=listing1b, quantity=1)
+
+        # Recreate seller1's quote after cart change, including listing1 in melhor_envio_listing_ids.
+        # listing1b is in_person-only so it does not appear in the ME listing ids.
+        ShippingQuote.objects.filter(user=self.buyer, seller=self.seller1).delete()
+        ShippingQuote.objects.create(
+            user=self.buyer,
+            seller=self.seller1,
+            origin_zipcode='02310-100',
+            origin_address={},
+            destination_zipcode='01310-100',
+            destination_address={},
+            weight=Decimal('50.00'),
+            height=Decimal('120.00'),
+            width=Decimal('80.00'),
+            length=Decimal('150.00'),
+            declared_value=Decimal('1500.00'),
+            quotes_data={
+                'services': [
+                    {
+                        'id': 1,
+                        'name': 'PAC',
+                        'price': '45.90',
+                        'custom_price': '45.90',
+                        'delivery_time': 5,
+                        'company': {'id': 1, 'name': 'Correios', 'picture': ''},
+                    },
+                    {
+                        'id': 2,
+                        'name': 'SEDEX',
+                        'price': '75.50',
+                        'custom_price': '75.50',
+                        'delivery_time': 2,
+                        'company': {'id': 1, 'name': 'Correios', 'picture': ''},
+                    },
+                ],
+                'melhor_envio_listing_ids': [self.listing1.id],
+            },
+            expires_at=timezone.now() + timedelta(hours=24),
+        )
 
         data = {
             'shipping_address_id': self.address.id,
@@ -355,6 +401,130 @@ class OrderCreateSerializerTestCase(TestCase):
         )
         # seller2 → in_person only
         self.assertEqual(ss[str(self.seller2.id)]['delivery_method'], 'in_person')
+
+    def test_split_same_seller_both_listing_me_and_in_person_listing(self):
+        """
+        Replicates the exact scenario described in the calculate_shipping response update:
+
+        Seller has two listings:
+        - listing_30 (shipping_method='both') → buyer chooses melhor_envio, service_id=3
+        - listing_31 (shipping_method='in_person') → forced to in_person (no service_id)
+
+        Expected result: delivery_method='split' for that seller, with:
+          shipping.service_id == 3
+          in_person present (meeting details optional)
+
+        This validates the full flow from calculate_shipping response → order creation:
+          1. calculate_shipping returns melhor_envio_items=[listing_30] and in_person_items=[listing_31]
+          2. Buyer builds items_delivery using listing_id from each group
+          3. service_id=3 comes from services[].id in the calculate_shipping response
+          4. OrderCreateSerializer validates, converts, and produces split format
+        """
+        # Create the two listings belonging to the same seller
+        listing_both = MarketplaceListing.objects.create(
+            product=self.product1,
+            seller=self.seller1,
+            brand=self.brand,
+            condition=self.condition,
+            price=Decimal('500.00'),
+            quantity=2,
+            is_active=True,
+            weight_kg=Decimal('10.00'),
+            height_cm=Decimal('40.00'),
+            width_cm=Decimal('30.00'),
+            length_cm=Decimal('30.00'),
+            shipping_method='both',  # buyer may choose either method
+        )
+        listing_in_person = MarketplaceListing.objects.create(
+            product=self.product2,
+            seller=self.seller1,  # same seller as listing_both
+            brand=self.brand,
+            condition=self.condition,
+            price=Decimal('300.00'),
+            quantity=3,
+            is_active=True,
+            weight_kg=Decimal('5.00'),
+            height_cm=Decimal('20.00'),
+            width_cm=Decimal('20.00'),
+            length_cm=Decimal('20.00'),
+            shipping_method='in_person',  # forces delivery_method='in_person'
+        )
+
+        # Add both listings to the cart (replacing existing cart items)
+        self.cart.items.all().delete()
+        CartItem.objects.create(cart=self.cart, listing=listing_both, quantity=1)
+        CartItem.objects.create(cart=self.cart, listing=listing_in_person, quantity=1)
+
+        # Create a ShippingQuote for seller1 that contains service_id=3 (.Package)
+        # This mirrors what calculate_shipping would return in the updated response format.
+        ShippingQuote.objects.filter(user=self.buyer, seller=self.seller1).delete()
+        ShippingQuote.objects.create(
+            user=self.buyer,
+            seller=self.seller1,
+            origin_zipcode='02310-100',
+            origin_address={},
+            destination_zipcode='01310-100',
+            destination_address={},
+            weight=Decimal('10.00'),
+            height=Decimal('40.00'),
+            width=Decimal('30.00'),
+            length=Decimal('30.00'),
+            declared_value=Decimal('500.00'),
+            quotes_data={
+                'services': [
+                    {
+                        'id': 1,
+                        'name': 'PAC',
+                        'price': '109.38',
+                        'custom_price': '109.38',
+                        'delivery_time': 7,
+                        'company': {'id': 1, 'name': 'Correios', 'picture': ''},
+                    },
+                    {
+                        'id': 3,
+                        'name': '.Package',
+                        'price': '45.15',
+                        'custom_price': '45.15',
+                        'delivery_time': 3,
+                        'company': {'id': 2, 'name': 'Loggi', 'picture': ''},
+                    },
+                ],
+                'melhor_envio_listing_ids': [listing_both.id],
+            },
+            expires_at=timezone.now() + timedelta(hours=24),
+        )
+
+        # Buyer payload built from calculate_shipping response:
+        #   melhor_envio_items → listing_both (both) with service_id=3 from services[].id
+        #   in_person_items    → listing_in_person (in_person)
+        data = {
+            'shipping_address_id': self.address.id,
+            'items_delivery': [
+                {
+                    'listing_id': listing_both.id,
+                    'delivery_method': 'melhor_envio',
+                    'service_id': 3,  # chosen from services[].id in calculate_shipping response
+                },
+                {
+                    'listing_id': listing_in_person.id,
+                    'delivery_method': 'in_person',  # forced by shipping_method='in_person'
+                },
+            ],
+            'in_person_by_seller': {
+                str(self.seller1.id): {}  # meeting details optional
+            },
+            'payment_method': 'pix',
+        }
+
+        serializer = OrderCreateSerializer(data=data, context={'request': self.request})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        ss = serializer.validated_data['shipping_services']
+
+        # seller1 has both melhor_envio and in_person items → split
+        self.assertEqual(ss[str(self.seller1.id)]['delivery_method'], 'split')
+        self.assertEqual(ss[str(self.seller1.id)]['shipping']['service_id'], 3)
+        self.assertIn('in_person', ss[str(self.seller1.id)])
 
     # ---- Validation rejection tests ----
 
@@ -582,6 +752,123 @@ class OrderCreateSerializerTestCase(TestCase):
         serializer = OrderCreateSerializer(data=data, context={'request': self.request})
         self.assertFalse(serializer.is_valid())
         self.assertIn('items_delivery', serializer.errors)
+
+    def test_listing_not_in_original_quote_rejected(self):
+        """
+        If a buyer adds a new listing AFTER calculating shipping and tries to create an order
+        using the old quote, the order must be rejected.
+
+        The ShippingQuote was generated with listing1 only (melhor_envio_listing_ids=[listing1.id]).
+        Buyer then adds listing_new (same seller) to the cart, keeps the old quote, and sends
+        both listing1 and listing_new as melhor_envio. The listing_new was not included in the
+        original quote so the order must be rejected.
+        """
+        # Create a second listing belonging to seller1
+        listing_new = MarketplaceListing.objects.create(
+            product=self.product2,
+            seller=self.seller1,
+            brand=self.brand,
+            condition=self.condition,
+            price=Decimal('300.00'),
+            quantity=2,
+            is_active=True,
+            weight_kg=Decimal('5.00'),
+            height_cm=Decimal('20.00'),
+            width_cm=Decimal('20.00'),
+            length_cm=Decimal('20.00'),
+            shipping_method='both',
+        )
+        # Add listing_new to the cart AFTER the quote was created (simulating the risk scenario)
+        CartItem.objects.create(cart=self.cart, listing=listing_new, quantity=1)
+
+        # Re-create quote1 with melhor_envio_listing_ids containing ONLY listing1 (old quote)
+        self.quote1.delete()
+        ShippingQuote.objects.create(
+            user=self.buyer,
+            seller=self.seller1,
+            origin_zipcode='02310-100',
+            origin_address={},
+            destination_zipcode='01310-100',
+            destination_address={},
+            weight=Decimal('50.00'),
+            height=Decimal('120.00'),
+            width=Decimal('80.00'),
+            length=Decimal('150.00'),
+            declared_value=Decimal('1500.00'),
+            quotes_data={
+                'services': [
+                    {
+                        'id': 1,
+                        'name': 'PAC',
+                        'price': '45.90',
+                        'custom_price': '45.90',
+                        'delivery_time': 5,
+                        'company': {'id': 1, 'name': 'Correios', 'picture': ''},
+                    },
+                ],
+                'melhor_envio_listing_ids': [self.listing1.id],  # listing_new NOT included
+            },
+            expires_at=timezone.now() + timedelta(hours=24),
+        )
+
+        # Buyer sends both listing1 and listing_new as melhor_envio with service_id=1
+        data = {
+            'shipping_address_id': self.address.id,
+            'items_delivery': [
+                {'listing_id': self.listing1.id, 'delivery_method': 'melhor_envio', 'service_id': 1},
+                {'listing_id': listing_new.id, 'delivery_method': 'melhor_envio', 'service_id': 1},
+                {'listing_id': self.listing2.id, 'delivery_method': 'in_person'},
+            ],
+            'payment_method': 'pix',
+        }
+
+        serializer = OrderCreateSerializer(data=data, context={'request': self.request})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('items_delivery', serializer.errors)
+        error_text = str(serializer.errors['items_delivery'])
+        self.assertIn('Recalcule o frete', error_text)
+
+    def test_cart_change_invalidates_shipping_quote(self):
+        """
+        Adding a CartItem for a seller must delete that seller's ShippingQuote.
+
+        This test verifies the invalidate_shipping_quotes_on_cart_change signal works
+        correctly: when a cart item is saved (post_save), the quote is deleted.
+        """
+        # At this point self.quote1 and self.quote2 exist from setUp.
+        # Verify they're in the DB.
+        self.assertTrue(
+            ShippingQuote.objects.filter(user=self.buyer, seller=self.seller1).exists()
+        )
+
+        # Create a new listing for seller1 and add it to the cart → triggers post_save signal
+        listing_extra = MarketplaceListing.objects.create(
+            product=self.product2,
+            seller=self.seller1,
+            brand=self.brand,
+            condition=self.condition,
+            price=Decimal('100.00'),
+            quantity=1,
+            is_active=True,
+            weight_kg=Decimal('2.00'),
+            height_cm=Decimal('10.00'),
+            width_cm=Decimal('10.00'),
+            length_cm=Decimal('10.00'),
+            shipping_method='both',
+        )
+        CartItem.objects.create(cart=self.cart, listing=listing_extra, quantity=1)
+
+        # seller1's quote must have been deleted by the signal
+        self.assertFalse(
+            ShippingQuote.objects.filter(user=self.buyer, seller=self.seller1).exists(),
+            "ShippingQuote for seller1 should have been invalidated after adding a cart item."
+        )
+
+        # seller2's quote must NOT have been affected
+        self.assertTrue(
+            ShippingQuote.objects.filter(user=self.buyer, seller=self.seller2).exists(),
+            "ShippingQuote for seller2 should not be affected by a cart change for seller1."
+        )
 
 
 class OrderCreationServiceTestCase(TestCase):

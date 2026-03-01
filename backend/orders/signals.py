@@ -5,14 +5,42 @@ Handles automatic actions triggered by order state changes.
 """
 
 import logging
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from django.conf import settings
 
-from .models import Order
+from .models import Order, CartItem
 from .services.order_state_machine import OrderStateMachine
 
 logger = logging.getLogger(__name__)
+
+
+@receiver(post_save, sender=CartItem)
+@receiver(post_delete, sender=CartItem)
+def invalidate_shipping_quotes_on_cart_change(sender, instance, **kwargs):
+    """
+    Invalidate shipping quotes when cart items are added or removed.
+
+    If a buyer adds/removes items after calculating shipping, the existing
+    quote no longer reflects the actual package dimensions and must be recalculated.
+    Only the quote for the affected seller is invalidated.
+    """
+    from logistics.models import ShippingQuote
+
+    try:
+        user = instance.cart.user
+        seller = instance.listing.seller
+        deleted_count, _ = ShippingQuote.objects.filter(
+            user=user,
+            seller=seller
+        ).delete()
+        if deleted_count:
+            logger.info(
+                f"Invalidated {deleted_count} ShippingQuote(s) for "
+                f"user={user.id} seller={seller.id} on cart change"
+            )
+    except Exception as e:
+        logger.warning(f"Failed to invalidate shipping quotes on cart change: {e}")
 
 
 @receiver(post_save, sender=Order)
