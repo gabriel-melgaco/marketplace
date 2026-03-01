@@ -220,16 +220,45 @@ class OrderDetailView(generics.RetrieveAPIView):
             'shipping_address_id': rf_serializers.IntegerField(
                 help_text='ID do endereço de entrega do comprador'
             ),
-            'shipping_services': rf_serializers.DictField(
-                child=rf_serializers.DictField(),
+            'items_delivery': rf_serializers.ListField(
+                child=inline_serializer(
+                    name='ItemDeliveryEntry',
+                    fields={
+                        'listing_id': rf_serializers.IntegerField(
+                            help_text='ID do listing do carrinho'
+                        ),
+                        'delivery_method': rf_serializers.ChoiceField(
+                            choices=['melhor_envio', 'in_person'],
+                            help_text=(
+                                'Método de entrega para este item. '
+                                "'melhor_envio' requer service_id. "
+                                'Deve respeitar listing.shipping_method: '
+                                "in_person-only → obrigado 'in_person'; "
+                                "melhor_envio-only → obrigatório 'melhor_envio'; "
+                                "both → qualquer um."
+                            )
+                        ),
+                        'service_id': rf_serializers.IntegerField(
+                            required=False,
+                            help_text="ID do serviço de frete (obrigatório quando delivery_method='melhor_envio')"
+                        ),
+                    }
+                ),
                 help_text=(
-                    'Mapa de seller_id para configuração de entrega. Cada valor pode ser: '
-                    '(1) Shipping: {"delivery_method": "shipping", "service_id": int} '
-                    '(2) In-person: {"delivery_method": "in_person"} — todos os campos de encontro são opcionais '
-                    '(3) Split (vendedor com itens mistos): {"shipping": {"service_id": int}, "in_person": {}} '
-                    '(4) Legado: integer (service_id direto). '
-                    'Campos opcionais de in_person: meeting_location_name, meeting_address, '
-                    'seller_contact_phone, buyer_contact_phone, scheduled_date, scheduled_time, meeting_notes'
+                    'Lista de escolhas de entrega por listing (um entry por item do carrinho). '
+                    'Todos os listings do carrinho devem estar presentes.'
+                )
+            ),
+            'in_person_by_seller': rf_serializers.DictField(
+                required=False,
+                default=dict,
+                help_text=(
+                    'Detalhes do encontro presencial por seller_id (chave como string). '
+                    'Todos os campos são opcionais: meeting_location_name, meeting_address '
+                    '(street, number, city, state, zipcode), seller_contact_phone, '
+                    'buyer_contact_phone, scheduled_date (YYYY-MM-DD), '
+                    'scheduled_time (HH:MM), meeting_notes. '
+                    'Pode omitir vendedores ou enviar sub-objeto vazio {}.'
                 )
             ),
             'payment_method': rf_serializers.ChoiceField(
@@ -245,38 +274,47 @@ class OrderDetailView(generics.RetrieveAPIView):
     ),
     responses={201: OrderSerializer},
     description=(
-        "Create an order from the cart with support for multiple delivery methods.\n\n"
-        "Each seller in the cart must have a delivery configuration in `shipping_services`.\n\n"
-        "## Delivery Methods\n\n"
-        "**Shipping** (via carrier):\n"
-        "- Requires prior freight quote via `POST /api/logistics/shipping/calculate/`\n"
-        "- Fields: `delivery_method`, `service_id`, `cost`\n\n"
-        "**In-person** (pickup with seller):\n"
-        "- No freight quote needed\n"
-        "- `delivery_method: 'in_person'` is the only required field\n"
-        "- Optional meeting fields: `meeting_location_name`, `meeting_address`, "
-        "`seller_contact_phone`, `buyer_contact_phone`, `scheduled_date`, `scheduled_time`, `meeting_notes`\n"
-        "- Meeting details can be added later via update endpoint\n\n"
-        "**Split** (seller has mixed listing types — some `both`/`melhor_envio`, some `in_person`):\n"
-        "- Use sub-keys `shipping` and `in_person` instead of a top-level `delivery_method`\n"
-        "- `shipping`: `{service_id: int}` — only eligible items are sent to Melhor Envio\n"
-        "- `in_person`: `{}` or meeting details — in_person-only items are handled separately\n\n"
-        "**Legacy format** (backward compatible): `{seller_id: service_id}` as integer"
+        "Create an order from the cart. Delivery method is chosen **per item** (listing), "
+        "not per seller.\n\n"
+        "## Fields\n\n"
+        "**`items_delivery`** (required): List with one entry per cart item.\n"
+        "- `listing_id`: ID of the listing in the cart\n"
+        "- `delivery_method`: `'melhor_envio'` or `'in_person'`\n"
+        "- `service_id`: Required when `delivery_method='melhor_envio'`. "
+        "Must match a service in a valid (non-expired) ShippingQuote for that seller.\n\n"
+        "**Listing constraints** — `delivery_method` must respect `listing.shipping_method`:\n"
+        "- `in_person` listing → must choose `'in_person'`\n"
+        "- `melhor_envio` listing → must choose `'melhor_envio'`\n"
+        "- `both` listing → either is valid\n\n"
+        "**`in_person_by_seller`** (optional): Meeting details per seller_id (string key).\n"
+        "All sub-fields are optional — can be filled later via update endpoint:\n"
+        "`meeting_location_name`, `meeting_address`, `seller_contact_phone`, "
+        "`buyer_contact_phone`, `scheduled_date`, `scheduled_time`, `meeting_notes`\n\n"
+        "## Internal Conversion\n\n"
+        "The API converts `items_delivery` + `in_person_by_seller` into an internal "
+        "per-seller format before processing:\n"
+        "- Seller with only `melhor_envio` items → `shipping` delivery\n"
+        "- Seller with only `in_person` items → `in_person` delivery\n"
+        "- Seller with mixed items → `split` delivery\n\n"
+        "## Shipping Cost\n\n"
+        "Costs are always taken from the server-side ShippingQuote — never from client input."
     ),
     examples=[
         OpenApiExample(
-            name='Mixed delivery (shipping + in-person)',
-            description='Order with shipping for one seller and in-person pickup for another',
+            name='Mixed cart: listing 30 (both→melhor_envio) + listing 31 (in_person)',
+            description=(
+                'Seller 9 has two listings: listing 30 (shipping_method=both) chosen for '
+                'Melhor Envio delivery, and listing 31 (shipping_method=in_person) for in-person. '
+                'This produces a split delivery internally.'
+            ),
             value={
                 'shipping_address_id': 5,
-                'shipping_services': {
-                    '1': {
-                        'delivery_method': 'shipping',
-                        'service_id': 2,
-                        'cost': 25.90
-                    },
-                    '2': {
-                        'delivery_method': 'in_person',
+                'items_delivery': [
+                    {'listing_id': 30, 'delivery_method': 'melhor_envio', 'service_id': 3},
+                    {'listing_id': 31, 'delivery_method': 'in_person'},
+                ],
+                'in_person_by_seller': {
+                    '9': {
                         'meeting_location_name': 'Shopping Iguatemi',
                         'meeting_address': {
                             'street': 'Av. Brigadeiro Faria Lima',
@@ -287,41 +325,42 @@ class OrderDetailView(generics.RetrieveAPIView):
                         },
                         'seller_contact_phone': '11999999999',
                         'buyer_contact_phone': '11888888888',
-                        'scheduled_date': '2026-02-15',
+                        'scheduled_date': '2026-03-10',
                         'scheduled_time': '14:00',
                         'meeting_notes': 'Próximo à entrada principal'
                     }
                 },
                 'payment_method': 'pix',
-                'buyer_notes': 'Entregar após 18h'
+                'buyer_notes': ''
             },
             request_only=True,
         ),
         OpenApiExample(
-            name='Shipping only',
-            description='Order with shipping delivery for all sellers',
+            name='All Melhor Envio',
+            description='All cart items shipped via Melhor Envio (two sellers)',
             value={
                 'shipping_address_id': 5,
-                'shipping_services': {
-                    '1': {
-                        'delivery_method': 'shipping',
-                        'service_id': 2,
-                        'cost': 25.90
-                    }
-                },
+                'items_delivery': [
+                    {'listing_id': 10, 'delivery_method': 'melhor_envio', 'service_id': 2},
+                    {'listing_id': 20, 'delivery_method': 'melhor_envio', 'service_id': 1},
+                ],
+                'in_person_by_seller': {},
                 'payment_method': 'credit_card',
                 'buyer_notes': ''
             },
             request_only=True,
         ),
         OpenApiExample(
-            name='In-person only',
-            description='Order with in-person pickup for all sellers',
+            name='All in-person',
+            description='All cart items picked up in-person with meeting details',
             value={
                 'shipping_address_id': 5,
-                'shipping_services': {
+                'items_delivery': [
+                    {'listing_id': 10, 'delivery_method': 'in_person'},
+                    {'listing_id': 20, 'delivery_method': 'in_person'},
+                ],
+                'in_person_by_seller': {
                     '1': {
-                        'delivery_method': 'in_person',
                         'meeting_location_name': 'Loja Física Centro',
                         'meeting_address': {
                             'street': 'Rua Augusta',
@@ -332,52 +371,37 @@ class OrderDetailView(generics.RetrieveAPIView):
                         },
                         'seller_contact_phone': '11999999999',
                         'buyer_contact_phone': '11888888888'
-                    }
+                    },
+                    '2': {}
                 },
-                'payment_method': 'pix'
+                'payment_method': 'pix',
+                'buyer_notes': ''
             },
             request_only=True,
         ),
         OpenApiExample(
-            name='Split delivery (mixed shipping_method per seller)',
+            name='Split with in-person meeting details',
             description=(
-                'Seller 9 has listing 30 (shipping_method=both) and listing 31 (shipping_method=in_person). '
-                'Use the split format to ship listing 30 via Melhor Envio and deliver listing 31 in-person. '
-                'The "in_person" sub-object can be empty {} — meeting details are optional.'
+                'Seller 9 has listing 30 (both → melhor_envio, service 3) and '
+                'listing 31 (in_person). Meeting details provided for in-person items.'
             ),
             value={
                 'shipping_address_id': 5,
-                'shipping_services': {
+                'items_delivery': [
+                    {'listing_id': 30, 'delivery_method': 'melhor_envio', 'service_id': 3},
+                    {'listing_id': 31, 'delivery_method': 'in_person'},
+                ],
+                'in_person_by_seller': {
                     '9': {
-                        'shipping': {'service_id': 3},
-                        'in_person': {
-                            'meeting_location_name': 'Shopping Iguatemi',
-                            'meeting_address': {
-                                'street': 'Av. Brigadeiro Faria Lima',
-                                'number': '2232',
-                                'city': 'São Paulo',
-                                'state': 'SP',
-                                'zipcode': '01451-000'
-                            },
-                            'seller_contact_phone': '11999999999',
-                            'buyer_contact_phone': '11888888888'
-                        }
+                        'meeting_location_name': 'Portaria do Condomínio',
+                        'seller_contact_phone': '11912345678',
+                        'buyer_contact_phone': '11987654321',
+                        'scheduled_date': '2026-03-15',
+                        'scheduled_time': '10:00'
                     }
                 },
-                'payment_method': 'pix'
-            },
-            request_only=True,
-        ),
-        OpenApiExample(
-            name='Legacy format (backward compatible)',
-            description='Old format using seller_id: service_id mapping',
-            value={
-                'shipping_address_id': 5,
-                'shipping_services': {
-                    '1': 2,
-                    '3': 1
-                },
-                'payment_method': 'credit_card'
+                'payment_method': 'pix',
+                'buyer_notes': 'Ligar antes de chegar'
             },
             request_only=True,
         ),
@@ -388,32 +412,24 @@ class OrderDetailView(generics.RetrieveAPIView):
 def create_order(request):
     """
     Criar pedido a partir do carrinho usando service layer.
-    Suporta múltiplos métodos de entrega (shipping e in-person).
+    Método de entrega selecionado por item (listing), não por vendedor.
 
-    Formato novo:
+    Formato:
     {
         "shipping_address_id": 5,
-        "shipping_services": {
-            "1": {
-                "delivery_method": "shipping",
-                "service_id": 2,
-                "cost": 25.90
-            },
-            "2": {
-                "delivery_method": "in_person",
+        "items_delivery": [
+            {"listing_id": 30, "delivery_method": "melhor_envio", "service_id": 3},
+            {"listing_id": 31, "delivery_method": "in_person"}
+        ],
+        "in_person_by_seller": {
+            "9": {
                 "meeting_location_name": "Shopping Iguatemi",
-                "meeting_address": {"street": "...", "city": "...", "state": "SP"},
                 "seller_contact_phone": "11999999999",
                 "buyer_contact_phone": "11888888888"
             }
         },
         "payment_method": "pix",
         "buyer_notes": "Opcional"
-    }
-
-    Formato legado (retrocompatível):
-    {
-        "shipping_services": {"1": 2, "3": 1}
     }
     """
     # Validate request data

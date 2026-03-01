@@ -221,7 +221,18 @@ def get_shipping_addresses(request):
         '- `in_person_items`: list of items excluded from the quote '
         '(each with `listing_id`, `title`, `shipping_method`)\n\n'
         'If **all** items from a seller are `in_person`, the entry will contain '
-        '`in_person_only: true` and no freight quotes.'
+        '`in_person_only: true` and no freight quotes.\n\n'
+        '**Connecting to POST /api/orders/create/:**\n'
+        'Use the response from this endpoint to build the `items_delivery` field in the order '
+        'create request:\n'
+        '- For each item in `services`, pick the desired service — the `id` field is the '
+        '`service_id` to use in `items_delivery` with `delivery_method: "melhor_envio"`.\n'
+        '- For each item in `in_person_items`, send it in `items_delivery` with '
+        '`delivery_method: "in_person"` (no `service_id` needed).\n'
+        '- For sellers with `in_person_only: true`, ALL their items must use '
+        '`delivery_method: "in_person"` in `items_delivery`.\n'
+        '- Items from the same seller with `shipping_method = "both"` can independently '
+        'choose either `melhor_envio` or `in_person` per item.'
     ),
     request=inline_serializer(
         name='CalculateShippingRequest',
