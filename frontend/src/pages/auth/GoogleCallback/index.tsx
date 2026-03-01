@@ -35,7 +35,15 @@ export function GoogleCallback() {
     const state = searchParams.get("state");
     const storedState = sessionStorage.getItem("oauth_state");
 
-    if (state && storedState && state !== storedState) {
+    // State validation: reject when states mismatch OR when we expected a state
+    // (storedState exists) but Google did not return one, or vice-versa.
+    // This guards against CSRF and against a callback arriving in a different
+    // browser session where sessionStorage was already cleared.
+    const stateMismatch =
+      state !== storedState ||
+      (storedState !== null && state === null) ||
+      (storedState === null && state !== null);
+    if (stateMismatch) {
       setError("Falha na validação de segurança. Tente novamente.");
       sessionStorage.removeItem("oauth_state");
       return;

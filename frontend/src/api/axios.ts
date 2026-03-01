@@ -40,8 +40,16 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    // Don't intercept 401 on auth endpoints (login, refresh, etc.)
-    const authPaths = ["/auth/login/", "/auth/token/refresh/", "/auth/registration/"];
+    // Don't intercept 401 on auth endpoints (login, refresh, social auth, etc.)
+    // Social auth endpoints must be excluded because the user has no tokens yet
+    // when the OAuth callback exchange happens; intercepting would silently swallow
+    // the real backend error and produce confusing retry behaviour.
+    const authPaths = [
+      "/auth/login/",
+      "/auth/token/refresh/",
+      "/auth/registration/",
+      "/auth/social/",
+    ];
     if (authPaths.some((path) => originalRequest.url?.includes(path))) {
       return Promise.reject(error);
     }
