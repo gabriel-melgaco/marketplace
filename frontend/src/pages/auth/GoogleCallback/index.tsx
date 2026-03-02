@@ -32,23 +32,23 @@ export function GoogleCallback() {
 
     const code = searchParams.get("code");
     const state = searchParams.get("state");
-    const storedState = sessionStorage.getItem("google_oauth_state");
+    const storedState = localStorage.getItem("google_oauth_state");
 
     // State validation: reject when states mismatch OR when we expected a state
     // (storedState exists) but Google did not return one, or vice-versa.
     // This guards against CSRF and against a callback arriving in a different
-    // browser session where sessionStorage was already cleared.
+    // browser session where localStorage was already cleared.
     const stateMismatch =
       state !== storedState ||
       (storedState !== null && state === null) ||
       (storedState === null && state !== null);
     if (stateMismatch) {
       setError("Falha na validação de segurança. Tente novamente.");
-      sessionStorage.removeItem("google_oauth_state");
+      localStorage.removeItem("google_oauth_state");
       return;
     }
 
-    sessionStorage.removeItem("google_oauth_state");
+    localStorage.removeItem("google_oauth_state");
 
     const [intent] = (state ?? "").split(":");
 
@@ -66,7 +66,9 @@ export function GoogleCallback() {
 
     async function handleGoogleLogin(authCode: string) {
       try {
-        const response = await socialAuthService.googleLogin({ code: authCode });
+        const response = await socialAuthService.googleLogin({
+          code: authCode,
+        });
         if (!cancelled) {
           setUser(response.user);
           navigate("/", { replace: true });
@@ -91,7 +93,7 @@ export function GoogleCallback() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
         <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl p-8 text-center">
           <AlertCircle size={48} className="mx-auto mb-4 text-red-500" />
           <h2 className="text-xl font-bold text-gray-900 mb-2">
@@ -110,7 +112,7 @@ export function GoogleCallback() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
       <div className="text-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4" />
         <p className="text-white text-lg">Autenticando com Google...</p>
