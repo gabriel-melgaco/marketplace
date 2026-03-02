@@ -8,7 +8,7 @@ export const ROUTES = {
   CATEGORY_PRODUCTS: "/products",
 
   // Auth
-  GOOGLE_CALLBACK: "/auth/google/callback",
+  GOOGLE_CALLBACK: "/google",
   LOGIN: "/login",
   REGISTER: "/register",
   FORGOT_PASSWORD: "/forgotpassword",

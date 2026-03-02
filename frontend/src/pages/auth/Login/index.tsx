@@ -3,7 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { AuthLogo } from "@/components/ui/AuthLogo";
 import { Eye, EyeOff, Mail, Lock, LogIn, AlertCircle } from "lucide-react";
-import { GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI } from "@/utils/constants";
+import { startGoogleOAuth } from "@/hooks/useGoogleAuth";
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -17,36 +17,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   const handleGoogleLogin = () => {
-    if (!GOOGLE_CLIENT_ID || !GOOGLE_REDIRECT_URI) {
-      console.error(
-        "[Google OAuth] Variáveis de ambiente ausentes:",
-        { GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI },
-      );
-      setError("Configuração do login com Google está incompleta. Contate o suporte.");
-      return;
-    }
-
-    const state = crypto.randomUUID();
-    sessionStorage.setItem("oauth_state", state);
-
-    const params = new URLSearchParams({
-      client_id: GOOGLE_CLIENT_ID,
-      redirect_uri: GOOGLE_REDIRECT_URI,
-      response_type: "code",
-      scope: "openid email profile",
-      access_type: "offline",
-      prompt: "select_account",
-      state,
-    });
-
-    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-
-    // TODO: remover logs antes de ir para produção
-    console.log("[Google OAuth] CLIENT_ID:", GOOGLE_CLIENT_ID);
-    console.log("[Google OAuth] REDIRECT_URI:", GOOGLE_REDIRECT_URI);
-    console.log("[Google OAuth] URL final:", authUrl);
-
-    window.location.href = authUrl;
+    startGoogleOAuth("login");
   };
 
   const handleLogin = async (e: FormEvent<HTMLFormElement>) => {
