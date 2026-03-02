@@ -763,7 +763,245 @@ class MelhorEnvioService:
                 }
         
         return quotes_by_seller
-    
+
+    def calculate_listing_freight(self, listing, destination_zipcode: str) -> dict:
+        """
+        Calcula opções de frete para um único listing (anúncio) com base no CEP de destino.
+
+        Percorre todos os packages do listing e faz uma cotação individual por volume,
+        somando os preços e tomando o maior prazo de entrega. Se o listing não tiver
+        packages, faz fallback para os campos legados de dimensão.
+
+        Não salva nada no banco — retorna apenas os dados calculados.
+
+        Args:
+            listing: Instância de MarketplaceListing.
+            destination_zipcode: CEP de destino (com ou sem traço).
+
+        Returns:
+            dict com as chaves:
+                - available (bool)
+                - options (list[dict]) — presente somente quando available=True.
+                  Cada opção: {service_id, name, company, company_picture, price, delivery_days}
+                - message (str) — presente somente quando available=False.
+
+        Raises:
+            ShippingValidationError: CEP de origem == destino ou dados inválidos.
+        """
+        from products.models import ShippingMethodChoices
+        from django.conf import settings as django_settings
+
+        # -----------------------------------------------------------------
+        # 1. Verificar se o listing suporta envio via Melhor Envio
+        # -----------------------------------------------------------------
+        if listing.shipping_method == ShippingMethodChoices.IN_PERSON:
+            return {
+                'available': False,
+                'message': (
+                    'Nosso serviço de envios não está disponível para este anúncio. '
+                    'Contate o vendedor e combine a entrega.'
+                ),
+            }
+
+        # -----------------------------------------------------------------
+        # 2. Verificar endereço de origem (shipping_address do listing)
+        # -----------------------------------------------------------------
+        seller_address = listing.shipping_address
+        if not seller_address:
+            return {
+                'available': False,
+                'message': (
+                    'Nosso serviço de envios não está disponível para este anúncio. '
+                    'Contate o vendedor e combine a entrega.'
+                ),
+            }
+
+        origin_zipcode = seller_address.zipcode.replace('-', '').strip()
+        dest_clean = destination_zipcode.replace('-', '').strip()
+
+        # -----------------------------------------------------------------
+        # 3. Validar CEPs (dispara ShippingValidationError se iguais)
+        # -----------------------------------------------------------------
+        self._validate_zipcodes(origin_zipcode, dest_clean)
+
+        # -----------------------------------------------------------------
+        # 4. Determinar serviços elegíveis para o vendedor
+        # -----------------------------------------------------------------
+        seller = listing.seller
+        seller_active_service_ids = self._get_seller_active_service_ids(seller)
+
+        default_services_str = getattr(
+            django_settings, 'MELHOR_ENVIO_DEFAULT_SERVICES', '1,2,3,4,7,17,18'
+        )
+        if seller_active_service_ids is not None:
+            default_service_ids = [
+                int(s.strip())
+                for s in default_services_str.split(',')
+                if s.strip().isdigit()
+            ]
+            filtered_ids = [
+                sid for sid in default_service_ids if sid in seller_active_service_ids
+            ]
+            effective_services = (
+                ','.join(str(s) for s in filtered_ids) if filtered_ids else default_services_str
+            )
+        else:
+            effective_services = default_services_str
+
+        # -----------------------------------------------------------------
+        # 5. Montar volumes por package (com fallback para campos legados)
+        # -----------------------------------------------------------------
+        packages = list(listing.packages.all())
+        volumes = []
+        if packages:
+            for pkg in packages:
+                vol = {
+                    'height': int(round(float(pkg.height_cm))),
+                    'width': int(round(float(pkg.width_cm))),
+                    'length': int(round(float(pkg.length_cm))),
+                    'weight': round(float(pkg.weight_kg), 3),
+                }
+                volumes.append(vol)
+        else:
+            # Fallback: campos legados do listing
+            if any([listing.height_cm, listing.width_cm, listing.length_cm, listing.weight_kg]):
+                vol = {
+                    'height': int(round(float(listing.height_cm or 0))),
+                    'width': int(round(float(listing.width_cm or 0))),
+                    'length': int(round(float(listing.length_cm or 0))),
+                    'weight': round(float(listing.weight_kg or 0), 3),
+                }
+                volumes.append(vol)
+
+        if not volumes:
+            logger.warning(
+                f'[calculate_listing_freight] Listing {listing.id} sem volumes configurados.'
+            )
+            return {
+                'available': False,
+                'message': (
+                    'Nosso serviço de envios não está disponível para este anúncio. '
+                    'Contate o vendedor e combine a entrega.'
+                ),
+            }
+
+        # -----------------------------------------------------------------
+        # 6. Calcular frete volume a volume e agregar por serviço
+        # -----------------------------------------------------------------
+        insurance_value = min(
+            float(listing.price),
+            getattr(django_settings, 'MELHOR_ENVIO_MAX_INSURANCE_VALUE', 1000.0),
+        )
+        options_base = {
+            'insurance_value': insurance_value,
+            'receipt': False,
+            'own_hand': False,
+            'collect': False,
+        }
+
+        # agg[service_id] = {base, total_price, max_delivery, has_error}
+        agg: dict = {}
+
+        for vol in volumes:
+            try:
+                vol_quotes = self.calculate_shipping(
+                    from_zipcode=origin_zipcode,
+                    to_zipcode=dest_clean,
+                    package=vol,
+                    options=options_base,
+                    seller=seller,
+                    services=effective_services,
+                )
+            except ShippingValidationError:
+                raise
+            except Exception as exc:
+                logger.error(
+                    f'[calculate_listing_freight] Falha ao calcular frete para listing '
+                    f'{listing.id}: {exc}'
+                )
+                return {
+                    'available': False,
+                    'message': (
+                        'Nosso serviço de envios não está disponível para este anúncio. '
+                        'Contate o vendedor e combine a entrega.'
+                    ),
+                }
+
+            if not isinstance(vol_quotes, list):
+                logger.warning(
+                    f'[calculate_listing_freight] Resposta inesperada do ME para listing '
+                    f'{listing.id}: {vol_quotes!r}'
+                )
+                continue
+
+            for entry in vol_quotes:
+                if not isinstance(entry, dict):
+                    continue
+                svc_id = entry.get('id')
+                if svc_id is None:
+                    continue
+                has_error = bool(entry.get('error'))
+                if svc_id not in agg:
+                    agg[svc_id] = {
+                        'base': entry,
+                        'total_price': 0.0,
+                        'max_delivery': 0,
+                        'has_error': has_error,
+                    }
+                ag = agg[svc_id]
+                if has_error:
+                    ag['has_error'] = True
+                else:
+                    vol_price = float(
+                        entry.get('custom_price', entry.get('price', 0)) or 0
+                    )
+                    vol_delivery = int(
+                        entry.get('custom_delivery_time', entry.get('delivery_time', 0)) or 0
+                    )
+                    ag['total_price'] += vol_price
+                    ag['max_delivery'] = max(ag['max_delivery'], vol_delivery)
+
+        # -----------------------------------------------------------------
+        # 7. Formatar resposta
+        # -----------------------------------------------------------------
+        options = []
+        for svc_id, ag in agg.items():
+            if ag['has_error']:
+                continue
+            base = ag['base']
+            company_data = base.get('company', {})
+            company_name = (
+                company_data.get('name', '') if isinstance(company_data, dict) else str(company_data)
+            )
+            company_picture = (
+                company_data.get('picture', '') if isinstance(company_data, dict) else ''
+            )
+            options.append({
+                'service_id': svc_id,
+                'name': base.get('name', ''),
+                'company': company_name,
+                'company_picture': company_picture,
+                'price': round(ag['total_price'], 2),
+                'delivery_days': ag['max_delivery'],
+            })
+
+        # Sort cheapest first
+        options.sort(key=lambda x: x['price'])
+
+        if not options:
+            return {
+                'available': False,
+                'message': (
+                    'Nosso serviço de envios não está disponível para este anúncio. '
+                    'Contate o vendedor e combine a entrega.'
+                ),
+            }
+
+        return {
+            'available': True,
+            'options': options,
+        }
+
     def _format_services(self, quotes_data):
         """
         Formata serviços de frete para resposta padronizada

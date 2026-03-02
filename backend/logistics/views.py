@@ -33,6 +33,7 @@ from .serializers import (
     OrderDeliverySerializer, OrderDeliveryCreateSerializer,
     InPersonDeliverySerializer, InPersonDeliveryCreateSerializer,
     InPersonDeliveryUpdateSerializer, DeliveryMethodChoiceSerializer,
+    ListingFreightQuoteRequestSerializer, ListingFreightQuoteResponseSerializer,
 )
 from .services import (
     MelhorEnvioService,
@@ -203,6 +204,95 @@ def get_shipping_addresses(request):
     
     serializer = AddressSerializer(addresses, many=True)
     return Response(serializer.data)
+
+
+# =================== Listing Freight Quote ===================
+
+@extend_schema(
+    tags=['Logistics - Shipping'],
+    summary='Calculate freight options for a listing',
+    description=(
+        'Calculates available shipping options for a specific listing based on the buyer\'s '
+        'destination ZIP code (CEP). Does **not** persist anything to the database — '
+        'the result is ephemeral and intended for display on the listing page.\n\n'
+        '**Multi-package support:** If the listing has more than one package, the freight cost '
+        'for each package is calculated individually and the totals are summed per carrier '
+        'service. The delivery deadline shown is the maximum across all packages.\n\n'
+        '**Not available scenarios (available=false):**\n'
+        '- Listing `shipping_method` is `in_person` only.\n'
+        '- Listing has no shipping address configured.\n'
+        '- Listing has no package dimensions configured.\n'
+        '- No carrier accepts the package for the given route.\n'
+        '- Same origin and destination ZIP code (suggests in-person delivery instead).\n\n'
+        '**Response when available=true:** `options` sorted by price (cheapest first).\n'
+        '**Response when available=false:** `message` with a user-friendly explanation.'
+    ),
+    request=ListingFreightQuoteRequestSerializer,
+    responses={
+        200: ListingFreightQuoteResponseSerializer,
+        400: OpenApiResponse(description='Invalid destination CEP or listing not eligible for shipping.'),
+        404: OpenApiResponse(description='Listing not found.'),
+    },
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def listing_freight_quote(request, listing_id: int):
+    """
+    POST /api/logistics/listings/<listing_id>/freight-quote/
+
+    Calcula opções de frete para um anúncio sem salvar dados no banco.
+    O usuário deve estar autenticado.
+    """
+    listing = get_object_or_404(
+        MarketplaceListing.objects.select_related(
+            'shipping_address', 'seller'
+        ).prefetch_related('packages'),
+        pk=listing_id,
+        is_active=True,
+    )
+
+    serializer = ListingFreightQuoteRequestSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    destination_cep = serializer.validated_data['destination_cep']
+
+    service = MelhorEnvioService()
+
+    try:
+        result = service.calculate_listing_freight(
+            listing=listing,
+            destination_zipcode=destination_cep,
+        )
+    except Exception as exc:
+        from .services.melhor_envio_service import ShippingValidationError
+        if isinstance(exc, ShippingValidationError):
+            return Response(
+                {
+                    'available': False,
+                    'message': str(exc),
+                },
+                status=status.HTTP_200_OK,
+            )
+        logger.error(
+            f'[listing_freight_quote] Erro inesperado ao calcular frete para listing '
+            f'{listing_id}: {exc}',
+            exc_info=True,
+        )
+        return Response(
+            {
+                'available': False,
+                'message': (
+                    'Nosso serviço de envios não está disponível para este anúncio. '
+                    'Contate o vendedor e combine a entrega.'
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    response_serializer = ListingFreightQuoteResponseSerializer(data=result)
+    response_serializer.is_valid(raise_exception=True)
+    return Response(response_serializer.data, status=status.HTTP_200_OK)
 
 
 # =================== Shipping Quote Views ===================
