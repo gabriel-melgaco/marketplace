@@ -32,7 +32,7 @@ export function GoogleCallback() {
 
     const code = searchParams.get("code");
     const state = searchParams.get("state");
-    const storedState = sessionStorage.getItem("oauth_state");
+    const storedState = sessionStorage.getItem("google_oauth_state");
 
     // State validation: reject when states mismatch OR when we expected a state
     // (storedState exists) but Google did not return one, or vice-versa.
@@ -44,14 +44,21 @@ export function GoogleCallback() {
       (storedState === null && state !== null);
     if (stateMismatch) {
       setError("Falha na validação de segurança. Tente novamente.");
-      sessionStorage.removeItem("oauth_state");
+      sessionStorage.removeItem("google_oauth_state");
       return;
     }
 
-    sessionStorage.removeItem("oauth_state");
+    sessionStorage.removeItem("google_oauth_state");
+
+    const [intent] = (state ?? "").split(":");
 
     if (!code) {
       setError("Código de autenticação não encontrado.");
+      return;
+    }
+
+    if (intent !== "login") {
+      setError("Fluxo de autenticação não reconhecido. Tente novamente.");
       return;
     }
 
