@@ -235,12 +235,14 @@ def get_shipping_addresses(request):
     },
 )
 @api_view(['POST'])
+@authentication_classes([])
+@permission_classes([AllowAny])
 def listing_freight_quote(request, listing_id: int):
     """
     POST /api/logistics/listings/<listing_id>/freight-quote/
 
     Calcula opções de frete para um anúncio sem salvar dados no banco.
-    O usuário deve estar autenticado.
+    Não requer autenticação.
     """
     listing = get_object_or_404(
         MarketplaceListing.objects.select_related(
