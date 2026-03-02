@@ -235,7 +235,6 @@ def get_shipping_addresses(request):
     },
 )
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
 def listing_freight_quote(request, listing_id: int):
     """
     POST /api/logistics/listings/<listing_id>/freight-quote/
