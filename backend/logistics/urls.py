@@ -10,6 +10,9 @@ urlpatterns = [
     path('addresses/<int:pk>/set-default/', views.set_default_address, name='address-set-default'),
     path('addresses/shipping/', views.get_shipping_addresses, name='shipping-addresses'),
 
+    # =================== Listing Freight Quote (single listing, no DB save) ===================
+    path('listings/<int:listing_id>/freight-quote/', views.listing_freight_quote, name='listing-freight-quote'),
+
     # =================== Shipping Quotes ===================
     path('shipping/calculate/', views.calculate_shipping, name='calculate-shipping'),
     path('shipping/quotes/', views.get_shipping_quotes, name='shipping-quotes'),

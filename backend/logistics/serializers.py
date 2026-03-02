@@ -477,3 +477,70 @@ class DeliveryStatusLogSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at']
 
 
+# =================== Listing Freight Quote Serializers ===================
+
+class ListingFreightQuoteRequestSerializer(serializers.Serializer):
+    """
+    Payload de entrada para calcular frete de um listing específico.
+
+    Utilizado pelo endpoint POST /api/logistics/listings/<listing_id>/freight-quote/
+    """
+    destination_cep = serializers.CharField(
+        max_length=9,
+        help_text="CEP de destino do comprador (ex: '01310-100' ou '01310100')"
+    )
+
+    def validate_destination_cep(self, value: str) -> str:
+        """Normaliza e valida o formato básico do CEP."""
+        cleaned = value.replace('-', '').strip()
+        if not cleaned.isdigit() or len(cleaned) != 8:
+            raise serializers.ValidationError(
+                "CEP inválido. Informe um CEP com 8 dígitos numéricos (ex: '01310-100')."
+            )
+        return cleaned
+
+
+class ListingFreightOptionSerializer(serializers.Serializer):
+    """
+    Representa uma única opção de frete retornada para o listing.
+
+    Ordenadas por preço crescente na resposta.
+    """
+    service_id = serializers.IntegerField(help_text="ID do serviço no Melhor Envio")
+    name = serializers.CharField(help_text="Nome do serviço (ex: 'PAC', 'SEDEX')")
+    company = serializers.CharField(help_text="Nome da transportadora (ex: 'Correios')")
+    company_picture = serializers.URLField(
+        allow_blank=True,
+        help_text="URL do logotipo da transportadora"
+    )
+    price = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Preço total do frete em R$ (soma de todos os packages)"
+    )
+    delivery_days = serializers.IntegerField(
+        help_text="Prazo de entrega em dias úteis"
+    )
+
+
+class ListingFreightQuoteResponseSerializer(serializers.Serializer):
+    """
+    Resposta do cálculo de frete para um listing.
+
+    Quando available=True, a chave 'options' está presente com as opções disponíveis
+    ordenadas pelo menor preço.
+
+    Quando available=False, a chave 'message' explica o motivo da indisponibilidade.
+    """
+    available = serializers.BooleanField(
+        help_text="True se há opções de frete disponíveis para este anúncio."
+    )
+    options = ListingFreightOptionSerializer(
+        many=True,
+        required=False,
+        help_text="Lista de opções de frete (presente somente quando available=True)"
+    )
+    message = serializers.CharField(
+        required=False,
+        help_text="Mensagem explicativa (presente somente quando available=False)"
+    )
