@@ -21,6 +21,8 @@ CSRF_TRUSTED_ORIGINS = os.getenv('TRUSTED_ORIGINS', '').split(',')
 
 #PARA REQUISIÇÕES API COM HTTPS
 CORS_ALLOWED_ORIGINS = os.getenv('ALLOWED_ORIGINS', '').split(',')
+# Necessário para enviar cookies JWT em requisições cross-origin (ex: Vite :5173 → Django :8000)
+CORS_ALLOW_CREDENTIALS = True
 
 
 # Application definition
@@ -210,6 +212,11 @@ STATIC_URL = 'static/'
 
 AUTH_KIT = {
     "REGISTER_SERIALIZER": "authentication.serializers.CustomRegisterSerializer",
+    # URL base do frontend usada como redirect_uri ao trocar o code com o Google.
+    # O backend gera: {BASE_URL}/google — deve bater com o redirect_uri que o frontend
+    # passa no início do fluxo OAuth e com o URI cadastrado no Google Cloud Console.
+    "SOCIAL_LOGIN_CALLBACK_BASE_URL": os.getenv("FRONTEND_BASE_URL", "http://localhost:5173"),
+    "SOCIAL_CONNECT_CALLBACK_BASE_URL": os.getenv("FRONTEND_BASE_URL", "http://localhost:5173"),
 }
 
 ACCOUNT_EMAIL_VERIFICATION = "mandatory"
