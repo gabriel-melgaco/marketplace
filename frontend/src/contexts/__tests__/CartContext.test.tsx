@@ -53,7 +53,7 @@ function makeListing(
     sold_at: null,
     images: [],
     primary_image: null,
-    seller_shipping_address: null,
+    shipping_address: null,
   };
 }
 

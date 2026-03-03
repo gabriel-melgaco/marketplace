@@ -52,7 +52,7 @@ export function StateProductList() {
   }, [retryCount]);
 
   const filteredListings = allListings.filter((listing) => {
-    const addr = listing.seller_shipping_address;
+    const addr = listing.shipping_address;
     if (!addr || !addr.state) return false;
     return addr.state.trim().toUpperCase() === stateUF;
   });

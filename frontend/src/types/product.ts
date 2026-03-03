@@ -116,7 +116,7 @@ export interface MarketplaceListing {
   sold_at: string | null;
   images: MarketplaceListingImage[];
   primary_image: string | null;
-  seller_shipping_address: SellerShippingAddress | null;
+  shipping_address: SellerShippingAddress | null;
 }
 
 export interface SearchProductsResponse {
@@ -219,7 +219,7 @@ export interface MarketplaceListingDetail {
   seller: number;
   seller_name: string;
   seller_email: string;
-  seller_shipping_address: SellerShippingAddressDetail | null;
+  shipping_address: SellerShippingAddressDetail | null;
   title: string;
   price: string;
   quantity: number;

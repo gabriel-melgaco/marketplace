@@ -35,10 +35,9 @@ function formatPrice(price: string): string {
 }
 
 function getLocation(listing: MarketplaceListingDetail): string {
-  const addr = listing.seller_shipping_address;
+  const addr = listing.shipping_address;
   if (!addr) return "";
   const parts: string[] = [];
-  if (addr.neighborhood) parts.push(addr.neighborhood);
   if (addr.city) parts.push(addr.city);
   if (addr.state) parts.push(addr.state);
   return parts.join(" - ");
@@ -342,9 +341,9 @@ export function ProductDetail() {
                     <p className="font-semibold text-gray-900">
                       {listing.seller_name}
                     </p>
-                    {listing.seller_shipping_address && (
+                    {listing.shipping_address && (
                       <p className="text-sm text-gray-500">
-                        {listing.seller_shipping_address.state}
+                        {listing.shipping_address.state}
                       </p>
                     )}
                   </div>
@@ -567,9 +566,9 @@ export function ProductDetail() {
                     <p className="font-semibold text-gray-900">
                       {listing.seller_name}
                     </p>
-                    {listing.seller_shipping_address && (
+                    {listing.shipping_address && (
                       <p className="text-sm text-gray-500">
-                        {listing.seller_shipping_address.state}
+                        {listing.shipping_address.state}
                       </p>
                     )}
                   </div>
