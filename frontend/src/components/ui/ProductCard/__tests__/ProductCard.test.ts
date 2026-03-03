@@ -33,7 +33,7 @@ function makeListing(
     sold_at: null,
     images: [],
     primary_image: null,
-    seller_shipping_address: null,
+    shipping_address: null,
     ...overrides,
   };
 }
@@ -59,15 +59,15 @@ describe("formatListingDate", () => {
 
 describe("getListingLocation", () => {
   it("returns empty string when no shipping address", () => {
-    const listing = makeListing({ seller_shipping_address: null });
+    const listing = makeListing({ shipping_address: null });
     expect(getListingLocation(listing)).toBe("");
   });
 
-  it("returns state when shipping address exists", () => {
+  it("returns city and state when shipping address exists", () => {
     const listing = makeListing({
-      seller_shipping_address: { id: 1, city: "São Paulo", state: "SP" },
+      shipping_address: { id: 1, city: "São Paulo", state: "SP" },
     });
-    expect(getListingLocation(listing)).toBe("SP");
+    expect(getListingLocation(listing)).toBe("São Paulo - SP");
   });
 });
 
@@ -220,20 +220,20 @@ describe("ProductCard subtitle", () => {
   it("builds subtitle with date and location", () => {
     const listing = makeListing({
       created_at: "2025-06-15T10:30:00Z",
-      seller_shipping_address: { id: 1, city: "São Paulo", state: "SP" },
+      shipping_address: { id: 1, city: "São Paulo", state: "SP" },
     });
     const date = formatListingDate(listing.created_at);
     const location = getListingLocation(listing);
     const subtitle = location
       ? `Publicado em ${date} - ${location}`
       : `Publicado em ${date}`;
-    expect(subtitle).toMatch(/^Publicado em \d{2}\/\d{2}\/\d{4} - SP$/);
+    expect(subtitle).toMatch(/^Publicado em \d{2}\/\d{2}\/\d{4} - São Paulo - SP$/);
   });
 
   it("builds subtitle without location when address is null", () => {
     const listing = makeListing({
       created_at: "2025-06-15T10:30:00Z",
-      seller_shipping_address: null,
+      shipping_address: null,
     });
     const date = formatListingDate(listing.created_at);
     const location = getListingLocation(listing);

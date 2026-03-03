@@ -1,5 +1,6 @@
 import api from "@/api/axios";
 import { tokenStorage } from "@/utils/tokenStorage";
+import { userService } from "@/services/userService";
 import type { User } from "@/types/auth";
 
 export interface SocialAccount {
@@ -62,6 +63,21 @@ function mapSocialUserToUser(apiUser: GoogleSocialLoginApiResponse["user"]): Use
   };
 }
 
+function mapProfileToUser(
+  base: ReturnType<typeof mapSocialUserToUser>,
+  profile: Awaited<ReturnType<typeof userService.getCurrentUser>>,
+): User {
+  return {
+    ...base,
+    id: profile.id,
+    email: profile.email,
+    full_name: profile.full_name ?? base.full_name,
+    birthday: profile.birthday ?? "",
+    cpf: profile.cpf ?? "",
+    picture: profile.picture ?? "",
+  };
+}
+
 export const socialAuthService = {
   async listSocialAccounts() {
     const response = await api.get<SocialAccount[]>("/auth/social/accounts/");
@@ -78,14 +94,24 @@ export const socialAuthService = {
       { code: data.code },
     );
 
-    const user = mapSocialUserToUser(response.data.user);
-
     tokenStorage.saveTokens({
       access: response.data.access,
       refresh: response.data.refresh,
       access_expiration: response.data.access_expiration,
       refresh_expiration: response.data.refresh_expiration,
     });
+
+    // Fetch full profile so cpf/birthday reflect actual DB state.
+    // This prevents the profile-completion modal from showing for users
+    // whose Google account was linked to an existing email+password account.
+    let user = mapSocialUserToUser(response.data.user);
+    try {
+      const profile = await userService.getCurrentUser();
+      user = mapProfileToUser(user, profile);
+    } catch {
+      // Non-fatal: fall back to the minimal data from the OAuth response.
+    }
+
     tokenStorage.saveUser(user);
 
     return {

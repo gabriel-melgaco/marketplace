@@ -97,9 +97,25 @@ export function CompleteProfileModal({
       tokenStorage.saveUser(newUser);
       onComplete(newUser);
     } catch (error: any) {
-      setErrors({
-        submit: error.message || "Erro ao salvar dados. Tente novamente.",
-      });
+      const data = error?.response?.data;
+      let message = "Erro ao salvar dados. Tente novamente.";
+
+      if (data && typeof data === "object") {
+        const fieldErrors: string[] = [];
+        for (const [field, value] of Object.entries(data)) {
+          const msgs = Array.isArray(value) ? value : [String(value)];
+          if (field === "non_field_errors" || field === "detail") {
+            fieldErrors.unshift(...msgs);
+          } else {
+            fieldErrors.push(...msgs);
+          }
+        }
+        if (fieldErrors.length > 0) message = fieldErrors[0];
+      } else if (typeof data === "string" && data) {
+        message = data;
+      }
+
+      setErrors({ submit: message });
     } finally {
       setIsLoading(false);
     }
