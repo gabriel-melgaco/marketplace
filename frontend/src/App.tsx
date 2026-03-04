@@ -19,6 +19,7 @@ import PivateRoutes from "@/routes/PrivateRoutes";
 import EmailSent from "@/pages/auth/EmailSent";
 import ConfirmEmail from "@/pages/auth/ConfirmEmail";
 import { Chat } from "@/pages/private/Chat";
+import { AccountPage } from "@/pages/account";
 import { StateProductList } from "@/pages/public/StateProductList";
 import { GoogleCallback } from "@/pages/auth/GoogleCallback";
 import { CategoryProductList } from "@/pages/public/CategoryProductList";
@@ -68,6 +69,7 @@ const router = createBrowserRouter([
           { path: "payment", element: <Payment /> },
           { path: "orderconfirmed", element: <OrderConfirmed /> },
           { path: "chat/:listingId?", element: <Chat /> },
+          { path: "account", element: <AccountPage /> },
         ],
       },
     ],

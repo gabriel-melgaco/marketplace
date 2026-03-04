@@ -29,10 +29,13 @@ export interface CepLookupResponse {
 export interface AddressData {
   id: number;
   address_type: string;
+  nickname?: string;
+  recipient_name?: string;
+  recipient_phone?: string;
   zipcode: string;
   street: string;
   number: string;
-  complement: string;
+  complement?: string;
   neighborhood: string;
   city: string;
   state: string;
@@ -94,5 +97,9 @@ export const logisticsService = {
 
   async setDefaultAddress(id: number): Promise<void> {
     await api.post(`/logistics/addresses/${id}/set-default/`);
+  },
+
+  async deleteAddress(id: number): Promise<void> {
+    await api.delete(`/logistics/addresses/${id}/`);
   },
 };

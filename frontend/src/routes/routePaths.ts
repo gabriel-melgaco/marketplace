@@ -26,6 +26,9 @@ export const ROUTES = {
   CHECKOUT: "/checkout",
   PAYMENT: "/payment",
   ORDER_CONFIRMED: "/orderconfirmed",
+
+  // Account
+  ACCOUNT: "/account",
 } as const;
 
 // Função helper para criar rotas dinâmicas
