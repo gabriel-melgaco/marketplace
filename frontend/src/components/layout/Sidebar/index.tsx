@@ -15,8 +15,7 @@ export function Sidebar() {
   ];
 
   const loggedMenu = [
-    { label: "Minha Conta", path: "/profile" },
-    { label: "Configurações", path: "/settings" },
+    { label: "Minha Conta", path: "/account" },
   ];
 
   useEffect(() => {
@@ -67,7 +66,7 @@ export function Sidebar() {
       <aside
         role="dialog"
         aria-modal="true"
-        aria-labelledby="sidebar-heading"
+        aria-label="Menu da conta"
         className={`
           fixed top-0 bottom-0 right-0 z-50
           w-1/2 md:w-1/4
@@ -78,10 +77,7 @@ export function Sidebar() {
         `}
       >
         {/* Header do drawer */}
-        <div className="flex items-center justify-between px-4 py-4 border-b">
-          <span id="sidebar-heading" className="font-semibold text-lg text-gray-900">
-            {isAuthenticated ? "Minha Conta" : "Menu"}
-          </span>
+        <div className="flex items-center justify-end px-4 py-4 border-b">
           <button
             ref={closeButtonRef}
             onClick={() => setIsOpen(false)}
