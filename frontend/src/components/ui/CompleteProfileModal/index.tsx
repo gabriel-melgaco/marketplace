@@ -84,15 +84,20 @@ export function CompleteProfileModal({
 
     setIsLoading(true);
     try {
-      const updatedUser = await userService.updateCurrentUser({
+      await userService.updateCurrentUser({
         cpf: cpf.replace(/[^\d]/g, ""),
         birthday: toISODate(birthday),
       });
 
+      const freshUser = await userService.getCurrentUser();
       const newUser: User = {
-        ...user,
-        cpf: updatedUser.cpf,
-        birthday: updatedUser.birthday,
+        id: freshUser.id,
+        email: freshUser.email,
+        full_name: freshUser.full_name,
+        cpf: freshUser.cpf,
+        birthday: freshUser.birthday,
+        picture: freshUser.picture ?? "",
+        is_active: true,
       };
       tokenStorage.saveUser(newUser);
       onComplete(newUser);

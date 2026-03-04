@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { userService } from "@/services/userService";
+import { tokenStorage } from "@/utils/tokenStorage";
 import { useAuth } from "@/contexts/AuthContext";
 import type { User } from "@/types/auth";
 
@@ -24,6 +25,7 @@ export function GoogleCallback() {
             picture: me.picture ?? "",
             is_active: true,
           };
+          tokenStorage.saveUser(user);
           setUser(user);
           navigate("/", { replace: true });
         }

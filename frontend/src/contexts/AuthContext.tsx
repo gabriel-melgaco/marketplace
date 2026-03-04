@@ -6,6 +6,8 @@ import {
   type ReactNode,
 } from "react";
 import { authService } from "@/services/authService";
+import { userService } from "@/services/userService";
+import { tokenStorage } from "@/utils/tokenStorage";
 import type { AuthContextData, User, LoginCredentials } from "@/types/auth";
 
 // Criar o contexto e EXPORTAR
@@ -21,10 +23,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Verificar autenticação ao carregar
   useEffect(() => {
-    const checkAuth = () => {
+    const checkAuth = async () => {
       if (authService.isAuthenticated()) {
-        const currentUser = authService.getCurrentUser();
-        setUser(currentUser);
+        try {
+          const freshUser = await userService.getCurrentUser();
+          const user: User = {
+            id: freshUser.id,
+            email: freshUser.email,
+            full_name: freshUser.full_name,
+            birthday: freshUser.birthday,
+            cpf: freshUser.cpf,
+            picture: freshUser.picture ?? "",
+            is_active: true,
+          };
+          tokenStorage.saveUser(user);
+          setUser(user);
+        } catch {
+          const currentUser = authService.getCurrentUser();
+          setUser(currentUser);
+        }
       }
       setIsLoading(false);
     };
