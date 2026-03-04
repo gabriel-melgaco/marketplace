@@ -24,26 +24,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Verificar autenticação ao carregar
   useEffect(() => {
     const checkAuth = async () => {
-      if (authService.isAuthenticated()) {
-        try {
-          const freshUser = await userService.getCurrentUser();
-          const user: User = {
-            id: freshUser.id,
-            email: freshUser.email,
-            full_name: freshUser.full_name,
-            birthday: freshUser.birthday,
-            cpf: freshUser.cpf,
-            picture: freshUser.picture ?? "",
-            is_active: true,
-          };
-          tokenStorage.saveUser(user);
-          setUser(user);
-        } catch {
-          const currentUser = authService.getCurrentUser();
-          setUser(currentUser);
-        }
+      if (!authService.isAuthenticated()) {
+        setIsLoading(false);
+        return;
       }
-      setIsLoading(false);
+
+      try {
+        const freshUser = await userService.getCurrentUser();
+        tokenStorage.saveUser(freshUser);
+        setUser(freshUser as unknown as User);
+      } catch {
+        const currentUser = authService.getCurrentUser();
+        setUser(currentUser);
+      } finally {
+        setIsLoading(false);
+      }
     };
 
     checkAuth();
