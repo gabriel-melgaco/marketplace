@@ -1,9 +1,8 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { userService } from "@/services/userService";
+import { socialAuthService } from "@/services/socialAuthService";
 import { tokenStorage } from "@/utils/tokenStorage";
 import { useAuth } from "@/contexts/AuthContext";
-import type { User } from "@/types/auth";
 
 export function GoogleCallback() {
   const navigate = useNavigate();
@@ -12,21 +11,19 @@ export function GoogleCallback() {
   useEffect(() => {
     let cancelled = false;
 
-    async function checkSession() {
+    async function handleCallback() {
+      const code = new URLSearchParams(window.location.search).get("code");
+
+      if (!code) {
+        navigate("/login?error=oauth", { replace: true });
+        return;
+      }
+
       try {
-        const me = await userService.getCurrentUser();
+        const response = await socialAuthService.googleLogin({ code });
         if (!cancelled) {
-          const user: User = {
-            id: me.id,
-            email: me.email,
-            full_name: me.full_name,
-            birthday: me.birthday,
-            cpf: me.cpf,
-            picture: me.picture ?? "",
-            is_active: true,
-          };
-          tokenStorage.saveUser(user);
-          setUser(user);
+          tokenStorage.saveUser(response.user);
+          setUser(response.user);
           navigate("/", { replace: true });
         }
       } catch {
@@ -36,7 +33,7 @@ export function GoogleCallback() {
       }
     }
 
-    checkSession();
+    handleCallback();
     return () => {
       cancelled = true;
     };
