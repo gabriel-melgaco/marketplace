@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { socialAuthService } from "@/services/socialAuthService";
 import { tokenStorage } from "@/utils/tokenStorage";
 import { useAuth } from "@/contexts/AuthContext";
+import { userService } from "@/services/userService";
+import type { User } from "@/types/auth";
 
 export function GoogleCallback() {
   const navigate = useNavigate();
@@ -27,8 +29,28 @@ export function GoogleCallback() {
           navigate("/", { replace: true });
         }
       } catch {
-        if (!cancelled) {
-          navigate("/login?error=oauth", { replace: true });
+        // Última verificação — confirma se o cookie já autenticou o usuário
+        try {
+          const me = await userService.getCurrentUser();
+          if (!cancelled) {
+            const user: User = {
+              id: me.id,
+              email: me.email,
+              full_name: me.full_name,
+              birthday: me.birthday ?? "",
+              cpf: me.cpf ?? "",
+              picture: me.picture ?? "",
+              is_active: true,
+            };
+            tokenStorage.saveUser(user);
+            setUser(user);
+            navigate("/", { replace: true });
+          }
+        } catch {
+          // 401 confirmado — não está autenticado
+          if (!cancelled) {
+            navigate("/login?error=oauth", { replace: true });
+          }
         }
       }
     }
