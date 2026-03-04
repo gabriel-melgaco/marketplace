@@ -7,6 +7,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { CartDrawer } from "@/components/layout/CartDrawer";
 import { useAuth } from "@/contexts/AuthContext";
 import type { ProductCategory } from "@/types/product";
+import { FaBell } from "react-icons/fa";
 
 interface HeaderProps extends HTMLAttributes<HTMLDivElement> {}
 
@@ -47,6 +48,12 @@ function Header(props: HeaderProps) {
 
         {isAuthenticated ? (
           <div className="flex items-center gap-3 md:gap-5">
+            <button
+              aria-label="Notificações"
+              className="relative text-text-primary focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-1 focus:ring-offset-transparent rounded-lg"
+            >
+              <FaBell className="w-6 h-6 md:w-7 md:h-7" aria-hidden="true" />
+            </button>
             <CartDrawer />
             <Sidebar />
           </div>
