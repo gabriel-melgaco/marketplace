@@ -15,7 +15,10 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { userService } from "@/services/userService";
 import { authService } from "@/services/authService";
-import { socialAuthService, type SocialAccount } from "@/services/socialAuthService";
+import {
+  socialAuthService,
+  type SocialAccount,
+} from "@/services/socialAuthService";
 import {
   logisticsService,
   type AddressData,
@@ -137,7 +140,8 @@ export function AddressModal({ onClose, onSaved }: AddressModalProps) {
     if (!form.nickname.trim()) e.nickname = "Campo obrigatório";
     if (!form.recipient_name.trim()) e.recipient_name = "Campo obrigatório";
     if (!form.recipient_phone.trim()) e.recipient_phone = "Campo obrigatório";
-    if (form.zipcode.replace(/\D/g, "").length !== 8) e.zipcode = "CEP inválido";
+    if (form.zipcode.replace(/\D/g, "").length !== 8)
+      e.zipcode = "CEP inválido";
     if (!form.street.trim()) e.street = "Campo obrigatório";
     if (!form.number.trim()) e.number = "Campo obrigatório";
     if (!form.neighborhood.trim()) e.neighborhood = "Campo obrigatório";
@@ -195,7 +199,7 @@ export function AddressModal({ onClose, onSaved }: AddressModalProps) {
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="bg-gradient-to-r from-blue-900 to-gray-900 p-5 text-white flex items-center justify-between shrink-0">
+        <div className="bg-linear-to-r from-blue-900 to-gray-900 p-5 text-white flex items-center justify-between shrink-0">
           <h2 id="address-modal-title" className="text-lg font-bold">
             Novo Endereço
           </h2>
@@ -218,7 +222,9 @@ export function AddressModal({ onClose, onSaved }: AddressModalProps) {
           {/* Apelido + Tipo */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1">Apelido</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">
+                Apelido
+              </label>
               <input
                 type="text"
                 value={form.nickname}
@@ -226,10 +232,14 @@ export function AddressModal({ onClose, onSaved }: AddressModalProps) {
                 placeholder="Ex: Casa, Trabalho"
                 className={inputCls("nickname")}
               />
-              {errors.nickname && <p className="mt-1 text-xs text-red-600">{errors.nickname}</p>}
+              {errors.nickname && (
+                <p className="mt-1 text-xs text-red-600">{errors.nickname}</p>
+              )}
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1">Tipo</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">
+                Tipo
+              </label>
               <select
                 value={form.address_type}
                 onChange={(e) => set("address_type", e.target.value)}
@@ -255,29 +265,39 @@ export function AddressModal({ onClose, onSaved }: AddressModalProps) {
               className={inputCls("recipient_name")}
             />
             {errors.recipient_name && (
-              <p className="mt-1 text-xs text-red-600">{errors.recipient_name}</p>
+              <p className="mt-1 text-xs text-red-600">
+                {errors.recipient_name}
+              </p>
             )}
           </div>
 
           {/* Telefone */}
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Telefone</label>
+            <label className="block text-sm font-semibold text-gray-700 mb-1">
+              Telefone
+            </label>
             <input
               type="text"
               value={form.recipient_phone}
-              onChange={(e) => set("recipient_phone", formatPhone(e.target.value))}
+              onChange={(e) =>
+                set("recipient_phone", formatPhone(e.target.value))
+              }
               placeholder="(00) 00000-0000"
               maxLength={15}
               className={inputCls("recipient_phone")}
             />
             {errors.recipient_phone && (
-              <p className="mt-1 text-xs text-red-600">{errors.recipient_phone}</p>
+              <p className="mt-1 text-xs text-red-600">
+                {errors.recipient_phone}
+              </p>
             )}
           </div>
 
           {/* CEP */}
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">CEP</label>
+            <label className="block text-sm font-semibold text-gray-700 mb-1">
+              CEP
+            </label>
             <div className="relative">
               <input
                 type="text"
@@ -294,14 +314,22 @@ export function AddressModal({ onClose, onSaved }: AddressModalProps) {
                 </div>
               )}
             </div>
-            {cepLoading && <p className="mt-1 text-xs text-gray-500">Buscando endereço...</p>}
-            {cepError && <p className="mt-1 text-xs text-amber-600">{cepError}</p>}
-            {errors.zipcode && <p className="mt-1 text-xs text-red-600">{errors.zipcode}</p>}
+            {cepLoading && (
+              <p className="mt-1 text-xs text-gray-500">Buscando endereço...</p>
+            )}
+            {cepError && (
+              <p className="mt-1 text-xs text-amber-600">{cepError}</p>
+            )}
+            {errors.zipcode && (
+              <p className="mt-1 text-xs text-red-600">{errors.zipcode}</p>
+            )}
           </div>
 
           {/* Rua */}
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Rua</label>
+            <label className="block text-sm font-semibold text-gray-700 mb-1">
+              Rua
+            </label>
             <input
               type="text"
               value={form.street}
@@ -310,13 +338,17 @@ export function AddressModal({ onClose, onSaved }: AddressModalProps) {
               placeholder="Nome da rua"
               className={`${inputCls("street")} ${cepLoading ? "bg-gray-50" : ""}`}
             />
-            {errors.street && <p className="mt-1 text-xs text-red-600">{errors.street}</p>}
+            {errors.street && (
+              <p className="mt-1 text-xs text-red-600">{errors.street}</p>
+            )}
           </div>
 
           {/* Número + Complemento */}
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1">Número</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">
+                Número
+              </label>
               <input
                 type="text"
                 value={form.number}
@@ -324,10 +356,14 @@ export function AddressModal({ onClose, onSaved }: AddressModalProps) {
                 placeholder="Nº"
                 className={inputCls("number")}
               />
-              {errors.number && <p className="mt-1 text-xs text-red-600">{errors.number}</p>}
+              {errors.number && (
+                <p className="mt-1 text-xs text-red-600">{errors.number}</p>
+              )}
             </div>
             <div className="col-span-2">
-              <label className="block text-sm font-semibold text-gray-700 mb-1">Complemento</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">
+                Complemento
+              </label>
               <input
                 type="text"
                 value={form.complement}
@@ -340,7 +376,9 @@ export function AddressModal({ onClose, onSaved }: AddressModalProps) {
 
           {/* Bairro */}
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Bairro</label>
+            <label className="block text-sm font-semibold text-gray-700 mb-1">
+              Bairro
+            </label>
             <input
               type="text"
               value={form.neighborhood}
@@ -356,7 +394,9 @@ export function AddressModal({ onClose, onSaved }: AddressModalProps) {
           {/* Cidade + Estado */}
           <div className="grid grid-cols-3 gap-3">
             <div className="col-span-2">
-              <label className="block text-sm font-semibold text-gray-700 mb-1">Cidade</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">
+                Cidade
+              </label>
               <input
                 type="text"
                 value={form.city}
@@ -364,10 +404,14 @@ export function AddressModal({ onClose, onSaved }: AddressModalProps) {
                 readOnly={cepLoading}
                 className={`${inputCls("city")} ${cepLoading ? "bg-gray-50" : ""}`}
               />
-              {errors.city && <p className="mt-1 text-xs text-red-600">{errors.city}</p>}
+              {errors.city && (
+                <p className="mt-1 text-xs text-red-600">{errors.city}</p>
+              )}
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1">Estado</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">
+                Estado
+              </label>
               <input
                 type="text"
                 value={form.state}
@@ -377,7 +421,9 @@ export function AddressModal({ onClose, onSaved }: AddressModalProps) {
                 placeholder="UF"
                 className={`${inputCls("state")} ${cepLoading ? "bg-gray-50" : ""}`}
               />
-              {errors.state && <p className="mt-1 text-xs text-red-600">{errors.state}</p>}
+              {errors.state && (
+                <p className="mt-1 text-xs text-red-600">{errors.state}</p>
+              )}
             </div>
           </div>
 
@@ -389,7 +435,9 @@ export function AddressModal({ onClose, onSaved }: AddressModalProps) {
               onChange={(e) => set("is_default", e.target.checked)}
               className="w-5 h-5 accent-blue-900"
             />
-            <span className="text-sm text-gray-700">Definir como endereço padrão</span>
+            <span className="text-sm text-gray-700">
+              Definir como endereço padrão
+            </span>
           </label>
 
           {/* Actions */}
@@ -613,7 +661,7 @@ export function AccountPage() {
   const handleDeleteAccount = async () => {
     const result = await Swal.fire({
       title: "Excluir conta",
-      html: 'Esta ação é <strong>permanente</strong> e não pode ser desfeita.<br/><br/>Digite <strong>EXCLUIR</strong> para confirmar.',
+      html: "Esta ação é <strong>permanente</strong> e não pode ser desfeita.<br/><br/>Digite <strong>EXCLUIR</strong> para confirmar.",
       input: "text",
       inputPlaceholder: "EXCLUIR",
       showCancelButton: true,
@@ -622,7 +670,8 @@ export function AccountPage() {
       confirmButtonText: "Excluir minha conta",
       cancelButtonText: "Cancelar",
       inputValidator: (value) => {
-        if (value !== "EXCLUIR") return 'Digite exatamente "EXCLUIR" para confirmar.';
+        if (value !== "EXCLUIR")
+          return 'Digite exatamente "EXCLUIR" para confirmar.';
       },
     });
     if (!result.isConfirmed) return;
@@ -639,7 +688,11 @@ export function AccountPage() {
           "info",
         );
       } else {
-        Swal.fire("Erro", "Não foi possível excluir a conta. Tente novamente.", "error");
+        Swal.fire(
+          "Erro",
+          "Não foi possível excluir a conta. Tente novamente.",
+          "error",
+        );
       }
     }
   };
@@ -648,7 +701,9 @@ export function AccountPage() {
 
   const inputCls = (hasError?: boolean) =>
     `w-full px-3 py-2.5 border-2 rounded-lg text-sm focus:outline-none transition ${
-      hasError ? "border-red-500 focus:border-red-500" : "border-gray-300 focus:border-blue-500"
+      hasError
+        ? "border-red-500 focus:border-red-500"
+        : "border-gray-300 focus:border-blue-500"
     }`;
 
   const googleAccount = socialAccounts.find((a) => a.provider === "google");
@@ -672,7 +727,9 @@ export function AccountPage() {
         )}
 
         <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-1">Nome completo</label>
+          <label className="block text-sm font-semibold text-gray-700 mb-1">
+            Nome completo
+          </label>
           <input
             type="text"
             value={fullName}
@@ -683,7 +740,9 @@ export function AccountPage() {
         </div>
 
         <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-1">Email</label>
+          <label className="block text-sm font-semibold text-gray-700 mb-1">
+            Email
+          </label>
           <input
             type="email"
             value={user?.email ?? ""}
@@ -693,14 +752,18 @@ export function AccountPage() {
         </div>
 
         <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-1">CPF</label>
+          <label className="block text-sm font-semibold text-gray-700 mb-1">
+            CPF
+          </label>
           <input
             type="text"
             value={user?.cpf ? formatCpfDisplay(user.cpf) : ""}
             readOnly
             className={`${inputCls()} bg-gray-50 cursor-not-allowed text-gray-600`}
           />
-          <p className="mt-1 text-xs text-gray-500">O CPF não pode ser alterado após o cadastro.</p>
+          <p className="mt-1 text-xs text-gray-500">
+            O CPF não pode ser alterado após o cadastro.
+          </p>
         </div>
 
         <div>
@@ -721,7 +784,9 @@ export function AccountPage() {
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1">
             Foto de perfil{" "}
-            <span className="text-xs font-normal text-gray-400">(em breve)</span>
+            <span className="text-xs font-normal text-gray-400">
+              (em breve)
+            </span>
           </label>
           <div className="px-3 py-2.5 border-2 border-dashed border-gray-200 rounded-lg text-sm text-gray-400 bg-gray-50 select-none">
             Funcionalidade disponível em breve
@@ -753,7 +818,9 @@ export function AccountPage() {
   const renderAddresses = () => (
     <div className="bg-white rounded-2xl shadow p-6">
       <div className="flex items-center justify-between mb-5">
-        <h2 className="text-lg font-bold text-gray-900 min-w-0">Meus Endereços</h2>
+        <h2 className="text-lg font-bold text-gray-900 min-w-0">
+          Meus Endereços
+        </h2>
         <button
           onClick={() => setShowAddressModal(true)}
           className="flex items-center gap-1.5 px-4 py-2 bg-blue-900 text-white rounded-lg text-sm font-semibold hover:bg-blue-800 transition cursor-pointer shrink-0 ml-3"
@@ -858,7 +925,9 @@ export function AccountPage() {
             ] as const
           ).map(({ label, value, setter, show, toggle }) => (
             <div key={label}>
-              <label className="block text-sm font-semibold text-gray-700 mb-1">{label}</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">
+                {label}
+              </label>
               <div className="relative">
                 <input
                   type={show ? "text" : "password"}
@@ -928,8 +997,12 @@ export function AccountPage() {
               </svg>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-green-800">Google conectado</p>
-              {googleEmail && <p className="text-xs text-green-700 truncate">{googleEmail}</p>}
+              <p className="text-sm font-semibold text-green-800">
+                Google conectado
+              </p>
+              {googleEmail && (
+                <p className="text-xs text-green-700 truncate">{googleEmail}</p>
+              )}
             </div>
             <span className="px-2.5 py-1 bg-green-100 text-green-800 text-xs font-bold rounded-full shrink-0">
               Conectado
@@ -937,7 +1010,9 @@ export function AccountPage() {
           </div>
         ) : (
           <div className="flex items-center justify-between gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl">
-            <p className="text-sm text-gray-600">Nenhuma conta Google vinculada.</p>
+            <p className="text-sm text-gray-600">
+              Nenhuma conta Google vinculada.
+            </p>
             <button
               onClick={() => startGoogleOAuth("connect")}
               className="px-4 py-2 bg-blue-900 text-white rounded-lg text-sm font-semibold hover:bg-blue-800 transition cursor-pointer shrink-0"
@@ -955,8 +1030,8 @@ export function AccountPage() {
           Zona de perigo
         </h2>
         <p className="text-sm text-red-600 mb-4">
-          A exclusão da conta é permanente e não pode ser desfeita. Todos os seus dados e anúncios
-          serão removidos.
+          A exclusão da conta é permanente e não pode ser desfeita. Todos os
+          seus dados e anúncios serão removidos.
         </p>
         <button
           onClick={handleDeleteAccount}
@@ -982,7 +1057,10 @@ export function AccountPage() {
             { key: "promotions", label: "Promoções e novidades" },
           ] as const
         ).map(({ key, label }) => (
-          <div key={key} className="flex items-center justify-between py-4 opacity-60">
+          <div
+            key={key}
+            className="flex items-center justify-between py-4 opacity-60"
+          >
             <div>
               <p className="text-sm font-medium text-gray-800">{label}</p>
               <p className="text-xs text-gray-500 mt-0.5">Em breve</p>
@@ -991,7 +1069,9 @@ export function AccountPage() {
               role="switch"
               aria-checked={notifications[key]}
               aria-label={label}
-              onClick={() => setNotifications((prev) => ({ ...prev, [key]: !prev[key] }))}
+              onClick={() =>
+                setNotifications((prev) => ({ ...prev, [key]: !prev[key] }))
+              }
               className={`relative w-11 h-6 rounded-full transition duration-200 cursor-not-allowed shrink-0 pointer-events-none ${
                 notifications[key] ? "bg-blue-900" : "bg-gray-300"
               }`}
@@ -1023,10 +1103,12 @@ export function AccountPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Page header */}
-      <div className="bg-gradient-to-r from-black via-gray-800 to-blue-900 px-4 py-6">
+      <div className="bg-linear-to-r from-black via-gray-800 to-blue-900 px-4 py-6">
         <div className="max-w-5xl mx-auto">
           <h1 className="text-2xl font-bold text-white">Minha Conta</h1>
-          <p className="text-blue-200 text-sm mt-1">Gerencie suas informações pessoais</p>
+          <p className="text-blue-200 text-sm mt-1">
+            Gerencie suas informações pessoais
+          </p>
         </div>
       </div>
 
@@ -1071,7 +1153,9 @@ export function AccountPage() {
           </aside>
 
           {/* Content */}
-          <main className="flex-1 min-w-0">{sectionContent[activeSection]}</main>
+          <main className="flex-1 min-w-0">
+            {sectionContent[activeSection]}
+          </main>
         </div>
       </div>
 

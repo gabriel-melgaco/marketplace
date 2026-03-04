@@ -47,7 +47,9 @@ export interface SocialConnectResponse {
   account: SocialAccount;
 }
 
-function mapSocialUserToUser(apiUser: GoogleSocialLoginApiResponse["user"]): User {
+function mapSocialUserToUser(
+  apiUser: GoogleSocialLoginApiResponse["user"],
+): User {
   const fullName = [apiUser.first_name, apiUser.last_name]
     .filter(Boolean)
     .join(" ");
@@ -88,43 +90,58 @@ export const socialAuthService = {
     await api.delete(`/auth/social/accounts/${id}/`);
   },
 
-  async googleLogin(data: GoogleSocialLoginRequest): Promise<GoogleSocialLoginResponse> {
-    const response = await api.post<GoogleSocialLoginApiResponse>(
-      "/auth/social/google/",
-      { code: data.code },
-    );
-
-    tokenStorage.saveTokens({
-      access: response.data.access,
-      refresh: response.data.refresh,
-      access_expiration: response.data.access_expiration,
-      refresh_expiration: response.data.refresh_expiration,
-    });
-
-    // Fetch full profile so cpf/birthday reflect actual DB state.
-    // This prevents the profile-completion modal from showing for users
-    // whose Google account was linked to an existing email+password account.
-    let user = mapSocialUserToUser(response.data.user);
+  async googleLogin(data: GoogleSocialLoginRequest) {
     try {
-      const profile = await userService.getCurrentUser();
-      user = mapProfileToUser(user, profile);
-    } catch {
-      // Non-fatal: fall back to the minimal data from the OAuth response.
+      // 1. Troca o code pelos tokens
+      const response = await api.post<GoogleSocialLoginApiResponse>(
+        "/auth/social/google/",
+        { code: data.code },
+      );
+      console.log("[googleLogin] POST /auth/social/google/ OK:", response.data);
+
+      tokenStorage.saveTokens({
+        access: response.data.access,
+        refresh: response.data.refresh,
+        access_expiration: response.data.access_expiration,
+        refresh_expiration: response.data.refresh_expiration,
+      });
+
+      let user = mapSocialUserToUser(response.data.user);
+      console.log("[googleLogin] user mapeado:", user);
+
+      // 2. Busca perfil completo — não-fatal
+      try {
+        const profile = await userService.getCurrentUser();
+        console.log("[googleLogin] perfil completo:", profile);
+        user = mapProfileToUser(user, profile);
+        console.log("[googleLogin] user final:", user);
+      } catch (profileErr) {
+        console.warn(
+          "[googleLogin] falha ao buscar perfil, usando dados básicos:",
+          profileErr,
+        );
+      }
+
+      tokenStorage.saveUser(user);
+
+      return {
+        access: response.data.access,
+        refresh: response.data.refresh,
+        access_expiration: response.data.access_expiration,
+        refresh_expiration: response.data.refresh_expiration,
+        user,
+      };
+    } catch (err) {
+      console.error("[googleLogin] ERRO FATAL:", err);
+      throw err;
     }
-
-    tokenStorage.saveUser(user);
-
-    return {
-      access: response.data.access,
-      refresh: response.data.refresh,
-      access_expiration: response.data.access_expiration,
-      refresh_expiration: response.data.refresh_expiration,
-      user,
-    };
   },
 
   async googleConnect(data: SocialConnectRequest) {
-    const response = await api.post<SocialConnectResponse>("/auth/social/google/connect/", data);
+    const response = await api.post<SocialConnectResponse>(
+      "/auth/social/google/connect/",
+      data,
+    );
     return response.data;
   },
 };

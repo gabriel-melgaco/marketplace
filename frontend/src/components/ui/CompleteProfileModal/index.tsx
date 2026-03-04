@@ -84,20 +84,15 @@ export function CompleteProfileModal({
 
     setIsLoading(true);
     try {
-      await userService.updateCurrentUser({
+      const updatedUser = await userService.updateCurrentUser({
         cpf: cpf.replace(/[^\d]/g, ""),
         birthday: toISODate(birthday),
       });
 
-      const freshUser = await userService.getCurrentUser();
       const newUser: User = {
-        id: freshUser.id,
-        email: freshUser.email,
-        full_name: freshUser.full_name,
-        cpf: freshUser.cpf,
-        birthday: freshUser.birthday,
-        picture: freshUser.picture ?? "",
-        is_active: true,
+        ...user,
+        cpf: updatedUser.cpf,
+        birthday: updatedUser.birthday,
       };
       tokenStorage.saveUser(newUser);
       onComplete(newUser);
@@ -127,10 +122,10 @@ export function CompleteProfileModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4">
+    <div className="fixed inset-0 z-9999 flex items-center justify-center bg-black/60 p-4">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="bg-gradient-to-r from-blue-900 to-gray-900 p-6 text-white text-center">
+        <div className="bg-linear-to-r from-blue-900 to-gray-900 p-6 text-white text-center">
           <h2 className="text-xl font-bold mb-1">Complete seu cadastro</h2>
           <p className="text-blue-200 text-sm">
             Precisamos de mais algumas informações
@@ -141,10 +136,7 @@ export function CompleteProfileModal({
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {errors.submit && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
-              <AlertCircle
-                className="text-red-600 shrink-0 mt-0.5"
-                size={18}
-              />
+              <AlertCircle className="text-red-600 shrink-0 mt-0.5" size={18} />
               <p className="text-sm text-red-800">{errors.submit}</p>
             </div>
           )}
@@ -218,7 +210,7 @@ export function CompleteProfileModal({
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full bg-gradient-to-r from-blue-900 to-blue-700 text-white py-2.5 rounded-lg font-bold hover:from-blue-600 hover:to-blue-500 transition shadow-lg disabled:opacity-50 disabled:cursor-not-allowed text-sm cursor-pointer"
+            className="w-full bg-linear-to-r from-blue-900 to-blue-700 text-white py-2.5 rounded-lg font-bold hover:from-blue-600 hover:to-blue-500 transition shadow-lg disabled:opacity-50 disabled:cursor-not-allowed text-sm cursor-pointer"
           >
             {isLoading ? (
               <span className="flex items-center justify-center gap-2">
