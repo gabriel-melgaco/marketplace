@@ -17,9 +17,9 @@ from .serializers import (
     PaymentConfirmSerializer, RefundSerializer,
     SellerPayoutSerializer
 )
-from .payment_intent_service import PaymentIntentService
+from .payment_intent_service import PaymentIntentService, SellerNotReadyError
 from .webhook_service import WebhookService
-from .refund_service import RefundService
+from .refund_service import RefundService, RefundError
 from .services import StripeService  # Legacy support
 from orders.models import Order
 from orders.services.product_validation_service import (
@@ -188,6 +188,19 @@ def create_payment_intent(request):
             'currency': payment.currency,
             'payment_method': payment.payment_method
         })
+
+    except SellerNotReadyError as e:
+        logger.warning(
+            f"Seller not ready for payment intent: {str(e)}",
+            extra={'order_id': str(order.id), 'user_id': request.user.id}
+        )
+        return Response(
+            {
+                'error': 'Vendedor não está pronto para receber pagamentos',
+                'detail': str(e),
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
     except ValueError as e:
         logger.warning(f"Validation error creating payment intent: {str(e)}")
