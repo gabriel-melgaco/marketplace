@@ -308,6 +308,12 @@ STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY', 'sk_test_...')
 STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', 'whsec_...')
 STRIPE_CONNECT_WEBHOOK_SECRET = os.getenv('STRIPE_CONNECT_WEBHOOK_SECRET', '')
 
+# URL base do frontend React — usada em callbacks OAuth/Stripe Connect
+FRONTEND_BASE_URL = os.getenv('FRONTEND_BASE_URL', 'https://marketplace.megdev.com.br')
+
+# URL pública do backend — usada em callbacks do Stripe que precisam chegar no Django
+BACKEND_BASE_URL = os.getenv('BACKEND_BASE_URL', 'https://api.megdev.com.br')
+
 # =================== MELHOR ENVIO CONFIGURATION ===================
 
 # Token legado (usado como fallback para cálculo de frete se OAuth por vendedor não estiver ativo)
