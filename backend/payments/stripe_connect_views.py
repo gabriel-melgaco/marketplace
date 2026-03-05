@@ -408,6 +408,10 @@ def stripe_connect_webhook(request):
     except Exception as e:
         return HttpResponse(f'Webhook error: {str(e)}', status=400)
 
+    # Ignorar eventos V2 (ex: v2.core.event_destination.ping) — sem data.object
+    if event.type.startswith('v2.'):
+        return HttpResponse('Success', status=200)
+
     account_id = event.get('account') or (event.data.object.get('account') if hasattr(event.data, 'object') else None)
 
     try:

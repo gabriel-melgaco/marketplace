@@ -156,6 +156,11 @@ class WebhookService:
             }
         )
 
+        # Ignorar eventos V2 (ex: v2.core.event_destination.ping) que não têm data.object
+        if event.type.startswith('v2.'):
+            logger.info(f"Ignoring V2 event on V1 endpoint: {event.type}")
+            return True
+
         # Check if event already processed (idempotency)
         webhook, created = PaymentWebhook.objects.get_or_create(
             stripe_event_id=event.id,
