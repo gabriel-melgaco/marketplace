@@ -466,17 +466,20 @@ def stripe_connect_webhook(request):
     if event.type.startswith('v2.'):
         return HttpResponse('Success', status=200)
 
-    account_id = event.get('account') or (event.data.object.get('account') if hasattr(event.data, 'object') else None)
+    # Para eventos Connect, o account_id do vendedor está no topo do evento.
+    # Fallback para o campo 'id' do objeto (account.updated expõe o ID diretamente).
+    event_account = event.get('account')
+    account_id = event_account or (event.data.object.get('id') if hasattr(event.data, 'object') else None)
 
     try:
         if event.type == 'account.updated':
             acct = event.data.object
             charges_enabled = acct.get('charges_enabled', False)
-            account_id = account_id or acct.get('id')
+            # Garante uso do ID do objeto como fonte primária para account.updated
+            account_id = acct.get('id') or account_id
 
             logger.info(
-                "Connect webhook: account.updated received",
-                extra={'account_id': account_id, 'charges_enabled': charges_enabled}
+                f"Connect webhook: account.updated received | account_id={account_id} charges_enabled={charges_enabled}"
             )
 
             if account_id:
@@ -487,42 +490,35 @@ def stripe_connect_webhook(request):
                         user.seller_verified_at = timezone.now()
                         user.save(update_fields=['seller_verified', 'seller_verified_at'])
                         logger.info(
-                            "Connect webhook: seller_verified set to True",
-                            extra={'account_id': account_id, 'user_id': user.id}
+                            f"Connect webhook: seller_verified=True | account_id={account_id} user_id={user.id}"
                         )
                     elif not charges_enabled and user.seller_verified:
                         user.seller_verified = False
                         user.seller_verified_at = None
                         user.save(update_fields=['seller_verified', 'seller_verified_at'])
                         logger.warning(
-                            "Connect webhook: seller_verified set to False (charges disabled)",
-                            extra={'account_id': account_id, 'user_id': user.id}
+                            f"Connect webhook: seller_verified=False (charges disabled) | account_id={account_id} user_id={user.id}"
                         )
                     else:
                         logger.info(
-                            "Connect webhook: account.updated — no seller_verified change needed",
-                            extra={
-                                'account_id': account_id,
-                                'user_id': user.id,
-                                'charges_enabled': charges_enabled,
-                                'seller_verified': user.seller_verified,
-                            }
+                            f"Connect webhook: no change needed | account_id={account_id} "
+                            f"charges_enabled={charges_enabled} seller_verified={user.seller_verified}"
                         )
                 except CustomUser.DoesNotExist:
                     logger.warning(
-                        "Connect webhook: account.updated for unknown account_id",
-                        extra={'account_id': account_id}
+                        f"Connect webhook: account not found in DB | account_id={account_id}"
                     )
+            else:
+                logger.warning("Connect webhook: account.updated received with no account_id")
 
         elif event.type == 'capability.updated':
             cap = event.data.object
             cap_id     = cap.get('id', '')
             cap_status = cap.get('status', '')
-            account_id = account_id or cap.get('account')
+            account_id = cap.get('account') or account_id
 
             logger.info(
-                "Connect webhook: capability.updated received",
-                extra={'account_id': account_id, 'cap_id': cap_id, 'cap_status': cap_status}
+                f"Connect webhook: capability.updated received | account_id={account_id} cap_id={cap_id} status={cap_status}"
             )
 
             if 'transfer' in cap_id and account_id:
@@ -533,33 +529,32 @@ def stripe_connect_webhook(request):
                         user.seller_verified_at = timezone.now()
                         user.save(update_fields=['seller_verified', 'seller_verified_at'])
                         logger.info(
-                            "Connect webhook: seller_verified set to True via capability.updated",
-                            extra={'account_id': account_id, 'user_id': user.id}
+                            f"Connect webhook: seller_verified=True via capability | account_id={account_id} user_id={user.id}"
                         )
                     elif cap_status in ('inactive', 'unrequested') and user.seller_verified:
                         user.seller_verified = False
                         user.seller_verified_at = None
                         user.save(update_fields=['seller_verified', 'seller_verified_at'])
                         logger.warning(
-                            "Connect webhook: seller_verified set to False via capability.updated",
-                            extra={'account_id': account_id, 'user_id': user.id, 'cap_status': cap_status}
+                            f"Connect webhook: seller_verified=False via capability | account_id={account_id} user_id={user.id} cap_status={cap_status}"
+                        )
+                    else:
+                        logger.info(
+                            f"Connect webhook: capability no change | account_id={account_id} cap_status={cap_status}"
                         )
                 except CustomUser.DoesNotExist:
                     logger.warning(
-                        "Connect webhook: capability.updated for unknown account_id",
-                        extra={'account_id': account_id, 'cap_id': cap_id}
+                        f"Connect webhook: account not found in DB | account_id={account_id} cap_id={cap_id}"
                     )
 
         else:
             logger.info(
-                "Connect webhook: unhandled event type",
-                extra={'event_type': event.type, 'event_id': event.id}
+                f"Connect webhook: unhandled event type={event.type} event_id={event.id}"
             )
 
     except Exception as e:
         logger.error(
-            f"Connect webhook handler error: {str(e)}",
-            extra={'event_type': event.type, 'event_id': event.id},
+            f"Connect webhook handler error: {str(e)} | event_type={event.type} event_id={event.id}",
             exc_info=True
         )
         return HttpResponse(f'Handler error: {str(e)}', status=400)
