@@ -235,11 +235,13 @@ class WebhookService:
 
         except Payment.DoesNotExist:
             error_msg = f"Payment not found for payment_intent_id in event {event.id}"
-            logger.error(error_msg, extra={'event_id': event.id})
+            logger.warning(error_msg, extra={'event_id': event.id})
 
             webhook.error_message = error_msg
-            webhook.save(update_fields=['error_message'])
-            raise
+            webhook.processed = True
+            webhook.processed_at = timezone.now()
+            webhook.save(update_fields=['error_message', 'processed', 'processed_at'])
+            return True
 
         except Exception as e:
             error_msg = f"Error processing webhook {event.id}: {str(e)}"
