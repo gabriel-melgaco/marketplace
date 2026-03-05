@@ -133,8 +133,8 @@ class StripeConnectService:
                 "use_case": {
                     "type": "account_onboarding",
                     "account_onboarding": {
-                        # Configure recipient capabilities
-                        "configurations": ["recipient"],
+                        # Must match configurations applied on the account
+                        "configurations": ["merchant", "recipient"],
                         
                         # Where to redirect if link expires (expires in 24h)
                         "refresh_url": refresh_url,
