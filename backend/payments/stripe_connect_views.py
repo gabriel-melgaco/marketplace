@@ -34,31 +34,19 @@ from django.conf import settings
             }
         ),
         400: OpenApiResponse(description='Account already exists or error'),
-        403: OpenApiResponse(description='Only sellers can create connected accounts')
     },
-    description="Create a Stripe Connect Express account for the seller. Platform controls pricing and collects fees."
+    description="Create a Stripe Connect Express account. Any authenticated user can connect an account."
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_connected_account(request):
     """
-    Create a Stripe Connect account for the current user (seller)
-    
-    This creates an Express account where:
-    - Platform controls pricing
-    - Platform collects fees
-    - Seller receives automatic payouts
+    Create a Stripe Connect account for the current user.
+    Any authenticated user can connect a Stripe account.
     """
-    
+
     user = request.user
-    
-    # Check if user is a seller
-    if not user.is_seller:
-        return Response(
-            {'error': 'Only sellers can create connected accounts'},
-            status=status.HTTP_403_FORBIDDEN
-        )
-    
+
     # Check if account already exists
     if user.stripe_account_id:
         return Response(
@@ -383,10 +371,7 @@ def seller_onboarding_page(request):
     
     if not request.user.is_authenticated:
         return render(request, 'payments/login_required.html')
-    
-    if not request.user.is_seller:
-        return render(request, 'payments/seller_only.html')
-    
+
     context = {
         'user': request.user,
         'has_account': bool(request.user.stripe_account_id),
