@@ -1,6 +1,22 @@
 """
 Webhook Service
-Handles Stripe webhook events with idempotency and validation
+Handles Stripe webhook events with idempotency and validation.
+
+Supported events:
+- payment_intent.succeeded        → confirm payment, dispatch transfers to sellers
+- payment_intent.payment_failed   → mark payment/order as failed
+- payment_intent.canceled         → mark payment/order as cancelled
+- transfer.created                → confirm PaymentSplit dispatched status
+- transfer.failed                 → mark PaymentSplit as failed
+- charge.dispute.created          → create Dispute record, attempt transfer reversals
+- charge.dispute.updated          → update Dispute status
+- charge.dispute.closed           → final status update on Dispute
+
+Design principles:
+- All handlers are idempotent: re-processing the same event is safe
+- PaymentIntent is retrieved with expand=['latest_charge'] to get charge_id
+- Transfers are dispatched AFTER order status is updated to 'paid'
+- Dispute handlers create Dispute records for audit/manual review
 """
 
 import stripe
@@ -10,11 +26,10 @@ from django.utils import timezone
 from django.db import transaction
 from decimal import Decimal
 
-from .models import Payment, PaymentWebhook
+from .models import Payment, PaymentWebhook, PaymentSplit, Dispute
 
 logger = logging.getLogger(__name__)
 
-# Configure Stripe
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
 
@@ -29,7 +44,7 @@ class WebhookService:
     @staticmethod
     def verify_webhook_signature(payload, sig_header):
         """
-        Verify Stripe webhook signature
+        Verify Stripe webhook signature.
 
         Args:
             payload: Raw request body (bytes)
@@ -39,7 +54,7 @@ class WebhookService:
             stripe.Event object
 
         Raises:
-            ValueError: If signature is invalid
+            ValueError: If secret not configured
             stripe.error.SignatureVerificationError: If verification fails
         """
         webhook_secret = settings.STRIPE_WEBHOOK_SECRET
@@ -54,10 +69,10 @@ class WebhookService:
             )
 
             logger.debug(
-                f"Webhook signature verified: {event.type}",
+                "Webhook signature verified",
                 extra={
                     'event_id': event.id,
-                    'event_type': event.type
+                    'event_type': event.type,
                 }
             )
 
@@ -74,7 +89,7 @@ class WebhookService:
     @staticmethod
     def validate_payment_amount(payment_intent, payment):
         """
-        Validate that payment intent amount matches payment record
+        Validate that payment intent amount matches payment record.
 
         Args:
             payment_intent: Stripe PaymentIntent object
@@ -100,24 +115,25 @@ class WebhookService:
                     'order_id': str(payment.order.id),
                     'expected_amount': expected_amount_cents,
                     'actual_amount': actual_amount_cents,
-                    'payment_intent_id': payment_intent.id
+                    'payment_intent_id': payment_intent.id,
                 }
             )
 
             raise PaymentAmountMismatchError(error_msg)
 
         logger.debug(
-            f"Payment amount validated: {expected_amount_cents} cents",
+            "Payment amount validated",
             extra={
                 'payment_id': payment.id,
-                'payment_intent_id': payment_intent.id
+                'payment_intent_id': payment_intent.id,
+                'amount_cents': expected_amount_cents,
             }
         )
 
     @staticmethod
     def handle_webhook(payload, sig_header):
         """
-        Process Stripe webhook with idempotency
+        Process Stripe webhook with idempotency.
 
         Args:
             payload: Raw request body (bytes)
@@ -136,7 +152,7 @@ class WebhookService:
             f"Processing webhook event: {event.type}",
             extra={
                 'event_id': event.id,
-                'event_type': event.type
+                'event_type': event.type,
             }
         )
 
@@ -145,24 +161,23 @@ class WebhookService:
             stripe_event_id=event.id,
             defaults={
                 'event_type': event.type,
-                'payload': event.data.object
+                'payload': dict(event.data.object),
             }
         )
 
         if not created and webhook.processed:
             logger.info(
-                f"Webhook event already processed: {event.id}",
+                "Webhook event already processed",
                 extra={
                     'event_id': event.id,
-                    'processed_at': webhook.processed_at.isoformat()
+                    'processed_at': webhook.processed_at.isoformat(),
                 }
             )
-            return True  # Already processed, return success
+            return True
 
         # Process event within atomic transaction
         try:
             with transaction.atomic():
-                # Route to appropriate handler
                 if event.type == 'payment_intent.succeeded':
                     WebhookService._handle_payment_succeeded(event, webhook)
 
@@ -171,6 +186,21 @@ class WebhookService:
 
                 elif event.type == 'payment_intent.canceled':
                     WebhookService._handle_payment_canceled(event, webhook)
+
+                elif event.type == 'transfer.created':
+                    WebhookService._handle_transfer_created(event, webhook)
+
+                elif event.type == 'transfer.failed':
+                    WebhookService._handle_transfer_failed(event, webhook)
+
+                elif event.type == 'charge.dispute.created':
+                    WebhookService._handle_dispute_created(event, webhook)
+
+                elif event.type == 'charge.dispute.updated':
+                    WebhookService._handle_dispute_updated(event, webhook)
+
+                elif event.type == 'charge.dispute.closed':
+                    WebhookService._handle_dispute_closed(event, webhook)
 
                 else:
                     logger.warning(
@@ -189,10 +219,10 @@ class WebhookService:
                 webhook.save(update_fields=['processed', 'processed_at'])
 
             logger.info(
-                f"Webhook event processed successfully: {event.id}",
+                "Webhook event processed successfully",
                 extra={
                     'event_id': event.id,
-                    'event_type': event.type
+                    'event_type': event.type,
                 }
             )
 
@@ -212,7 +242,7 @@ class WebhookService:
                 error_msg,
                 extra={
                     'event_id': event.id,
-                    'event_type': event.type
+                    'event_type': event.type,
                 },
                 exc_info=True
             )
@@ -221,16 +251,52 @@ class WebhookService:
             webhook.save(update_fields=['error_message'])
             raise
 
+    # =========================================================================
+    # Private handlers
+    # =========================================================================
+
     @staticmethod
     def _handle_payment_succeeded(event, webhook):
-        """Handle payment_intent.succeeded event"""
-        payment_intent = event.data.object
+        """
+        Handle payment_intent.succeeded event.
+
+        Flow:
+        1. Retrieve PaymentIntent with expand=['latest_charge'] to get charge_id
+        2. Validate amount
+        3. Update Payment record (status, charge_id, receipt_url)
+        4. Update Order status via PaymentCallbackService
+        5. Dispatch Transfers to all sellers via TransferDispatchService
+        """
+        payment_intent_data = event.data.object
 
         logger.info(
-            f"Handling payment_intent.succeeded: {payment_intent.id}",
+            "Handling payment_intent.succeeded",
+            extra={
+                'payment_intent_id': payment_intent_data.id,
+                'amount': payment_intent_data.amount,
+            }
+        )
+
+        # Re-retrieve PaymentIntent with latest_charge expanded
+        # The event object does not automatically expand nested objects
+        payment_intent = stripe.PaymentIntent.retrieve(
+            payment_intent_data.id,
+            expand=['latest_charge'],
+        )
+
+        # Get charge_id from latest_charge (required for Transfers)
+        charge_id = None
+        if payment_intent.latest_charge:
+            if isinstance(payment_intent.latest_charge, str):
+                charge_id = payment_intent.latest_charge
+            else:
+                charge_id = payment_intent.latest_charge.id
+
+        logger.info(
+            "Retrieved PaymentIntent with latest_charge",
             extra={
                 'payment_intent_id': payment_intent.id,
-                'amount': payment_intent.amount
+                'charge_id': charge_id,
             }
         )
 
@@ -242,19 +308,36 @@ class WebhookService:
         # Validate amount
         WebhookService.validate_payment_amount(payment_intent, payment)
 
-        # Update payment status
+        # Update payment status and charge info
         payment.status = 'succeeded'
         payment.paid_at = timezone.now()
 
-        # Extract charge information
-        if payment_intent.charges and payment_intent.charges.data:
-            charge = payment_intent.charges.data[0]
-            payment.stripe_charge_id = charge.id
-            payment.receipt_url = charge.receipt_url
+        if charge_id:
+            payment.stripe_charge_id = charge_id
+
+        # Extract receipt_url from charge if expanded
+        if (
+            payment_intent.latest_charge
+            and not isinstance(payment_intent.latest_charge, str)
+        ):
+            receipt_url = getattr(payment_intent.latest_charge, 'receipt_url', '')
+            if receipt_url:
+                payment.receipt_url = receipt_url
+
+        # Fallback: check charges list (older API format)
+        if not payment.stripe_charge_id:
+            charges = getattr(payment_intent, 'charges', None)
+            if charges and charges.data:
+                charge = charges.data[0]
+                payment.stripe_charge_id = charge.id
+                if not payment.receipt_url:
+                    payment.receipt_url = getattr(charge, 'receipt_url', '')
 
         # Store metadata
         payment.metadata['webhook_processed_at'] = timezone.now().isoformat()
         payment.metadata['payment_intent_status'] = payment_intent.status
+        if charge_id:
+            payment.metadata['charge_id'] = charge_id
 
         payment.save()
 
@@ -271,7 +354,7 @@ class WebhookService:
                 payment_intent_id=payment_intent.id,
                 metadata={
                     'payment_id': payment.id,
-                    'webhook_processed_at': timezone.now().isoformat()
+                    'webhook_processed_at': timezone.now().isoformat(),
                 }
             )
         except Exception as e:
@@ -283,15 +366,62 @@ class WebhookService:
                 },
                 exc_info=True
             )
-            # Re-raise to ensure webhook is marked as failed
             raise
 
+        # Dispatch Transfers to sellers
+        # This must happen AFTER order is marked as PAID
+        if charge_id:
+            try:
+                from .services.transfer_dispatch_service import TransferDispatchService
+                splits = TransferDispatchService.dispatch_transfers_for_order(
+                    order=order,
+                    payment=payment,
+                    charge_id=charge_id,
+                )
+
+                dispatched = sum(1 for s in splits if s.transfer_status == 'dispatched')
+                failed = sum(1 for s in splits if s.transfer_status == 'failed')
+
+                logger.info(
+                    "Transfers dispatched after payment success",
+                    extra={
+                        'order_id': str(order.id),
+                        'payment_id': payment.id,
+                        'splits_total': len(splits),
+                        'splits_dispatched': dispatched,
+                        'splits_failed': failed,
+                    }
+                )
+            except Exception as e:
+                # Transfer dispatch failure MUST NOT roll back payment success
+                # Log and continue — manual reconciliation will be needed for failed splits
+                logger.error(
+                    f"Transfer dispatch failed for payment {payment.id}: {str(e)}",
+                    extra={
+                        'payment_id': payment.id,
+                        'order_id': str(order.id),
+                        'charge_id': charge_id,
+                    },
+                    exc_info=True
+                )
+        else:
+            logger.error(
+                "No charge_id available — cannot dispatch transfers. "
+                "Manual intervention required.",
+                extra={
+                    'payment_id': payment.id,
+                    'order_id': str(order.id),
+                    'payment_intent_id': payment_intent.id,
+                }
+            )
+
         logger.info(
-            f"Payment succeeded: {payment.id}",
+            "Payment succeeded handler completed",
             extra={
                 'payment_id': payment.id,
                 'order_id': str(order.id),
-                'order_number': order.order_number
+                'order_number': order.order_number,
+                'charge_id': charge_id,
             }
         )
 
@@ -301,7 +431,7 @@ class WebhookService:
         payment_intent = event.data.object
 
         logger.info(
-            f"Handling payment_intent.payment_failed: {payment_intent.id}",
+            "Handling payment_intent.payment_failed",
             extra={'payment_intent_id': payment_intent.id}
         )
 
@@ -331,7 +461,7 @@ class WebhookService:
         webhook.payment = payment
         webhook.save(update_fields=['payment'])
 
-        # Update order status using callback service (decoupled)
+        # Update order status via callback service
         order = payment.order
         try:
             from orders.services import PaymentCallbackService
@@ -349,15 +479,14 @@ class WebhookService:
                 },
                 exc_info=True
             )
-            # Re-raise to ensure webhook is marked as failed
             raise
 
         logger.warning(
-            f"Payment failed: {payment.id}",
+            "Payment failed handler completed",
             extra={
                 'payment_id': payment.id,
                 'order_id': str(payment.order.id),
-                'failure_reason': payment.failure_message
+                'failure_reason': payment.failure_message,
             }
         )
 
@@ -367,7 +496,7 @@ class WebhookService:
         payment_intent = event.data.object
 
         logger.info(
-            f"Handling payment_intent.canceled: {payment_intent.id}",
+            "Handling payment_intent.canceled",
             extra={'payment_intent_id': payment_intent.id}
         )
 
@@ -391,7 +520,7 @@ class WebhookService:
         webhook.payment = payment
         webhook.save(update_fields=['payment'])
 
-        # Update order status using callback service (decoupled)
+        # Update order status via callback service
         order = payment.order
         try:
             from orders.services import PaymentCallbackService
@@ -409,14 +538,379 @@ class WebhookService:
                 },
                 exc_info=True
             )
-            # Re-raise to ensure webhook is marked as failed
             raise
 
         logger.info(
-            f"Payment cancelled: {payment.id}",
+            "Payment cancelled handler completed",
             extra={
                 'payment_id': payment.id,
                 'order_id': str(order.id),
-                'order_number': order.order_number
+                'order_number': order.order_number,
+            }
+        )
+
+    @staticmethod
+    def _handle_transfer_created(event, webhook):
+        """
+        Handle transfer.created event.
+        Confirms that the Transfer was successfully created for a seller.
+        Updates the PaymentSplit record to 'dispatched' if not already set.
+        """
+        transfer = event.data.object
+        transfer_id = transfer.id
+
+        logger.info(
+            "Handling transfer.created",
+            extra={'transfer_id': transfer_id}
+        )
+
+        # Find the PaymentSplit with this transfer_id
+        try:
+            split = PaymentSplit.objects.select_for_update().get(
+                stripe_transfer_id=transfer_id
+            )
+            if split.transfer_status != 'dispatched':
+                split.transfer_status = 'dispatched'
+                split.save(update_fields=['transfer_status', 'updated_at'])
+
+            webhook.payment = split.payment
+            webhook.save(update_fields=['payment'])
+
+            logger.info(
+                "PaymentSplit confirmed dispatched via transfer.created",
+                extra={
+                    'split_id': split.id,
+                    'transfer_id': transfer_id,
+                    'seller_id': split.seller_id,
+                }
+            )
+        except PaymentSplit.DoesNotExist:
+            # Transfer might be from another context (e.g., manual) — log and ignore
+            logger.warning(
+                "transfer.created for unknown PaymentSplit",
+                extra={'transfer_id': transfer_id}
+            )
+
+    @staticmethod
+    def _handle_transfer_failed(event, webhook):
+        """
+        Handle transfer.failed event.
+        Marks the PaymentSplit as failed for manual reconciliation.
+        """
+        transfer = event.data.object
+        transfer_id = transfer.id
+
+        logger.error(
+            "Handling transfer.failed",
+            extra={'transfer_id': transfer_id}
+        )
+
+        try:
+            split = PaymentSplit.objects.select_for_update().get(
+                stripe_transfer_id=transfer_id
+            )
+            split.transfer_status = 'failed'
+            split.error_message = (
+                f"Transfer failed. Stripe transfer_id={transfer_id}. "
+                f"Manual reconciliation required."
+            )
+            split.save(update_fields=['transfer_status', 'error_message', 'updated_at'])
+
+            webhook.payment = split.payment
+            webhook.save(update_fields=['payment'])
+
+            logger.error(
+                "PaymentSplit marked as failed via transfer.failed",
+                extra={
+                    'split_id': split.id,
+                    'transfer_id': transfer_id,
+                    'seller_id': split.seller_id,
+                    'net_amount': str(split.net_amount),
+                }
+            )
+        except PaymentSplit.DoesNotExist:
+            logger.warning(
+                "transfer.failed for unknown PaymentSplit",
+                extra={'transfer_id': transfer_id}
+            )
+
+    @staticmethod
+    def _handle_dispute_created(event, webhook):
+        """
+        Handle charge.dispute.created event.
+
+        Creates a Dispute record for audit/tracking.
+        Attempts to create Transfer Reversals for the disputed amount
+        to recover funds from sellers proportionally.
+        """
+        dispute_data = event.data.object
+        dispute_id = dispute_data.id
+        charge_id = dispute_data.charge
+
+        logger.warning(
+            "Handling charge.dispute.created (chargeback)",
+            extra={
+                'dispute_id': dispute_id,
+                'charge_id': charge_id,
+                'amount': dispute_data.amount,
+                'reason': dispute_data.reason,
+                'status': dispute_data.status,
+            }
+        )
+
+        # Find Payment by charge_id
+        try:
+            payment = Payment.objects.select_for_update().get(
+                stripe_charge_id=charge_id
+            )
+        except Payment.DoesNotExist:
+            logger.error(
+                "Dispute received for unknown charge_id",
+                extra={'charge_id': charge_id, 'dispute_id': dispute_id}
+            )
+            return
+
+        # Create Dispute record (idempotent)
+        dispute, created = Dispute.objects.get_or_create(
+            stripe_dispute_id=dispute_id,
+            defaults={
+                'payment': payment,
+                'stripe_charge_id': charge_id,
+                'amount': Decimal(dispute_data.amount) / 100,
+                'currency': dispute_data.currency.upper(),
+                'reason': dispute_data.reason,
+                'status': dispute_data.status,
+                'stripe_payload': dict(dispute_data),
+            }
+        )
+
+        if not created:
+            # Update status in case of duplicate event
+            dispute.status = dispute_data.status
+            dispute.save(update_fields=['status', 'updated_at'])
+
+        webhook.payment = payment
+        webhook.save(update_fields=['payment'])
+
+        # Attempt Transfer Reversals to recover funds from sellers
+        if not dispute.reversal_attempted:
+            WebhookService._attempt_transfer_reversals_for_dispute(dispute, payment)
+
+        logger.warning(
+            "Dispute record created/updated",
+            extra={
+                'dispute_id': dispute_id,
+                'payment_id': payment.id,
+                'dispute_status': dispute_data.status,
+                'reversal_attempted': dispute.reversal_attempted,
+            }
+        )
+
+    @staticmethod
+    def _handle_dispute_updated(event, webhook):
+        """
+        Handle charge.dispute.updated event.
+        Updates the Dispute status.
+        """
+        dispute_data = event.data.object
+        dispute_id = dispute_data.id
+
+        logger.info(
+            "Handling charge.dispute.updated",
+            extra={
+                'dispute_id': dispute_id,
+                'status': dispute_data.status,
+            }
+        )
+
+        try:
+            dispute = Dispute.objects.select_for_update().get(
+                stripe_dispute_id=dispute_id
+            )
+            dispute.status = dispute_data.status
+            dispute.stripe_payload = dict(dispute_data)
+            dispute.save(update_fields=['status', 'stripe_payload', 'updated_at'])
+
+            webhook.payment = dispute.payment
+            webhook.save(update_fields=['payment'])
+
+            logger.info(
+                "Dispute status updated",
+                extra={
+                    'dispute_id': dispute_id,
+                    'new_status': dispute_data.status,
+                }
+            )
+        except Dispute.DoesNotExist:
+            logger.warning(
+                "dispute.updated for unknown dispute",
+                extra={'dispute_id': dispute_id}
+            )
+
+    @staticmethod
+    def _handle_dispute_closed(event, webhook):
+        """
+        Handle charge.dispute.closed event.
+        Final status update. If 'lost', logs for financial reconciliation.
+        """
+        dispute_data = event.data.object
+        dispute_id = dispute_data.id
+
+        logger.info(
+            "Handling charge.dispute.closed",
+            extra={
+                'dispute_id': dispute_id,
+                'status': dispute_data.status,
+            }
+        )
+
+        try:
+            dispute = Dispute.objects.select_for_update().get(
+                stripe_dispute_id=dispute_id
+            )
+            dispute.status = dispute_data.status
+            dispute.stripe_payload = dict(dispute_data)
+            dispute.save(update_fields=['status', 'stripe_payload', 'updated_at'])
+
+            webhook.payment = dispute.payment
+            webhook.save(update_fields=['payment'])
+
+            if dispute_data.status == 'lost':
+                logger.error(
+                    "Dispute LOST — platform absorbed chargeback loss",
+                    extra={
+                        'dispute_id': dispute_id,
+                        'payment_id': dispute.payment.id,
+                        'amount': str(dispute.amount),
+                        'reason': dispute.reason,
+                    }
+                )
+            elif dispute_data.status == 'won':
+                logger.info(
+                    "Dispute WON — funds returned to platform",
+                    extra={
+                        'dispute_id': dispute_id,
+                        'payment_id': dispute.payment.id,
+                    }
+                )
+
+        except Dispute.DoesNotExist:
+            logger.warning(
+                "dispute.closed for unknown dispute",
+                extra={'dispute_id': dispute_id}
+            )
+
+    @staticmethod
+    def _attempt_transfer_reversals_for_dispute(dispute, payment):
+        """
+        Attempt to create Transfer Reversals for all dispatched splits
+        proportional to the dispute amount.
+
+        Called when a new dispute is created. The platform attempts to recover
+        funds from sellers by reversing the transfers.
+
+        Note: Transfer reversals reduce the seller's balance. The platform
+        absorbs the dispute fee regardless.
+        """
+        dispatched_splits = PaymentSplit.objects.filter(
+            payment=payment,
+            transfer_status='dispatched',
+        ).exclude(stripe_transfer_id='')
+
+        if not dispatched_splits.exists():
+            logger.warning(
+                "No dispatched splits found to reverse for dispute",
+                extra={
+                    'dispute_id': dispute.stripe_dispute_id,
+                    'payment_id': payment.id,
+                }
+            )
+            dispute.reversal_attempted = True
+            dispute.save(update_fields=['reversal_attempted', 'updated_at'])
+            return
+
+        dispute_amount_decimal = dispute.amount
+        total_net = sum(s.net_amount for s in dispatched_splits)
+
+        total_reversed = Decimal('0.00')
+
+        for split in dispatched_splits:
+            if total_net == 0:
+                proportion = Decimal('0')
+            else:
+                proportion = split.net_amount / total_net
+
+            reversal_amount_decimal = (dispute_amount_decimal * proportion).quantize(
+                Decimal('0.01')
+            )
+            reversal_amount_cents = int(reversal_amount_decimal * 100)
+
+            if reversal_amount_cents <= 0:
+                continue
+
+            idempotency_key = (
+                f"rev_{split.stripe_transfer_id}_{dispute.stripe_dispute_id}"
+            )
+
+            logger.warning(
+                "Creating Transfer Reversal for dispute",
+                extra={
+                    'dispute_id': dispute.stripe_dispute_id,
+                    'transfer_id': split.stripe_transfer_id,
+                    'reversal_amount_cents': reversal_amount_cents,
+                    'seller_id': split.seller_id,
+                    'idempotency_key': idempotency_key,
+                }
+            )
+
+            try:
+                stripe.Transfer.create_reversal(
+                    split.stripe_transfer_id,
+                    amount=reversal_amount_cents,
+                    description=(
+                        f"Reversal for dispute {dispute.stripe_dispute_id} "
+                        f"on charge {dispute.stripe_charge_id}"
+                    ),
+                    metadata={
+                        'dispute_id': dispute.stripe_dispute_id,
+                        'payment_id': str(payment.id),
+                        'split_id': str(split.id),
+                        'seller_id': str(split.seller_id),
+                    },
+                    idempotency_key=idempotency_key,
+                )
+
+                total_reversed += reversal_amount_decimal
+
+                logger.warning(
+                    "Transfer Reversal created for dispute",
+                    extra={
+                        'dispute_id': dispute.stripe_dispute_id,
+                        'transfer_id': split.stripe_transfer_id,
+                        'reversed_cents': reversal_amount_cents,
+                    }
+                )
+
+            except stripe.error.StripeError as e:
+                logger.error(
+                    f"Failed to create Transfer Reversal: {str(e)}",
+                    extra={
+                        'dispute_id': dispute.stripe_dispute_id,
+                        'transfer_id': split.stripe_transfer_id,
+                        'error_type': type(e).__name__,
+                    },
+                    exc_info=True
+                )
+
+        dispute.reversal_attempted = True
+        dispute.reversal_amount = total_reversed
+        dispute.save(update_fields=['reversal_attempted', 'reversal_amount', 'updated_at'])
+
+        logger.warning(
+            "Transfer Reversals attempt completed for dispute",
+            extra={
+                'dispute_id': dispute.stripe_dispute_id,
+                'payment_id': payment.id,
+                'total_reversed': str(total_reversed),
             }
         )

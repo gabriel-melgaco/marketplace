@@ -37,7 +37,8 @@ class TestMultiplePaymentIntents(TestCase):
         )
         self.seller = User.objects.create_user(
             email='seller@test.com',
-            password='testpass123'
+            password='testpass123',
+            stripe_account_id='acct_test_seller_123',  # Required for seller readiness check
         )
 
         # Create product data
@@ -103,12 +104,18 @@ class TestMultiplePaymentIntents(TestCase):
         # Authenticate as buyer
         self.client.force_authenticate(user=self.buyer)
 
+    @patch('payments.payment_intent_service.stripe.Account.retrieve')
     @patch('payments.payment_intent_service.stripe.PaymentIntent.create')
     @patch('payments.payment_intent_service.stripe.PaymentIntent.retrieve')
-    def test_reuse_pending_payment_intent(self, mock_retrieve, mock_create):
+    def test_reuse_pending_payment_intent(self, mock_retrieve, mock_create, mock_account):
         """
         Test that pending payment intent is reused instead of creating new one.
         """
+        # Mock Stripe Account retrieve (seller readiness check)
+        mock_account_obj = MagicMock()
+        mock_account_obj.get.return_value = True  # charges_enabled = True
+        mock_account.return_value = mock_account_obj
+
         # Mock Stripe PaymentIntent creation
         mock_intent_create = MagicMock()
         mock_intent_create.id = 'pi_test_123'
@@ -190,13 +197,59 @@ class TestMultiplePaymentIntents(TestCase):
 
         Note: Since Payment has OneToOneField with Order, we cannot create
         a new Payment. The user should cancel the order and create a new one.
+        When the seller has no stripe_account_id (simulating incomplete onboarding),
+        the system now correctly returns 400 with a seller readiness error
+        before even attempting to create a new PaymentIntent.
         """
-        # Create payment with pending status
+        # Create payment with pending status (no stripe_account_id on seller)
+        # This seller does NOT have stripe_account_id set — simulating a fresh test
+        seller_without_account = User.objects.create_user(
+            email='seller_nostripe@test.com',
+            password='testpass123',
+            # stripe_account_id intentionally blank
+        )
+        order2 = Order.objects.create(
+            buyer=self.buyer,
+            subtotal=Decimal('100.00'),
+            shipping_cost=Decimal('0.00'),
+            total=Decimal('100.00'),
+            shipping_address={'street': 'Test St', 'city': 'Test City'},
+            status='pending_payment'
+        )
+        listing2 = MarketplaceListing.objects.create(
+            product=self.product,
+            seller=seller_without_account,
+            brand=self.brand,
+            condition=self.condition,
+            price=Decimal('100.00'),
+            quantity=5,
+            is_active=True,
+            weight_kg=Decimal('1.00'),
+            height_cm=Decimal('5.00'),
+            width_cm=Decimal('5.00'),
+            length_cm=Decimal('5.00'),
+        )
+        OrderItem.objects.create(
+            order=order2,
+            listing=listing2,
+            seller=seller_without_account,
+            quantity=1,
+            unit_price=Decimal('100.00'),
+            subtotal=Decimal('100.00'),
+            product_name=self.product.name,
+            product_code='',
+            brand_name=self.brand.name,
+            condition_name=self.condition.name,
+            weight_kg=listing2.weight_kg,
+            height_cm=listing2.height_cm,
+            width_cm=listing2.width_cm,
+            length_cm=listing2.length_cm,
+        )
         existing_payment = Payment.objects.create(
-            order=self.order,
+            order=order2,
             user=self.buyer,
             stripe_payment_intent_id='pi_old_cancelled',
-            amount=self.order.total,
+            amount=order2.total,
             currency='brl',
             payment_method='credit_card',
             status='pending'
@@ -210,32 +263,75 @@ class TestMultiplePaymentIntents(TestCase):
 
         # Try to create payment intent
         response = self.client.post('/api/payments/create-intent/', {
-            'order_id': str(self.order.id),
+            'order_id': str(order2.id),
             'payment_method': 'credit_card'
         })
 
-        # Should return 500 because cannot create new Payment (OneToOneField constraint)
-        # In production, user should cancel order and create new one
-        # This is an acceptable limitation given the data model
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        # Should return 400 because seller has no stripe_account_id
+        # (SellerNotReadyError is raised before attempting to create PI)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.data)
 
     @patch('payments.payment_intent_service.stripe.PaymentIntent.retrieve')
     def test_handle_stripe_retrieve_failure_gracefully(self, mock_retrieve):
         """
         Test that Stripe retrieve failure is handled gracefully.
+        When seller has no stripe_account_id, we get 400 (SellerNotReadyError)
+        before attempting to create a new PaymentIntent.
         """
-        # Create payment with pending status
+        # Create a seller without stripe_account_id for this test
+        seller_without_account = User.objects.create_user(
+            email='seller_noacct@test.com',
+            password='testpass123',
+        )
+        order3 = Order.objects.create(
+            buyer=self.buyer,
+            subtotal=Decimal('50.00'),
+            shipping_cost=Decimal('0.00'),
+            total=Decimal('50.00'),
+            shipping_address={'street': 'Test St'},
+            status='pending_payment'
+        )
+        listing3 = MarketplaceListing.objects.create(
+            product=self.product,
+            seller=seller_without_account,
+            brand=self.brand,
+            condition=self.condition,
+            price=Decimal('50.00'),
+            quantity=3,
+            is_active=True,
+            weight_kg=Decimal('1.00'),
+            height_cm=Decimal('5.00'),
+            width_cm=Decimal('5.00'),
+            length_cm=Decimal('5.00'),
+        )
+        OrderItem.objects.create(
+            order=order3,
+            listing=listing3,
+            seller=seller_without_account,
+            quantity=1,
+            unit_price=Decimal('50.00'),
+            subtotal=Decimal('50.00'),
+            product_name=self.product.name,
+            product_code='',
+            brand_name=self.brand.name,
+            condition_name=self.condition.name,
+            weight_kg=listing3.weight_kg,
+            height_cm=listing3.height_cm,
+            width_cm=listing3.width_cm,
+            length_cm=listing3.length_cm,
+        )
         existing_payment = Payment.objects.create(
-            order=self.order,
+            order=order3,
             user=self.buyer,
             stripe_payment_intent_id='pi_old_notfound',
-            amount=self.order.total,
+            amount=order3.total,
             currency='brl',
             payment_method='credit_card',
             status='pending'
         )
 
-        # Mock Stripe retrieve to raise error (e.g., payment intent doesn't exist)
+        # Mock Stripe retrieve to raise error
         import stripe
         mock_retrieve.side_effect = stripe.error.InvalidRequestError(
             'No such payment intent', 'pi_old_notfound'
@@ -243,12 +339,13 @@ class TestMultiplePaymentIntents(TestCase):
 
         # Try to create payment intent
         response = self.client.post('/api/payments/create-intent/', {
-            'order_id': str(self.order.id),
+            'order_id': str(order3.id),
             'payment_method': 'credit_card'
         })
 
-        # Should return 500 because cannot create new Payment (OneToOneField constraint)
-        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        # Should return 400 because seller has no stripe_account_id
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.data)
 
     @patch('payments.payment_intent_service.stripe.PaymentIntent.create')
     @patch('payments.payment_intent_service.stripe.PaymentIntent.retrieve')
