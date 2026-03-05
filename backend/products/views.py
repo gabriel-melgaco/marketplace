@@ -266,11 +266,18 @@ class MarketplaceListingCreateView(generics.CreateAPIView):
     permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
-        if not self.request.user.stripe_account_id:
-            from rest_framework.exceptions import PermissionDenied
+        from rest_framework.exceptions import PermissionDenied
+        user = self.request.user
+        if not user.stripe_account_id:
             raise PermissionDenied(
                 'É necessário conectar uma conta Stripe antes de criar um anúncio. '
                 'Acesse POST /api/payments/connect/create/ para configurar sua conta.'
+            )
+        if not user.seller_verified:
+            raise PermissionDenied(
+                'Sua conta Stripe Connect ainda não está ativa. '
+                'Complete o onboarding em POST /api/payments/connect/onboarding-link/ '
+                'e aguarde a ativação.'
             )
         serializer.save(seller=self.request.user, is_active=True)
 
