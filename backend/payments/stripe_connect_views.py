@@ -144,6 +144,74 @@ def get_onboarding_link(request):
 
 @extend_schema(
     tags=['Stripe Connect'],
+    summary='Sync connected account status with Stripe',
+    request=None,
+    responses={
+        200: inline_serializer(
+            name='SyncAccountStatusResponse',
+            fields={
+                'seller_verified': rf_serializers.BooleanField(),
+                'ready_to_receive_payments': rf_serializers.BooleanField(),
+                'details_submitted': rf_serializers.BooleanField(),
+                'onboarding_complete': rf_serializers.BooleanField(),
+                'pending_verification': rf_serializers.BooleanField(),
+                'updated': rf_serializers.BooleanField(),
+            }
+        ),
+        400: OpenApiResponse(description='No connected account or error'),
+    },
+    description="Força sincronização do seller_verified no banco com o status real da conta no Stripe."
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def sync_account_status(request):
+    """
+    Consulta o Stripe e atualiza seller_verified no banco conforme o status real.
+    Útil quando o webhook não foi configurado ou quando há divergência entre banco e Stripe.
+    """
+    user = request.user
+
+    if not user.stripe_account_id:
+        return Response(
+            {'error': 'No connected account found.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        account_status = StripeConnectService.get_account_status(user.stripe_account_id)
+        updated = False
+
+        should_verify = (
+            account_status['ready_to_receive_payments'] or
+            account_status['onboarding_complete']
+        )
+
+        if should_verify and not user.seller_verified:
+            user.seller_verified = True
+            user.seller_verified_at = timezone.now()
+            user.save(update_fields=['seller_verified', 'seller_verified_at'])
+            updated = True
+        elif not should_verify and user.seller_verified:
+            user.seller_verified = False
+            user.seller_verified_at = None
+            user.save(update_fields=['seller_verified', 'seller_verified_at'])
+            updated = True
+
+        return Response({
+            'seller_verified': user.seller_verified,
+            'ready_to_receive_payments': account_status['ready_to_receive_payments'],
+            'details_submitted': account_status['details_submitted'],
+            'onboarding_complete': account_status['onboarding_complete'],
+            'pending_verification': account_status['pending_verification'],
+            'updated': updated,
+        })
+
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@extend_schema(
+    tags=['Stripe Connect'],
     summary='Get account status',
     responses={
         200: inline_serializer(
@@ -315,57 +383,77 @@ def create_checkout_with_connect(request):
 @permission_classes([AllowAny])
 def stripe_connect_webhook(request):
     """
-    Handle Stripe Connect webhooks (thin events)
-    
-    Listens for:
-    - v2.core.account[requirements].updated
-    - v2.core.account[.recipient].capability_status_updated
-    
-    Setup with Stripe CLI:
-    stripe listen --thin-events 'v2.core.account[requirements].updated,v2.core.account[.recipient].capability_status_updated' --forward-thin-to http://localhost:8000/api/payments/connect/webhook/
+    Handle Stripe Connect webhooks (V1 API).
+
+    Eventos escutados:
+    - account.updated      → verifica charges_enabled e atualiza seller_verified
+    - capability.updated   → verifica se a capability transfers ficou active
     """
-    
-    payload = request.body
+    import stripe as stripe_v1
+
+    payload    = request.body
     sig_header = request.META.get('HTTP_STRIPE_SIGNATURE')
-    
-    # Get webhook secret from settings
     webhook_secret = getattr(settings, 'STRIPE_CONNECT_WEBHOOK_SECRET', None)
-    
+
     if not webhook_secret:
-        return HttpResponse(
-            'Webhook secret not configured',
-            status=400
-        )
-    
+        return HttpResponse('Webhook secret not configured', status=400)
     if not sig_header:
         return HttpResponse('Missing signature', status=400)
-    
+
     try:
-        # Parse thin event
-        # Thin events only contain event ID and type
-        thin_event = stripe_client.parse_thin_event(
-            payload,
-            sig_header,
-            webhook_secret
-        )
-        
-        # Route event to appropriate handler
-        if thin_event.type == 'v2.core.account[requirements].updated':
-            result = StripeConnectService.handle_account_requirements_updated(
-                thin_event.id
-            )
-            
-        elif thin_event.type == 'v2.core.account[.recipient].capability_status_updated':
-            result = StripeConnectService.handle_capability_status_updated(
-                thin_event.id
-            )
-        else:
-            return HttpResponse(f'Unhandled event type: {thin_event.type}', status=200)
-        
-        return HttpResponse('Success', status=200)
-        
+        event = stripe_v1.Webhook.construct_event(payload, sig_header, webhook_secret)
+    except stripe_v1.errors.SignatureVerificationError as e:
+        return HttpResponse(f'Webhook error: {str(e)}', status=400)
     except Exception as e:
         return HttpResponse(f'Webhook error: {str(e)}', status=400)
+
+    account_id = event.get('account') or (event.data.object.get('account') if hasattr(event.data, 'object') else None)
+
+    try:
+        if event.type == 'account.updated':
+            acct = event.data.object
+            charges_enabled = acct.get('charges_enabled', False)
+            account_id = account_id or acct.get('id')
+
+            if account_id:
+                try:
+                    user = CustomUser.objects.get(stripe_account_id=account_id)
+                    if charges_enabled and not user.seller_verified:
+                        user.seller_verified = True
+                        user.seller_verified_at = timezone.now()
+                        user.save(update_fields=['seller_verified', 'seller_verified_at'])
+                    elif not charges_enabled and user.seller_verified:
+                        user.seller_verified = False
+                        user.seller_verified_at = None
+                        user.save(update_fields=['seller_verified', 'seller_verified_at'])
+                except CustomUser.DoesNotExist:
+                    pass  # conta não pertence a nenhum usuário cadastrado
+
+        elif event.type == 'capability.updated':
+            cap = event.data.object
+            cap_id     = cap.get('id', '')
+            cap_status = cap.get('status', '')
+            account_id = account_id or cap.get('account')
+
+            # Atualiza seller_verified quando a capability de transfers ficar ativa
+            if 'transfer' in cap_id and account_id:
+                try:
+                    user = CustomUser.objects.get(stripe_account_id=account_id)
+                    if cap_status == 'active' and not user.seller_verified:
+                        user.seller_verified = True
+                        user.seller_verified_at = timezone.now()
+                        user.save(update_fields=['seller_verified', 'seller_verified_at'])
+                    elif cap_status in ('inactive', 'unrequested') and user.seller_verified:
+                        user.seller_verified = False
+                        user.seller_verified_at = None
+                        user.save(update_fields=['seller_verified', 'seller_verified_at'])
+                except CustomUser.DoesNotExist:
+                    pass
+
+    except Exception as e:
+        return HttpResponse(f'Handler error: {str(e)}', status=400)
+
+    return HttpResponse('Success', status=200)
 
 
 # =================== Onboarding Callbacks (browser redirects do Stripe) ===================
@@ -413,7 +501,15 @@ def onboarding_return(request):
             return HttpResponseRedirect(f"{redirect_base}?status=active")
 
         if account_status['onboarding_complete']:
-            return HttpResponseRedirect(f"{redirect_base}?status=pending")
+            # Usuário fez tudo — Stripe está verificando internamente (ex: PEP check).
+            # Marca seller_verified para liberar o acesso; o status real de transfers
+            # será confirmado no webhook capability_status_updated.
+            if not user.seller_verified:
+                user.seller_verified = True
+                user.seller_verified_at = timezone.now()
+                user.save(update_fields=['seller_verified', 'seller_verified_at'])
+            status_param = 'pending_verification' if account_status['pending_verification'] else 'pending'
+            return HttpResponseRedirect(f"{redirect_base}?status={status_param}")
 
         return HttpResponseRedirect(f"{redirect_base}?status=incomplete")
 
