@@ -404,6 +404,45 @@ class StripeConnectService:
             raise Exception(f"Failed to handle capability update: {str(e)}")
     
     @staticmethod
+    def disconnect_account(user: CustomUser) -> dict:
+        """
+        Disconnect a seller's Stripe Connect account from the platform.
+
+        Attempts to delete the account on Stripe (only possible if no charges
+        have been processed). Regardless of the Stripe result, clears all
+        Connect fields on the user so they can reconnect later.
+
+        Returns:
+            dict with keys:
+            - stripe_deleted: bool — whether the account was deleted on Stripe
+            - stripe_error: str|None — Stripe error message if deletion failed
+        """
+        account_id = user.stripe_account_id
+        stripe_deleted = False
+        stripe_error = None
+
+        if account_id:
+            try:
+                stripe.api_key = settings.STRIPE_SECRET_KEY
+                stripe.Account.delete(account_id)
+                stripe_deleted = True
+            except stripe.error.InvalidRequestError as e:
+                # Account has charges — cannot be deleted, just unlink locally
+                stripe_error = str(e)
+            except stripe.error.StripeError as e:
+                stripe_error = str(e)
+
+        user.stripe_account_id = ''
+        user.seller_verified = False
+        user.seller_verified_at = None
+        user.save(update_fields=['stripe_account_id', 'seller_verified', 'seller_verified_at'])
+
+        return {
+            'stripe_deleted': stripe_deleted,
+            'stripe_error': stripe_error,
+        }
+
+    @staticmethod
     def calculate_platform_fee(amount: float, fee_percentage: float = None) -> int:
         """
         Calculate platform fee in cents
