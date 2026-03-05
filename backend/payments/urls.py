@@ -31,6 +31,4 @@ urlpatterns = [
     path('connect/checkout/', stripe_connect_views.create_checkout_with_connect, name='connect-checkout'),
     path('connect/webhook/', stripe_connect_views.stripe_connect_webhook, name='connect-webhook'),
     
-    # UI
-    path('seller/onboarding/', stripe_connect_views.seller_onboarding_page, name='seller-onboarding'),
 ]

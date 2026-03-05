@@ -7,7 +7,7 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpResponse
 from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiResponse
@@ -111,11 +111,16 @@ def get_onboarding_link(request):
         )
     
     try:
-        # Build URLs
-        base_url = request.build_absolute_uri('/')
-        refresh_url = f"{base_url}seller/onboarding/refresh"
-        return_url = f"{base_url}seller/onboarding/complete"
-        
+        # Rotas React no frontend — devem existir no React Router
+        # return_url: chamada pelo Stripe após o vendedor concluir (ou abandonar) o onboarding
+        #   → React deve chamar GET /api/payments/connect/status/ e exibir o resultado
+        # refresh_url: chamada pelo Stripe quando o link expirou (>24h)
+        #   → React deve chamar POST /api/payments/connect/onboarding-link/ para gerar novo link
+        #      e redirecionar o usuário de volta ao Stripe
+        frontend_url = settings.FRONTEND_BASE_URL.rstrip('/')
+        return_url  = f"{frontend_url}/seller/onboarding/complete"
+        refresh_url = f"{frontend_url}/seller/onboarding/refresh"
+
         # Create account link
         account_link = StripeConnectService.create_account_link(
             user=user,
@@ -361,20 +366,3 @@ def stripe_connect_webhook(request):
         return HttpResponse(f'Webhook error: {str(e)}', status=400)
 
 
-# =================== UI Views (HTML) ===================
-
-def seller_onboarding_page(request):
-    """
-    Seller onboarding dashboard page
-    Shows account status and onboarding link
-    """
-    
-    if not request.user.is_authenticated:
-        return render(request, 'payments/login_required.html')
-
-    context = {
-        'user': request.user,
-        'has_account': bool(request.user.stripe_account_id),
-    }
-    
-    return render(request, 'payments/seller_onboarding.html', context)
