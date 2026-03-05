@@ -40,10 +40,6 @@ class StripeConnectService:
         - Losses (we handle chargebacks)
         """
         
-        # Validate user is a seller
-        if not user.is_seller:
-            raise ValueError("User must be a seller to create a connected account")
-        
         try:
             # Create connected account using V2 API
             # DO NOT use top-level 'type' parameter
@@ -74,6 +70,14 @@ class StripeConnectService:
                 
                 # Configuration for receiving payments
                 "configuration": {
+                    # Merchant config is required before stripe_transfers can be requested
+                    "merchant": {
+                        "capabilities": {
+                            "card_payments": {
+                                "requested": True,
+                            },
+                        },
+                    },
                     "recipient": {
                         "capabilities": {
                             # Enable transfers to seller's Stripe Balance
