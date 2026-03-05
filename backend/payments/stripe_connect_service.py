@@ -153,60 +153,56 @@ class StripeConnectService:
     @staticmethod
     def get_account_status(stripe_account_id: str) -> dict:
         """
-        Get the current status of a connected account
-        
-        Args:
-            stripe_account_id: Stripe account ID
-            
+        Get the current status of a connected account.
+
+        Usa V1 API como fonte primária (mesma que o Dashboard Stripe exibe) e
+        V2 API para detalhes de requirements.
+
         Returns:
-            dict: Account status information
-            
-        Status includes:
-        - ready_to_receive_payments: Can receive transfers
-        - onboarding_complete: All requirements satisfied
-        - requirements_status: currently_due, past_due, or satisfied
+            dict com:
+            - ready_to_receive_payments: charges_enabled=True na V1 (Dashboard)
+            - details_submitted: usuário completou o formulário de onboarding
+            - onboarding_complete: usuário fez tudo — Stripe pode estar verificando internamente
+            - requirements_status: currently_due | past_due | None
+            - pending_verification: Stripe está verificando internamente (ex: PEP check)
         """
-        
+        import stripe as stripe_v1
+        stripe_v1.api_key = stripe_client._requestor._options.api_key
+
         try:
-            account = stripe_client.v2.core.accounts.retrieve(
+            # V1 — fonte de verdade para charges_enabled/details_submitted (igual ao Dashboard)
+            v1_account = stripe_v1.Account.retrieve(stripe_account_id)
+            charges_enabled   = v1_account.get('charges_enabled', False)
+            details_submitted = v1_account.get('details_submitted', False)
+            v1_requirements   = v1_account.get('requirements') or {}
+            pending_verification = bool(v1_requirements.get('pending_verification'))
+            disabled_reason      = v1_requirements.get('disabled_reason', '')
+
+            # V2 — requirements detalhados (awaiting_action_from)
+            v2_account = stripe_client.v2.core.accounts.retrieve(
                 stripe_account_id,
-                params={
-                    "include": ["configuration.recipient", "configuration.merchant", "requirements"]
-                }
+                params={"include": ["configuration.recipient", "requirements"]}
             )
-
-            # Use `or {}` instead of default arg — handles None values returned by Stripe v2
-            configuration = account.get("configuration") or {}
-            recipient = configuration.get("recipient") or {}
-            capabilities = recipient.get("capabilities") or {}
-            stripe_balance = capabilities.get("stripe_balance") or {}
-            stripe_transfers = stripe_balance.get("stripe_transfers") or {}
-
-            ready_to_receive_payments = stripe_transfers.get("status") == "active"
-
-            requirements = account.get("requirements") or {}
-            entries = requirements.get("entries") or []
-
-            # Distingue requisitos que o usuário precisa resolver dos que dependem do Stripe.
-            # awaiting_action_from="stripe" → usuário terminou, Stripe está verificando (KYC, PEP etc.)
-            # awaiting_action_from="account" → usuário ainda precisa fornecer informações
+            entries    = (v2_account.get("requirements") or {}).get("entries") or []
             user_pending = [e for e in entries if e.get("awaiting_action_from") == "account"]
 
-            # onboarding_complete = True quando o usuário fez tudo da parte dele,
-            # mesmo que Stripe ainda esteja processando a verificação internamente.
-            onboarding_complete = len(user_pending) == 0
+            # onboarding_complete = usuário não tem mais nada a fazer
+            # (pode estar em pending_verification aguardando Stripe aprovar internamente)
+            onboarding_complete = details_submitted and len(user_pending) == 0
 
-            requirements_summary = requirements.get("summary") or {}
-            minimum_deadline = requirements_summary.get("minimum_deadline") or {}
-            requirements_status = minimum_deadline.get("status")
+            requirements_summary = (v2_account.get("requirements") or {}).get("summary") or {}
+            requirements_status  = (requirements_summary.get("minimum_deadline") or {}).get("status")
 
             return {
-                "ready_to_receive_payments": ready_to_receive_payments,
+                "ready_to_receive_payments": charges_enabled,
+                "details_submitted": details_submitted,
                 "onboarding_complete": onboarding_complete,
+                "pending_verification": pending_verification,
+                "disabled_reason": disabled_reason,
                 "requirements_status": requirements_status,
-                "account": account,
+                "account": v1_account,
             }
-            
+
         except Exception as e:
             raise Exception(f"Failed to retrieve account status: {str(e)}")
     
