@@ -184,12 +184,22 @@ class StripeConnectService:
 
             ready_to_receive_payments = stripe_transfers.get("status") == "active"
 
-            requirements_summary = (account.get("requirements") or {}).get("summary") or {}
+            requirements = account.get("requirements") or {}
+            entries = requirements.get("entries") or []
+
+            # Distingue requisitos que o usuário precisa resolver dos que dependem do Stripe.
+            # awaiting_action_from="stripe" → usuário terminou, Stripe está verificando (KYC, PEP etc.)
+            # awaiting_action_from="account" → usuário ainda precisa fornecer informações
+            user_pending = [e for e in entries if e.get("awaiting_action_from") == "account"]
+
+            # onboarding_complete = True quando o usuário fez tudo da parte dele,
+            # mesmo que Stripe ainda esteja processando a verificação internamente.
+            onboarding_complete = len(user_pending) == 0
+
+            requirements_summary = requirements.get("summary") or {}
             minimum_deadline = requirements_summary.get("minimum_deadline") or {}
             requirements_status = minimum_deadline.get("status")
 
-            onboarding_complete = requirements_status not in ["currently_due", "past_due"]
-            
             return {
                 "ready_to_receive_payments": ready_to_receive_payments,
                 "onboarding_complete": onboarding_complete,
