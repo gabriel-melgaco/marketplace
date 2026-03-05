@@ -30,5 +30,9 @@ urlpatterns = [
     path('connect/status/', stripe_connect_views.get_account_status, name='connect-account-status'),
     path('connect/checkout/', stripe_connect_views.create_checkout_with_connect, name='connect-checkout'),
     path('connect/webhook/', stripe_connect_views.stripe_connect_webhook, name='connect-webhook'),
+
+    # Callbacks de onboarding (browser redirects do Stripe — sem JWT)
+    path('connect/onboarding/return/', stripe_connect_views.onboarding_return, name='connect-onboarding-return'),
+    path('connect/onboarding/refresh/', stripe_connect_views.onboarding_refresh, name='connect-onboarding-refresh'),
     
 ]

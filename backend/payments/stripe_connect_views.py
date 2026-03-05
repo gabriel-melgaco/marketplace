@@ -9,7 +9,10 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
+from django.core import signing
+from django.utils import timezone
+from authentication.models import CustomUser
 from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiResponse
 from rest_framework import serializers as rf_serializers
 import json
@@ -111,15 +114,14 @@ def get_onboarding_link(request):
         )
     
     try:
-        # Rotas React no frontend — devem existir no React Router
-        # return_url: chamada pelo Stripe após o vendedor concluir (ou abandonar) o onboarding
-        #   → React deve chamar GET /api/payments/connect/status/ e exibir o resultado
-        # refresh_url: chamada pelo Stripe quando o link expirou (>24h)
-        #   → React deve chamar POST /api/payments/connect/onboarding-link/ para gerar novo link
-        #      e redirecionar o usuário de volta ao Stripe
-        frontend_url = settings.FRONTEND_BASE_URL.rstrip('/')
-        return_url  = f"{frontend_url}/seller/onboarding/complete"
-        refresh_url = f"{frontend_url}/seller/onboarding/refresh"
+        # Token assinado com user_id — identifica o vendedor sem precisar de JWT
+        # O Stripe redireciona o browser do vendedor para return_url/refresh_url,
+        # por isso não podemos usar autenticação JWT nessas rotas.
+        token = signing.dumps({'user_id': user.id}, salt='stripe-onboarding-callback')
+
+        api_base = settings.BACKEND_BASE_URL.rstrip('/')
+        return_url  = f"{api_base}/api/payments/connect/onboarding/return/?token={token}"
+        refresh_url = f"{api_base}/api/payments/connect/onboarding/refresh/?token={token}"
 
         # Create account link
         account_link = StripeConnectService.create_account_link(
@@ -364,5 +366,90 @@ def stripe_connect_webhook(request):
         
     except Exception as e:
         return HttpResponse(f'Webhook error: {str(e)}', status=400)
+
+
+# =================== Onboarding Callbacks (browser redirects do Stripe) ===================
+
+_ONBOARDING_SALT = 'stripe-onboarding-callback'
+_TOKEN_MAX_AGE   = 60 * 60 * 24 * 7  # 7 dias — cobre expiração do link (24h) com folga
+
+
+def _resolve_token(token):
+    """Valida o token assinado e retorna o CustomUser, ou None se inválido."""
+    if not token:
+        return None
+    try:
+        data = signing.loads(token, salt=_ONBOARDING_SALT, max_age=_TOKEN_MAX_AGE)
+        return CustomUser.objects.get(id=data['user_id'])
+    except (signing.BadSignature, signing.SignatureExpired, CustomUser.DoesNotExist):
+        return None
+
+
+def onboarding_return(request):
+    """
+    Stripe redireciona aqui após o vendedor concluir (ou abandonar) o onboarding.
+
+    Fluxo:
+    1. Valida o token assinado → identifica o vendedor
+    2. Consulta status real no Stripe
+    3. Atualiza seller_verified no DB se conta já está ativa
+    4. Redireciona para o frontend com ?status=active|pending|incomplete|error
+    """
+    frontend_url = settings.FRONTEND_BASE_URL.rstrip('/')
+    redirect_base = f"{frontend_url}/seller/onboarding/complete"
+
+    user = _resolve_token(request.GET.get('token'))
+    if not user:
+        return HttpResponseRedirect(f"{redirect_base}?status=error&reason=invalid_token")
+
+    try:
+        account_status = StripeConnectService.get_account_status(user.stripe_account_id)
+
+        if account_status['ready_to_receive_payments']:
+            if not user.seller_verified:
+                user.seller_verified = True
+                user.seller_verified_at = timezone.now()
+                user.save(update_fields=['seller_verified', 'seller_verified_at'])
+            return HttpResponseRedirect(f"{redirect_base}?status=active")
+
+        if account_status['onboarding_complete']:
+            return HttpResponseRedirect(f"{redirect_base}?status=pending")
+
+        return HttpResponseRedirect(f"{redirect_base}?status=incomplete")
+
+    except Exception:
+        return HttpResponseRedirect(f"{redirect_base}?status=error")
+
+
+def onboarding_refresh(request):
+    """
+    Stripe redireciona aqui quando o link de onboarding expirou (>24h sem concluir).
+
+    Fluxo:
+    1. Valida o token assinado → identifica o vendedor
+    2. Gera novo account link com novos tokens nos callbacks
+    3. Redireciona diretamente para a URL do Stripe
+    """
+    frontend_url = settings.FRONTEND_BASE_URL.rstrip('/')
+
+    user = _resolve_token(request.GET.get('token'))
+    if not user:
+        return HttpResponseRedirect(f"{frontend_url}/seller/onboarding?status=error&reason=expired")
+
+    try:
+        new_token = signing.dumps({'user_id': user.id}, salt=_ONBOARDING_SALT)
+        api_base = settings.BACKEND_BASE_URL.rstrip('/')
+        new_return_url  = f"{api_base}/api/payments/connect/onboarding/return/?token={new_token}"
+        new_refresh_url = f"{api_base}/api/payments/connect/onboarding/refresh/?token={new_token}"
+
+        account_link = StripeConnectService.create_account_link(
+            user=user,
+            refresh_url=new_refresh_url,
+            return_url=new_return_url,
+        )
+        return HttpResponseRedirect(account_link.url)
+
+    except Exception:
+        return HttpResponseRedirect(f"{frontend_url}/seller/onboarding?status=error&reason=refresh_failed")
 
 
