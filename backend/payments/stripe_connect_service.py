@@ -3,6 +3,7 @@ Stripe Connect Integration Service
 Handles connected accounts, onboarding, and destination charges for marketplace
 """
 
+import stripe
 from stripe import StripeClient
 from django.conf import settings
 from django.utils import timezone
@@ -166,12 +167,10 @@ class StripeConnectService:
             - requirements_status: currently_due | past_due | None
             - pending_verification: Stripe está verificando internamente (ex: PEP check)
         """
-        import stripe as stripe_v1
-        stripe_v1.api_key = stripe_client._requestor._options.api_key
-
         try:
             # V1 — fonte de verdade para charges_enabled/details_submitted (igual ao Dashboard)
-            v1_account = stripe_v1.Account.retrieve(stripe_account_id)
+            stripe.api_key = settings.STRIPE_SECRET_KEY
+            v1_account = stripe.Account.retrieve(stripe_account_id)
             charges_enabled   = v1_account.get('charges_enabled', False)
             details_submitted = v1_account.get('details_submitted', False)
             v1_requirements   = v1_account.get('requirements') or {}

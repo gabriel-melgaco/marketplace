@@ -389,7 +389,8 @@ def stripe_connect_webhook(request):
     - account.updated      → verifica charges_enabled e atualiza seller_verified
     - capability.updated   → verifica se a capability transfers ficou active
     """
-    import stripe as stripe_v1
+    import stripe
+    from stripe._error import SignatureVerificationError
 
     payload    = request.body
     sig_header = request.META.get('HTTP_STRIPE_SIGNATURE')
@@ -401,8 +402,8 @@ def stripe_connect_webhook(request):
         return HttpResponse('Missing signature', status=400)
 
     try:
-        event = stripe_v1.Webhook.construct_event(payload, sig_header, webhook_secret)
-    except stripe_v1.errors.SignatureVerificationError as e:
+        event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
+    except SignatureVerificationError as e:
         return HttpResponse(f'Webhook error: {str(e)}', status=400)
     except Exception as e:
         return HttpResponse(f'Webhook error: {str(e)}', status=400)
