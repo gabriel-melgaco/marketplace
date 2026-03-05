@@ -26,6 +26,7 @@ urlpatterns = [
 
     # Stripe Connect endpoints
     path('connect/create/', stripe_connect_views.create_connected_account, name='connect-create-account'),
+    path('connect/disconnect/', stripe_connect_views.disconnect_connected_account, name='connect-disconnect-account'),
     path('connect/onboarding-link/', stripe_connect_views.get_onboarding_link, name='connect-onboarding-link'),
     path('connect/status/', stripe_connect_views.get_account_status, name='connect-account-status'),
     path('connect/sync/', stripe_connect_views.sync_account_status, name='connect-sync-status'),

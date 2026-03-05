@@ -268,6 +268,57 @@ def get_account_status(request):
         )
 
 
+# =================== Disconnect Account ===================
+
+@extend_schema(
+    tags=['Stripe Connect'],
+    summary='Disconnect Stripe connected account',
+    request=None,
+    responses={
+        200: inline_serializer(
+            name='DisconnectAccountResponse',
+            fields={
+                'message': rf_serializers.CharField(),
+                'stripe_deleted': rf_serializers.BooleanField(),
+                'stripe_error': rf_serializers.CharField(allow_null=True),
+            }
+        ),
+        400: OpenApiResponse(description='No connected account to disconnect'),
+    },
+    description=(
+        "Disconnects the seller's Stripe Connect account from the platform. "
+        "Clears stripe_account_id and seller_verified locally. "
+        "Attempts to delete the account on Stripe (only succeeds if no charges have been processed). "
+        "After disconnecting, the seller must create and complete a new Connect account to sell again."
+    )
+)
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def disconnect_connected_account(request):
+    """
+    Disconnect the current user's Stripe Connect account.
+
+    Clears Connect fields locally and attempts to delete the account on Stripe.
+    If the account has processed charges, deletion on Stripe is skipped but
+    the local link is removed regardless.
+    """
+    user = request.user
+
+    if not user.stripe_account_id:
+        return Response(
+            {'error': 'No connected account to disconnect.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    result = StripeConnectService.disconnect_account(user)
+
+    return Response({
+        'message': 'Stripe account disconnected successfully.',
+        'stripe_deleted': result['stripe_deleted'],
+        'stripe_error': result['stripe_error'],
+    })
+
+
 # =================== Checkout with Destination Charges ===================
 
 @extend_schema(
@@ -484,9 +535,12 @@ def onboarding_return(request):
 
     Fluxo:
     1. Valida o token assinado → identifica o vendedor
-    2. Consulta status real no Stripe
-    3. Atualiza seller_verified no DB se conta já está ativa
-    4. Redireciona para o frontend com ?status=active|pending|incomplete|error
+    2. Consulta status real no Stripe (apenas para UX — sem gravar no banco)
+    3. Redireciona para o frontend com ?status=active|pending|incomplete|error
+
+    IMPORTANTE: seller_verified NÃO é atualizado aqui.
+    A validação da conta ocorre exclusivamente via webhook account.updated,
+    que é disparado pelo Stripe quando charges_enabled=True é confirmado.
     """
     frontend_url = settings.FRONTEND_BASE_URL.rstrip('/')
     redirect_base = f"{frontend_url}/seller/onboarding/complete"
@@ -499,20 +553,9 @@ def onboarding_return(request):
         account_status = StripeConnectService.get_account_status(user.stripe_account_id)
 
         if account_status['ready_to_receive_payments']:
-            if not user.seller_verified:
-                user.seller_verified = True
-                user.seller_verified_at = timezone.now()
-                user.save(update_fields=['seller_verified', 'seller_verified_at'])
             return HttpResponseRedirect(f"{redirect_base}?status=active")
 
         if account_status['onboarding_complete']:
-            # Usuário fez tudo — Stripe está verificando internamente (ex: PEP check).
-            # Marca seller_verified para liberar o acesso; o status real de transfers
-            # será confirmado no webhook capability_status_updated.
-            if not user.seller_verified:
-                user.seller_verified = True
-                user.seller_verified_at = timezone.now()
-                user.save(update_fields=['seller_verified', 'seller_verified_at'])
             status_param = 'pending_verification' if account_status['pending_verification'] else 'pending'
             return HttpResponseRedirect(f"{redirect_base}?status={status_param}")
 
