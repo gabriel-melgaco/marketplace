@@ -38,9 +38,6 @@ class CustomUser(AbstractUser):
     picture = models.CharField(max_length=255, null=True, blank=True)
     cpf = models.CharField(max_length=14, unique=True, null=True, blank=True)
 
-    # Seller fields
-    is_seller = models.BooleanField(default=False)
-
     # Stripe Connect fields
     stripe_account_id = models.CharField(max_length=255, blank=True, db_index=True)
     seller_verified = models.BooleanField(default=False)

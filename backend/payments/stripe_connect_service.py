@@ -168,35 +168,27 @@ class StripeConnectService:
         """
         
         try:
-            # Retrieve account with configuration and requirements
-            # Include specific fields needed for status check
             account = stripe_client.v2.core.accounts.retrieve(
                 stripe_account_id,
                 params={
-                    "include": ["configuration.recipient", "requirements"]
+                    "include": ["configuration.recipient", "configuration.merchant", "requirements"]
                 }
             )
-            
-            # Check if account can receive payments
-            # Status must be 'active' for stripe_transfers capability
-            ready_to_receive_payments = (
-                account.get("configuration", {})
-                .get("recipient", {})
-                .get("capabilities", {})
-                .get("stripe_balance", {})
-                .get("stripe_transfers", {})
-                .get("status") == "active"
-            )
-            
-            # Check requirements status
-            requirements_summary = account.get("requirements", {}).get("summary", {})
-            minimum_deadline = requirements_summary.get("minimum_deadline", {})
+
+            # Use `or {}` instead of default arg — handles None values returned by Stripe v2
+            configuration = account.get("configuration") or {}
+            recipient = configuration.get("recipient") or {}
+            capabilities = recipient.get("capabilities") or {}
+            stripe_balance = capabilities.get("stripe_balance") or {}
+            stripe_transfers = stripe_balance.get("stripe_transfers") or {}
+
+            ready_to_receive_payments = stripe_transfers.get("status") == "active"
+
+            requirements_summary = (account.get("requirements") or {}).get("summary") or {}
+            minimum_deadline = requirements_summary.get("minimum_deadline") or {}
             requirements_status = minimum_deadline.get("status")
-            
-            # Onboarding is complete when no requirements are due
-            onboarding_complete = (
-                requirements_status not in ["currently_due", "past_due"]
-            )
+
+            onboarding_complete = requirements_status not in ["currently_due", "past_due"]
             
             return {
                 "ready_to_receive_payments": ready_to_receive_payments,
