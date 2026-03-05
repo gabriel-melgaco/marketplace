@@ -16,8 +16,11 @@ from authentication.models import CustomUser
 from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiResponse
 from rest_framework import serializers as rf_serializers
 import json
+import logging
 
 from .stripe_connect_service import StripeConnectService, stripe_client
+
+logger = logging.getLogger(__name__)
 from orders.models import Order
 from django.conf import settings
 
@@ -471,6 +474,11 @@ def stripe_connect_webhook(request):
             charges_enabled = acct.get('charges_enabled', False)
             account_id = account_id or acct.get('id')
 
+            logger.info(
+                "Connect webhook: account.updated received",
+                extra={'account_id': account_id, 'charges_enabled': charges_enabled}
+            )
+
             if account_id:
                 try:
                     user = CustomUser.objects.get(stripe_account_id=account_id)
@@ -478,12 +486,33 @@ def stripe_connect_webhook(request):
                         user.seller_verified = True
                         user.seller_verified_at = timezone.now()
                         user.save(update_fields=['seller_verified', 'seller_verified_at'])
+                        logger.info(
+                            "Connect webhook: seller_verified set to True",
+                            extra={'account_id': account_id, 'user_id': user.id}
+                        )
                     elif not charges_enabled and user.seller_verified:
                         user.seller_verified = False
                         user.seller_verified_at = None
                         user.save(update_fields=['seller_verified', 'seller_verified_at'])
+                        logger.warning(
+                            "Connect webhook: seller_verified set to False (charges disabled)",
+                            extra={'account_id': account_id, 'user_id': user.id}
+                        )
+                    else:
+                        logger.info(
+                            "Connect webhook: account.updated — no seller_verified change needed",
+                            extra={
+                                'account_id': account_id,
+                                'user_id': user.id,
+                                'charges_enabled': charges_enabled,
+                                'seller_verified': user.seller_verified,
+                            }
+                        )
                 except CustomUser.DoesNotExist:
-                    pass  # conta não pertence a nenhum usuário cadastrado
+                    logger.warning(
+                        "Connect webhook: account.updated for unknown account_id",
+                        extra={'account_id': account_id}
+                    )
 
         elif event.type == 'capability.updated':
             cap = event.data.object
@@ -491,7 +520,11 @@ def stripe_connect_webhook(request):
             cap_status = cap.get('status', '')
             account_id = account_id or cap.get('account')
 
-            # Atualiza seller_verified quando a capability de transfers ficar ativa
+            logger.info(
+                "Connect webhook: capability.updated received",
+                extra={'account_id': account_id, 'cap_id': cap_id, 'cap_status': cap_status}
+            )
+
             if 'transfer' in cap_id and account_id:
                 try:
                     user = CustomUser.objects.get(stripe_account_id=account_id)
@@ -499,14 +532,36 @@ def stripe_connect_webhook(request):
                         user.seller_verified = True
                         user.seller_verified_at = timezone.now()
                         user.save(update_fields=['seller_verified', 'seller_verified_at'])
+                        logger.info(
+                            "Connect webhook: seller_verified set to True via capability.updated",
+                            extra={'account_id': account_id, 'user_id': user.id}
+                        )
                     elif cap_status in ('inactive', 'unrequested') and user.seller_verified:
                         user.seller_verified = False
                         user.seller_verified_at = None
                         user.save(update_fields=['seller_verified', 'seller_verified_at'])
+                        logger.warning(
+                            "Connect webhook: seller_verified set to False via capability.updated",
+                            extra={'account_id': account_id, 'user_id': user.id, 'cap_status': cap_status}
+                        )
                 except CustomUser.DoesNotExist:
-                    pass
+                    logger.warning(
+                        "Connect webhook: capability.updated for unknown account_id",
+                        extra={'account_id': account_id, 'cap_id': cap_id}
+                    )
+
+        else:
+            logger.info(
+                "Connect webhook: unhandled event type",
+                extra={'event_type': event.type, 'event_id': event.id}
+            )
 
     except Exception as e:
+        logger.error(
+            f"Connect webhook handler error: {str(e)}",
+            extra={'event_type': event.type, 'event_id': event.id},
+            exc_info=True
+        )
         return HttpResponse(f'Handler error: {str(e)}', status=400)
 
     return HttpResponse('Success', status=200)
