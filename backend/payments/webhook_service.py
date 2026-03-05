@@ -207,6 +207,9 @@ class WebhookService:
                 elif event.type == 'charge.dispute.closed':
                     WebhookService._handle_dispute_closed(event, webhook)
 
+                elif event.type == 'charge.refunded':
+                    WebhookService._handle_charge_refunded(event, webhook)
+
                 else:
                     logger.warning(
                         f"Unhandled webhook event type: {event.type}",
@@ -806,6 +809,55 @@ class WebhookService:
                 "dispute.closed for unknown dispute",
                 extra={'dispute_id': dispute_id}
             )
+
+    @staticmethod
+    def _handle_charge_refunded(event, webhook):
+        """
+        Handle charge.refunded event.
+        Updates Payment status to 'refunded' and records refund metadata.
+        """
+        charge = event.data.object
+        charge_id = charge.id
+
+        logger.info(
+            "Handling charge.refunded",
+            extra={'charge_id': charge_id}
+        )
+
+        try:
+            payment = Payment.objects.select_for_update().get(
+                stripe_charge_id=charge_id
+            )
+        except Payment.DoesNotExist:
+            logger.warning(
+                "charge.refunded for unknown charge_id",
+                extra={'charge_id': charge_id}
+            )
+            return
+
+        payment.status = 'refunded'
+        payment.refunded_at = timezone.now()
+
+        # Extract refund amount from charge
+        amount_refunded = getattr(charge, 'amount_refunded', None)
+        if amount_refunded:
+            payment.refund_amount = Decimal(amount_refunded) / 100
+
+        payment.metadata['webhook_processed_at'] = timezone.now().isoformat()
+        payment.metadata['charge_refunded_at'] = timezone.now().isoformat()
+        payment.save()
+
+        webhook.payment = payment
+        webhook.save(update_fields=['payment'])
+
+        logger.info(
+            "Payment marked as refunded via charge.refunded",
+            extra={
+                'payment_id': payment.id,
+                'charge_id': charge_id,
+                'refund_amount': str(payment.refund_amount),
+            }
+        )
 
     @staticmethod
     def _attempt_transfer_reversals_for_dispute(dispute, payment):

@@ -376,6 +376,101 @@ class TestWebhookServiceDisputeHandlers(TestCase):
         self.assertEqual(dispute.status, 'lost')
 
 
+class TestWebhookServiceChargeRefunded(TestCase):
+    """Tests for charge.refunded handler"""
+
+    def setUp(self):
+        self.buyer = User.objects.create_user(
+            email='buyer_ref@test.com', password='pass'
+        )
+        self.seller = User.objects.create_user(
+            email='seller_ref@test.com', password='pass',
+            stripe_account_id='acct_seller_ref',
+        )
+        self.category = Category.objects.create(name='CatR', slug='catr')
+        self.series = Series.objects.create(name='SeriesR', slug='seriesr')
+        self.product = Products.objects.create(
+            name='ProdR', slug='prodr', category=self.category, series=self.series
+        )
+        self.brand = Brand.objects.create(name='BrandR', slug='brandr')
+        self.condition = Condition.objects.create(name='NewR', slug='newr')
+        self.listing = MarketplaceListing.objects.create(
+            product=self.product, seller=self.seller,
+            brand=self.brand, condition=self.condition,
+            price=Decimal('100.00'), quantity=5, is_active=True,
+            weight_kg=Decimal('1.00'), height_cm=Decimal('5.00'),
+            width_cm=Decimal('5.00'), length_cm=Decimal('5.00'),
+        )
+        self.order = Order.objects.create(
+            buyer=self.buyer,
+            subtotal=Decimal('100.00'),
+            shipping_cost=Decimal('0.00'),
+            total=Decimal('100.00'),
+            shipping_address={'street': 'Test'},
+            status='paid'
+        )
+        OrderItem.objects.create(
+            order=self.order, listing=self.listing, seller=self.seller,
+            quantity=1, unit_price=Decimal('100.00'), subtotal=Decimal('100.00'),
+            shipping_cost=Decimal('0.00'),
+            product_name='ProdR', product_code='', brand_name='BrandR',
+            condition_name='NewR', weight_kg=Decimal('1.00'),
+            height_cm=Decimal('5.00'), width_cm=Decimal('5.00'),
+            length_cm=Decimal('5.00'),
+        )
+        self.payment = Payment.objects.create(
+            order=self.order, user=self.buyer,
+            stripe_payment_intent_id='pi_ref_001',
+            stripe_charge_id='ch_ref_001',
+            transfer_group='group_ref',
+            amount=Decimal('100.00'),
+            currency='brl',
+            payment_method='credit_card',
+            status='succeeded',
+            idempotency_key='pi_ref_001_key',
+        )
+
+    def test_charge_refunded_updates_payment_status(self):
+        """charge.refunded marks Payment as refunded"""
+        charge_data = MagicMock()
+        charge_data.id = 'ch_ref_001'
+        charge_data.amount_refunded = 10000  # R$100.00 in cents
+
+        webhook = PaymentWebhook.objects.create(
+            stripe_event_id='evt_ref_001',
+            event_type='charge.refunded',
+            payload={'id': 'ch_ref_001'},
+        )
+
+        WebhookService._handle_charge_refunded(
+            _make_mock_event('charge.refunded', charge_data),
+            webhook
+        )
+
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.status, 'refunded')
+        self.assertIsNotNone(self.payment.refunded_at)
+        self.assertEqual(self.payment.refund_amount, Decimal('100.00'))
+
+    def test_charge_refunded_unknown_charge_does_not_raise(self):
+        """charge.refunded for unknown charge_id logs warning and continues"""
+        charge_data = MagicMock()
+        charge_data.id = 'ch_unknown_xyz'
+        charge_data.amount_refunded = 5000
+
+        webhook = PaymentWebhook.objects.create(
+            stripe_event_id='evt_ref_unknown_001',
+            event_type='charge.refunded',
+            payload={'id': 'ch_unknown_xyz'},
+        )
+
+        # Should not raise
+        WebhookService._handle_charge_refunded(
+            _make_mock_event('charge.refunded', charge_data),
+            webhook
+        )
+
+
 class TestWebhookServicePaymentSucceededWithTransfers(TestCase):
     """Tests for payment_intent.succeeded dispatching transfers"""
 
