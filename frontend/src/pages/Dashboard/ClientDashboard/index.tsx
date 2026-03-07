@@ -101,8 +101,7 @@ function StatCard({
 
 function StatusBadge({ status }: { status: string }) {
   const label = ORDER_STATUS_LABELS[status] ?? status;
-  const colorClass =
-    ORDER_STATUS_COLORS[status] ?? "bg-gray-100 text-gray-700";
+  const colorClass = ORDER_STATUS_COLORS[status] ?? "bg-gray-100 text-gray-700";
   return (
     <span
       className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${colorClass}`}
@@ -193,9 +192,7 @@ function EmptyState({
         <Icon size={30} className="text-gray-400" />
       </div>
       <p className="text-gray-700 font-semibold text-sm">{title}</p>
-      {subtitle && (
-        <p className="text-gray-400 text-xs max-w-xs">{subtitle}</p>
-      )}
+      {subtitle && <p className="text-gray-400 text-xs max-w-xs">{subtitle}</p>}
       {action && <div className="mt-1">{action}</div>}
     </div>
   );
@@ -331,7 +328,7 @@ function ListingsSection() {
               className="flex items-center gap-3 py-3.5 hover:bg-gray-50 rounded-xl px-2 -mx-2 transition-colors group"
             >
               {/* Thumbnail */}
-              <div className="w-14 h-14 bg-gray-100 rounded-xl overflow-hidden flex-shrink-0 flex items-center justify-center border border-gray-100">
+              <div className="w-14 h-14 bg-gray-100 rounded-xl overflow-hidden shrink-0 flex items-center justify-center border border-gray-100">
                 {imgUrl ? (
                   <img
                     src={imgUrl}
@@ -364,7 +361,7 @@ function ListingsSection() {
               </div>
 
               {/* Actions */}
-              <div className="flex items-center gap-1 flex-shrink-0">
+              <div className="flex items-center gap-1 shrink-0">
                 <ListingStatusBadge listing={listing} />
 
                 {/* Toggle active */}
@@ -374,7 +371,9 @@ function ListingsSection() {
                     disabled={togglingId === listing.id}
                     className="p-1.5 rounded-lg text-gray-400 hover:text-secundary hover:bg-blue-50 transition-colors disabled:opacity-40"
                     title={listing.is_active ? "Desativar" : "Ativar"}
-                    aria-label={listing.is_active ? "Desativar anúncio" : "Ativar anúncio"}
+                    aria-label={
+                      listing.is_active ? "Desativar anúncio" : "Ativar anúncio"
+                    }
                   >
                     {listing.is_active ? (
                       <ToggleRight size={20} className="text-green-500" />
@@ -395,7 +394,10 @@ function ListingsSection() {
                 </Link>
 
                 {/* Divider before destructive action */}
-                <span className="w-px h-5 bg-gray-200 mx-0.5" aria-hidden="true" />
+                <span
+                  className="w-px h-5 bg-gray-200 mx-0.5"
+                  aria-hidden="true"
+                />
 
                 {/* Delete */}
                 <button
@@ -570,7 +572,7 @@ function PurchasesSection() {
                 {new Date(order.created_at).toLocaleDateString("pt-BR")}
               </p>
             </div>
-            <div className="flex items-center gap-3 flex-shrink-0">
+            <div className="flex items-center gap-3 shrink-0">
               <p className="text-sm font-bold text-gray-800">
                 R${" "}
                 {Number(order.total).toLocaleString("pt-BR", {
@@ -614,7 +616,7 @@ function ReviewsSection({ stats }: { stats: ReviewStats | null }) {
     <div>
       {/* Stats summary */}
       {stats && stats.total_reviews > 0 && (
-        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100 rounded-xl p-5 mb-6">
+        <div className="bg-linear-to-br from-blue-50 to-indigo-50 border border-blue-100 rounded-xl p-5 mb-6">
           <div className="flex flex-col sm:flex-row items-center gap-6">
             {/* Score */}
             <div className="flex flex-col items-center gap-1.5 sm:border-r sm:border-blue-200 sm:pr-6">
@@ -623,7 +625,8 @@ function ReviewsSection({ stats }: { stats: ReviewStats | null }) {
               </p>
               <StarRating rating={Math.round(stats.average_rating)} />
               <p className="text-xs text-gray-500 mt-0.5">
-                {stats.total_reviews} avaliação{stats.total_reviews !== 1 ? "ões" : ""}
+                {stats.total_reviews} avaliação
+                {stats.total_reviews !== 1 ? "ões" : ""}
               </p>
             </div>
 
@@ -640,7 +643,10 @@ function ReviewsSection({ stats }: { stats: ReviewStats | null }) {
                     <span className="w-3 text-right text-gray-500 font-medium tabular-nums">
                       {star}
                     </span>
-                    <Star size={10} className="text-yellow-400 fill-yellow-400 flex-shrink-0" />
+                    <Star
+                      size={10}
+                      className="text-yellow-400 fill-yellow-400 shrink-0"
+                    />
                     <div className="flex-1 bg-white/70 rounded-full h-2.5 overflow-hidden border border-blue-100">
                       <div
                         className="bg-yellow-400 h-full rounded-full transition-all duration-500"
@@ -682,7 +688,7 @@ function ReviewsSection({ stats }: { stats: ReviewStats | null }) {
             <div key={review.id} className="py-4 px-2 -mx-2">
               <div className="flex items-start gap-3">
                 {/* Avatar */}
-                <div className="w-9 h-9 rounded-full bg-secundary/10 overflow-hidden flex-shrink-0 flex items-center justify-center ring-2 ring-white">
+                <div className="w-9 h-9 rounded-full bg-secundary/10 overflow-hidden shrink-0 flex items-center justify-center ring-2 ring-white">
                   {review.reviewer.picture ? (
                     <img
                       src={toPublicUrl(review.reviewer.picture)}
@@ -821,7 +827,7 @@ function OverviewSection({
         </h3>
         <Link
           to="/create-listing"
-          className="flex items-center justify-between p-4 bg-gradient-to-r from-secundary/5 to-blue-50 hover:from-secundary/10 hover:to-blue-100 border border-secundary/15 rounded-xl transition-all group"
+          className="flex items-center justify-between p-4 bg-linear-to-r from-secundary/5 to-blue-50 hover:from-secundary/10 hover:to-blue-100 border border-secundary/15 rounded-xl transition-all group"
         >
           <div className="flex items-center gap-3.5">
             <div className="p-2.5 bg-secundary rounded-xl shadow-sm">
@@ -930,9 +936,9 @@ export function Dashboard() {
   const firstName = user?.full_name?.split(" ")[0] ?? "usuário";
 
   return (
-    <div className="min-h-screen bg-blue-900 pb-24">
+    <div className="min-h-screen bg-black pb-24">
       {/* ── Header banner ── */}
-      <div className="relative bg-gradient-to-br from-primary via-primary to-secundary overflow-hidden">
+      <div className="relative bg-gray-800 overflow-hidden">
         {/* Decorative background shapes for depth */}
         <div
           className="absolute inset-0 opacity-10"

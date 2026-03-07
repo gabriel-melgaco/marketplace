@@ -131,6 +131,8 @@ export interface ListingPackageRequest {
   description?: string;
 }
 
+export type ShippingMethod = 'both' | 'melhor_envio' | 'in_person';
+
 export interface CreateListingRequest {
   product: number;
   title: string;
@@ -141,6 +143,7 @@ export interface CreateListingRequest {
   quantity?: number;
   packages: ListingPackageRequest[];
   seller_shipping_address?: number | null;
+  shipping_method?: ShippingMethod;
 }
 
 export interface UpdateListingRequest {
@@ -154,6 +157,7 @@ export interface UpdateListingRequest {
   is_active?: boolean;
   packages?: ListingPackageRequest[];
   seller_shipping_address?: number | null;
+  shipping_method?: ShippingMethod;
 }
 
 export interface PresignedUrlRequest {

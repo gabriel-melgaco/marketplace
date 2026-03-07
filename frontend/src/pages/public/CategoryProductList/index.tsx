@@ -66,13 +66,14 @@ export function CategoryProductList() {
       : "Todos os Produtos";
 
   return (
-    <div className="min-h-screen bg-blue-900">
+    <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900">
       {/* Titulo */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-6">
         <h1 className="text-white text-xl font-bold">{title}</h1>
         {!loading && !error && (
           <p className="text-white/60 text-sm mt-1">
-            {listings.length} {listings.length === 1 ? "resultado" : "resultados"}
+            {listings.length}{" "}
+            {listings.length === 1 ? "resultado" : "resultados"}
           </p>
         )}
       </div>
@@ -97,7 +98,8 @@ export function CategoryProductList() {
           <div className="text-center py-20">
             <Package size={48} className="mx-auto mb-4 text-white/60" />
             <p className="text-white/80 text-lg">
-              Nenhum produto encontrado{categoryName ? ` em ${categoryName}` : ""}.
+              Nenhum produto encontrado
+              {categoryName ? ` em ${categoryName}` : ""}.
             </p>
             <Link
               to="/"
