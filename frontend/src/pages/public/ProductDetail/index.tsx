@@ -89,10 +89,10 @@ function ImageCarousel({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 bg-linear-to-br from-black via-gray-800 to-blue-900">
       {/* Main image */}
       <div className="relative">
-        <div className="aspect-4/3 bg-gray-100 rounded-xl overflow-hidden max-h-[600px] mx-auto">
+        <div className="aspect-4/3 bg-gray-100 rounded-xl overflow-hidden max-h-150 mx-auto">
           <img
             src={toPublicUrl(sortedImages[currentIndex].image_url)}
             alt={`${productName} - Imagem ${currentIndex + 1} de ${sortedImages.length}`}
@@ -266,7 +266,7 @@ export function ProductDetail() {
 
   if (error || !listing) {
     return (
-      <div className="min-h-screen bg-blue-900">
+      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900">
         <div className="text-center py-20">
           <p className="text-white text-lg mb-4">
             {error || "Produto não encontrado."}
@@ -289,7 +289,7 @@ export function ProductDetail() {
     listing.length_cm;
 
   return (
-    <div className="min-h-screen bg-blue-900">
+    <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900">
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 pb-24">
         {/* Main content grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -392,7 +392,9 @@ export function ProductDetail() {
               </h2>
               <div className="flex items-start gap-3 text-gray-700">
                 <MapPin size={20} className="text-blue-800 shrink-0 mt-0.5" />
-                <p className="font-medium">{getLocation(listing) || "Não informada"}</p>
+                <p className="font-medium">
+                  {getLocation(listing) || "Não informada"}
+                </p>
               </div>
             </div>
 

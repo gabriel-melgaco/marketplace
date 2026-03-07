@@ -43,7 +43,7 @@ export default function Home() {
   }, [retryCount]);
 
   return (
-    <div className="min-h-screen bg-blue-900">
+    <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900">
       {/* Botão Estado */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-6">
         <StateButton />

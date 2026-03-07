@@ -5,13 +5,10 @@ export function NotFound() {
   return (
     <main
       role="main"
-      className="min-h-screen bg-blue-900 flex flex-col items-center justify-center px-4 text-center relative overflow-hidden"
+      className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex flex-col items-center justify-center px-4 text-center relative overflow-hidden"
     >
       {/* Decorative background circles for brand depth */}
-      <div
-        aria-hidden="true"
-        className="absolute inset-0 pointer-events-none"
-      >
+      <div aria-hidden="true" className="absolute inset-0 pointer-events-none">
         <div className="absolute -top-24 -left-24 w-80 h-80 rounded-full bg-white/5" />
         <div className="absolute -bottom-16 -right-16 w-64 h-64 rounded-full bg-white/5" />
       </div>
