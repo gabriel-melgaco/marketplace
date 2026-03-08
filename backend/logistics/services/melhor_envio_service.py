@@ -114,6 +114,85 @@ class MelhorEnvioService:
                 f'Detalhe: {e}'
             )
 
+    def get_seller_balance(self, seller) -> 'Decimal':
+        """
+        Consulta o saldo atual da carteira ME do vendedor.
+
+        GET /api/v2/me/balance com token OAuth do vendedor.
+
+        Args:
+            seller: Instância de CustomUser (vendedor)
+
+        Returns:
+            Decimal: saldo disponível em BRL
+
+        Raises:
+            ShippingValidationError: se token inválido/expirado (401) ou conta não conectada
+            Exception: para outros erros de API (caller deve tratar como fail-open)
+        """
+        from decimal import Decimal as _Decimal
+
+        url = f'{self.base_url}/me/balance'
+        try:
+            headers = self._get_headers(seller=seller)
+        except Exception as e:
+            # Token não disponível para o vendedor — trata como conta não conectada
+            raise ShippingValidationError(
+                f'Vendedor {seller.email} não possui conta do Melhor Envio conectada '
+                f'ou o token expirou. Detalhe: {e}'
+            )
+
+        try:
+            response = requests.get(url, headers=headers, timeout=10)
+        except requests.exceptions.Timeout:
+            raise Exception(
+                f'Timeout ao consultar saldo ME do vendedor {seller.email} — '
+                'a verificação será ignorada para este vendedor'
+            )
+        except requests.exceptions.RequestException as e:
+            raise Exception(
+                f'Erro de rede ao consultar saldo ME do vendedor {seller.email}: {e}'
+            )
+
+        if response.status_code == 401:
+            raise ShippingValidationError(
+                f'Vendedor {seller.email} não possui conta do Melhor Envio conectada '
+                'ou o token OAuth expirou. Solicite que o vendedor reconecte a conta '
+                'em /api/logistics/me/connect/'
+            )
+
+        try:
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            resp = e.response
+            status_code = resp.status_code if resp is not None else 'N/A'
+            try:
+                detail = resp.json() if resp is not None else str(e)
+            except Exception:
+                detail = resp.text if resp is not None else str(e)
+            raise Exception(
+                f'Erro ao consultar saldo ME do vendedor {seller.email} '
+                f'— GET /me/balance ({status_code}): {detail}'
+            )
+
+        try:
+            data = response.json()
+        except Exception:
+            raise Exception(
+                f'Resposta inválida da API ME ao consultar saldo do vendedor '
+                f'{seller.email}: {response.text[:200]}'
+            )
+
+        # A API retorna {"balance": "12.50"} ou {"balance": 12.50}
+        raw_balance = data.get('balance', 0)
+        balance = _Decimal(str(raw_balance))
+
+        logger.info(
+            f'Saldo ME do vendedor {seller.email}: R$ {balance} '
+            f'(ambiente: {"sandbox" if self.is_sandbox else "production"})'
+        )
+        return balance
+
     def get_account_info(self) -> dict:
         """
         Retorna as informações da conta ME autenticada via OAuth.
