@@ -24,6 +24,22 @@ class OrderCreationError(Exception):
     pass
 
 
+class InsufficientMEBalanceError(OrderCreationError):
+    """
+    Raised when one or more sellers have insufficient ME wallet balance
+    to cover the shipping cost of this order.
+
+    Attributes:
+        sellers_info: list of dicts with seller details and balance gap
+    """
+
+    def __init__(self, message: str, sellers_info: list):
+        super().__init__(message)
+        self.sellers_info = sellers_info
+        # sellers_info format:
+        # [{"seller_email": str, "required": Decimal, "available": Decimal, "missing": Decimal}]
+
+
 class OrderCreationService:
     """
     Service for creating orders from cart with full validation and orchestration.
@@ -114,6 +130,30 @@ class OrderCreationService:
 
         # Step 5: Calculate total
         total = OrderTotalCalculator.calculate_order_total(subtotal, total_shipping)
+
+        # Step 4.5: Verify seller ME wallet balances before touching ME API or DB.
+        # Fail fast: avoids adding to ME cart and creating the order when seller has no funds.
+        logger.info(
+            "Step 4.5: Verificando saldo ME dos vendedores",
+            extra={
+                'user_id': user.id,
+                'sellers_to_check': {
+                    str(sid): float(cost)
+                    for sid, cost in shipping_by_seller.items()
+                    if cost > 0
+                },
+            }
+        )
+        if any(cost > 0 for cost in shipping_by_seller.values()):
+            # Build items_by_seller from validated_items (mirrors _add_sellers_to_me_cart_preorder)
+            from collections import defaultdict as _defaultdict
+            items_by_seller_local = _defaultdict(list)
+            for item in validated_items:
+                items_by_seller_local[item['seller'].id].append(item)
+            cls._check_sellers_me_balance(
+                items_by_seller=dict(items_by_seller_local),
+                shipping_by_seller=shipping_by_seller,
+            )
 
         # Step 5.5: Add freight to Melhor Envio cart BEFORE creating order in DB.
         # Fail fast: if ME API rejects the payload, we never persist an inconsistent order.
@@ -393,6 +433,127 @@ class OrderCreationService:
             f'OrderDelivery criado para {len(delivery_choices)} vendedor(es) in_person '
             f'no pedido {order.order_number}'
         )
+
+    @staticmethod
+    def _check_sellers_me_balance(items_by_seller: dict, shipping_by_seller: dict):
+        """
+        Verifica se todos os vendedores com envio via ME têm saldo suficiente
+        na carteira Melhor Envio para cobrir o custo do frete.
+
+        Chamado ANTES de adicionar ao carrinho ME e de criar o pedido no banco.
+
+        Política de falha:
+        - 401 (token inválido/conta não conectada): levanta InsufficientMEBalanceError
+          com mensagem indicando que o token precisa ser renovado.
+        - Timeout / 5xx / erro de rede: loga o erro e pula a verificação para aquele
+          vendedor (fail-open — instabilidade da ME API não deve bloquear o pedido).
+        - Sem SellerMelhorEnvioToken: pula silenciosamente (o step 5.5 falhará depois
+          com o erro original se necessário).
+
+        Args:
+            items_by_seller: dict {seller_id: [validated_items]}
+            shipping_by_seller: dict {seller_id: Decimal(shipping_cost)}
+
+        Raises:
+            InsufficientMEBalanceError: se qualquer vendedor tiver saldo insuficiente
+                ou token inválido/expirado (401)
+        """
+        from logistics.services.melhor_envio_service import MelhorEnvioService, ShippingValidationError
+        from logistics.models import SellerMelhorEnvioToken
+        from authentication.models import CustomUser
+
+        me_service = MelhorEnvioService()
+        environment = 'sandbox' if me_service.is_sandbox else 'production'
+
+        insufficient_sellers = []
+
+        for seller_id, shipping_cost in shipping_by_seller.items():
+            if shipping_cost <= Decimal('0.00'):
+                # In-person delivery — no ME balance needed
+                continue
+
+            # Get a seller instance from items_by_seller or query DB
+            seller_items = items_by_seller.get(seller_id, [])
+            if seller_items:
+                seller = seller_items[0]['seller']
+            else:
+                try:
+                    seller = CustomUser.objects.get(pk=seller_id)
+                except CustomUser.DoesNotExist:
+                    logger.warning(
+                        f'_check_sellers_me_balance: seller_id={seller_id} não encontrado no DB. '
+                        'Pulando verificação de saldo.'
+                    )
+                    continue
+
+            # Skip if seller has no ME token (step 5.5 will handle this properly)
+            has_token = SellerMelhorEnvioToken.objects.filter(
+                seller=seller,
+                environment=environment,
+            ).exists()
+            if not has_token:
+                logger.debug(
+                    f'Vendedor {seller.email} não tem SellerMelhorEnvioToken '
+                    f'({environment}) — pulando verificação de saldo.'
+                )
+                continue
+
+            try:
+                balance = me_service.get_seller_balance(seller)
+                logger.info(
+                    "Step 4.5: Saldo ME do vendedor consultado",
+                    extra={
+                        'seller_email': seller.email,
+                        'seller_id': seller.id,
+                        'balance_available': float(balance),
+                        'shipping_required': float(shipping_cost),
+                        'sufficient': balance >= shipping_cost,
+                    }
+                )
+            except ShippingValidationError as e:
+                # 401 or token not found — treat as zero balance with clear error message
+                logger.warning(
+                    f'Saldo ME não verificável para vendedor {seller.email} '
+                    f'(token inválido/expirado): {e}'
+                )
+                insufficient_sellers.append({
+                    'seller_email': seller.email,
+                    'required': shipping_cost,
+                    'available': Decimal('0.00'),
+                    'missing': shipping_cost,
+                    'reason': str(e),
+                })
+                continue
+            except Exception as e:
+                # Timeout, 5xx, network error — fail open, do not block order
+                logger.warning(
+                    f'Erro ao consultar saldo ME do vendedor {seller.email}: {e}. '
+                    'Verificação de saldo ignorada (fail-open).',
+                    exc_info=True,
+                )
+                continue
+
+            if balance < shipping_cost:
+                missing = shipping_cost - balance
+                logger.warning(
+                    f'Saldo insuficiente: vendedor {seller.email} tem R$ {balance} '
+                    f'mas precisa de R$ {shipping_cost} (faltam R$ {missing})'
+                )
+                insufficient_sellers.append({
+                    'seller_email': seller.email,
+                    'required': shipping_cost,
+                    'available': balance,
+                    'missing': missing,
+                })
+
+        if insufficient_sellers:
+            raise InsufficientMEBalanceError(
+                message=(
+                    'Um ou mais vendedores não possuem saldo suficiente na carteira '
+                    'Melhor Envio para cobrir o custo do frete.'
+                ),
+                sellers_info=insufficient_sellers,
+            )
 
     @staticmethod
     def _validate_and_calculate_shipping(

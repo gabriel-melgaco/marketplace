@@ -5,7 +5,7 @@ Provides business logic and orchestration for order management.
 """
 
 from .order_state_machine import OrderStateMachine, OrderStatusTransitionError
-from .order_creation_service import OrderCreationService, OrderCreationError
+from .order_creation_service import OrderCreationService, OrderCreationError, InsufficientMEBalanceError
 from .product_validation_service import (
     ProductValidationService,
     ProductValidationError,
@@ -19,6 +19,7 @@ __all__ = [
     'OrderStatusTransitionError',
     'OrderCreationService',
     'OrderCreationError',
+    'InsufficientMEBalanceError',
     'ProductValidationService',
     'ProductValidationError',
     'InsufficientStockError',

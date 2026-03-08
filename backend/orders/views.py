@@ -19,6 +19,7 @@ from .serializers import (
 from .services import (
     OrderCreationService,
     OrderCreationError,
+    InsufficientMEBalanceError,
     OrderStateMachine,
     OrderStatusTransitionError
 )
@@ -480,6 +481,26 @@ def create_order(request):
         order_serializer = OrderSerializer(order)
         return Response(order_serializer.data, status=status.HTTP_201_CREATED)
 
+    except InsufficientMEBalanceError as e:
+        sellers_payload = []
+        for info in e.sellers_info:
+            sellers_payload.append({
+                'seller_email': info['seller_email'],
+                'required': str(info['required']),
+                'available': str(info['available']),
+                'missing': str(info['missing']),
+            })
+        return Response(
+            {
+                'error': 'insufficient_me_balance',
+                'message': (
+                    'Um ou mais vendedores não possuem saldo suficiente na carteira '
+                    'Melhor Envio.'
+                ),
+                'sellers': sellers_payload,
+            },
+            status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
     except OrderCreationError as e:
         return Response(
             {'error': str(e)},
