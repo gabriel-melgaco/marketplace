@@ -306,8 +306,9 @@ class TestSuccessfulPaymentSingleSeller(BaseFinancialTestCase):
         self.assertEqual(payment.transfer_group, f'group_{order.id}')
         self.assertEqual(payment.currency, 'brl')
 
-        # Platform fee = 10% of gross (110.00) = 11.00
-        self.assertEqual(payment.platform_fee_total, Decimal('11.00'))
+        # Platform fee = 10% of product amount only (100.00), NOT on shipping (10.00)
+        # New formula: fee = product * 10% = 100 * 10% = 10.00
+        self.assertEqual(payment.platform_fee_total, Decimal('10.00'))
 
         # Idempotency key is deterministic
         expected_key = f'pi_{order.id}_{order.order_number}'
@@ -389,12 +390,15 @@ class TestSuccessfulPaymentSingleSeller(BaseFinancialTestCase):
         self, mock_me_checkout, mock_pi_retrieve, mock_transfer_create
     ):
         """
-        A3: PaymentSplit amounts match the 10% fee formula exactly.
+        A3: PaymentSplit amounts match the new 10% fee formula exactly.
 
-        gross  = 100.00 (item) + 10.00 (shipping) = 110.00
-        fee    = 110.00 * 10% = 11.00
-        net    = 99.00
-        transfer amount in cents = 9900
+        New formula (shipping excluded from fee base):
+        product_amount = 100.00 (item subtotal only)
+        shipping_amount = 10.00 (retained by platform, NOT in Transfer)
+        gross_amount   = 110.00 (product + shipping, backward compat)
+        fee            = 100.00 * 10% = 10.00 (only on product)
+        net            = 100.00 - 10.00 = 90.00
+        transfer amount in cents = 9000 (net, no shipping)
         """
         order, _ = self._build_single_seller_order(
             unit_price=Decimal('100.00'), shipping_cost=Decimal('10.00'),
@@ -406,7 +410,7 @@ class TestSuccessfulPaymentSingleSeller(BaseFinancialTestCase):
             transfer_group=f'group_{order.id}',
             amount=Decimal('110.00'),
             currency='brl', payment_method='credit_card',
-            status='pending', platform_fee_total=Decimal('11.00'),
+            status='pending', platform_fee_total=Decimal('10.00'),
             idempotency_key='pi_a3_001_key',
         )
 
@@ -432,17 +436,22 @@ class TestSuccessfulPaymentSingleSeller(BaseFinancialTestCase):
 
         split = PaymentSplit.objects.get(payment=payment, seller=self.seller_a)
 
-        # Verify exact financial values
+        # Verify new fields: product/shipping separated
+        self.assertEqual(split.product_amount, Decimal('100.00'))
+        self.assertEqual(split.shipping_amount, Decimal('10.00'))
+        # gross_amount maintained for backward compat = product + shipping
         self.assertEqual(split.gross_amount, Decimal('110.00'))
-        self.assertEqual(split.platform_fee_amount, Decimal('11.00'))
-        self.assertEqual(split.net_amount, Decimal('99.00'))
+        # fee only on product (not on shipping)
+        self.assertEqual(split.platform_fee_amount, Decimal('10.00'))
+        # net = product - fee (shipping excluded)
+        self.assertEqual(split.net_amount, Decimal('90.00'))
 
-        # net = gross - fee (no penny lost or created)
-        self.assertEqual(split.net_amount, split.gross_amount - split.platform_fee_amount)
+        # net = product - fee (no penny lost or created)
+        self.assertEqual(split.net_amount, split.product_amount - split.platform_fee_amount)
 
-        # Transfer was sent with net amount in cents
+        # Transfer was sent with net amount in cents (product - fee, shipping excluded)
         call_kwargs = mock_transfer_create.call_args[1]
-        self.assertEqual(call_kwargs['amount'], 9900)  # 99.00 in cents
+        self.assertEqual(call_kwargs['amount'], 9000)  # 90.00 in cents
         self.assertEqual(call_kwargs['source_transaction'], charge_id)
         self.assertEqual(call_kwargs['destination'], self.seller_a.stripe_account_id)
 
@@ -546,32 +555,37 @@ class TestSuccessfulPaymentMultiSeller(BaseFinancialTestCase):
         platform_fee_pct = D('10')
 
         # Calculate splits directly via service
-        gross_a, fee_a, net_a, gross_a_d, fee_a_d, net_a_d = \
+        # New return: (product_cents, shipping_cents, fee_cents, net_cents,
+        #              product_decimal, shipping_decimal, fee_decimal, net_decimal)
+        product_a, shipping_a, fee_a, net_a, product_a_d, shipping_a_d, fee_a_d, net_a_d = \
             TransferDispatchService.calculate_seller_split(order, self.seller_a, platform_fee_pct)
-        gross_b, fee_b, net_b, gross_b_d, fee_b_d, net_b_d = \
+        product_b, shipping_b, fee_b, net_b, product_b_d, shipping_b_d, fee_b_d, net_b_d = \
             TransferDispatchService.calculate_seller_split(order, self.seller_b, platform_fee_pct)
 
-        # Seller A: 60 gross, 6 fee, 54 net
-        self.assertEqual(gross_a_d, D('60.00'))
+        # shipping=0 in this test, so product == gross and formula is unchanged
+        # Seller A: product=60, shipping=0, fee=6, net=54
+        self.assertEqual(product_a_d, D('60.00'))
+        self.assertEqual(shipping_a_d, D('0.00'))
         self.assertEqual(fee_a_d, D('6.00'))
         self.assertEqual(net_a_d, D('54.00'))
 
-        # Seller B: 40 gross, 4 fee, 36 net
-        self.assertEqual(gross_b_d, D('40.00'))
+        # Seller B: product=40, shipping=0, fee=4, net=36
+        self.assertEqual(product_b_d, D('40.00'))
+        self.assertEqual(shipping_b_d, D('0.00'))
         self.assertEqual(fee_b_d, D('4.00'))
         self.assertEqual(net_b_d, D('36.00'))
 
         # Financial consistency invariants
-        total_gross = gross_a_d + gross_b_d
+        total_product = product_a_d + product_b_d
         total_fee = fee_a_d + fee_b_d
         total_net = net_a_d + net_b_d
 
-        self.assertEqual(total_gross, D('100.00'))
+        self.assertEqual(total_product, D('100.00'))
         self.assertEqual(total_fee, D('10.00'))
         self.assertEqual(total_net, D('90.00'))
 
-        # net = gross - fee at aggregate level
-        self.assertEqual(total_net, total_gross - total_fee)
+        # net = product - fee at aggregate level
+        self.assertEqual(total_net, total_product - total_fee)
 
     @patch('payments.services.transfer_dispatch_service.stripe.Transfer.create')
     def test_multi_seller_each_transfer_uses_source_transaction(self, mock_transfer_create):
@@ -1610,14 +1624,16 @@ class TestFinancialCalculationConsistency(BaseFinancialTestCase):
             order_status='paid',
         )
 
-        gross_c, fee_c, net_c, gross_d, fee_d, net_d = \
+        # New return: (product_cents, shipping_cents, fee_cents, net_cents,
+        #              product_decimal, shipping_decimal, fee_decimal, net_decimal)
+        product_c, shipping_c, fee_c, net_c, product_d, shipping_d, fee_d, net_d = \
             TransferDispatchService.calculate_seller_split(order, self.seller_a, platform_fee_pct)
 
-        # Decimal identity: net = gross - fee
-        self.assertEqual(net_d, gross_d - fee_d)
+        # Decimal identity: net = product - fee (shipping excluded from net)
+        self.assertEqual(net_d, product_d - fee_d)
 
-        # Cents identity: net_cents = gross_cents - fee_cents
-        self.assertEqual(net_c, gross_c - fee_c)
+        # Cents identity: net_cents = product_cents - fee_cents
+        self.assertEqual(net_c, product_c - fee_c)
 
     def test_split_with_decimal_price(self):
         """
@@ -1651,17 +1667,19 @@ class TestFinancialCalculationConsistency(BaseFinancialTestCase):
             width_cm=D('5.00'), length_cm=D('5.00'),
         )
 
-        gross_c, fee_c, net_c, gross_d, fee_d, net_d = \
+        # New return: (product_cents, shipping_cents, fee_cents, net_cents,
+        #              product_decimal, shipping_decimal, fee_decimal, net_decimal)
+        product_c, shipping_c, fee_c, net_c, product_d, shipping_d, fee_d, net_d = \
             TransferDispatchService.calculate_seller_split(order_decimal, self.seller_a, D('10'))
 
-        # Fee must not exceed gross
-        self.assertLessEqual(fee_d, gross_d)
+        # Fee must not exceed product amount
+        self.assertLessEqual(fee_d, product_d)
         # Net must be non-negative
         self.assertGreaterEqual(net_d, D('0.00'))
-        # Identity
-        self.assertEqual(net_d, gross_d - fee_d)
-        # Fee is approximately 10% (rounded half-up)
-        self.assertAlmostEqual(float(fee_d), float(gross_d) * 0.10, places=1)
+        # Identity: net = product - fee
+        self.assertEqual(net_d, product_d - fee_d)
+        # Fee is approximately 10% of product (rounded half-up)
+        self.assertAlmostEqual(float(fee_d), float(product_d) * 0.10, places=1)
 
     def test_multi_seller_sum_invariants(self):
         """
@@ -1681,32 +1699,36 @@ class TestFinancialCalculationConsistency(BaseFinancialTestCase):
         # Seller B gross = 3*20 + 3 = 63
         platform_fee_pct = D('10')
 
-        _, _, _, gross_a, fee_a, net_a = TransferDispatchService.calculate_seller_split(
+        # New return: (product_cents, shipping_cents, fee_cents, net_cents,
+        #              product_decimal, shipping_decimal, fee_decimal, net_decimal)
+        _, _, _, _, product_a, shipping_a, fee_a, net_a = TransferDispatchService.calculate_seller_split(
             order, self.seller_a, platform_fee_pct
         )
-        _, _, _, gross_b, fee_b, net_b = TransferDispatchService.calculate_seller_split(
+        _, _, _, _, product_b, shipping_b, fee_b, net_b = TransferDispatchService.calculate_seller_split(
             order, self.seller_b, platform_fee_pct
         )
 
-        total_gross = gross_a + gross_b
+        # Seller A: product=2*50=100, shipping=5, fee=100*10%=10.00, net=90.00
+        self.assertEqual(product_a, D('100.00'))
+        self.assertEqual(shipping_a, D('5.00'))
+        self.assertEqual(fee_a, D('10.00'))
+        self.assertEqual(net_a, D('90.00'))
+
+        # Seller B: product=3*20=60, shipping=3, fee=60*10%=6.00, net=54.00
+        self.assertEqual(product_b, D('60.00'))
+        self.assertEqual(shipping_b, D('3.00'))
+        self.assertEqual(fee_b, D('6.00'))
+        self.assertEqual(net_b, D('54.00'))
+
+        total_product = product_a + product_b
+        total_shipping = shipping_a + shipping_b
         total_fee = fee_a + fee_b
         total_net = net_a + net_b
 
-        self.assertEqual(gross_a, D('105.00'))
-        self.assertEqual(gross_b, D('63.00'))
+        # Sum invariant: net = product - fee (shipping excluded from transfers)
+        self.assertEqual(total_net, total_product - total_fee)
 
-        # fee = 10% each
-        self.assertEqual(fee_a, D('10.50'))
-        self.assertEqual(fee_b, D('6.30'))
-
-        # net = gross - fee each
-        self.assertEqual(net_a, D('94.50'))
-        self.assertEqual(net_b, D('56.70'))
-
-        # Sum invariant
-        self.assertEqual(total_net, total_gross - total_fee)
-
-        # Total net <= order total
+        # Total net (transfers) <= order total (shipping is retained by platform)
         self.assertLessEqual(total_net, order.total)
 
     def test_platform_fee_total_matches_sum_of_individual_fees(self):
@@ -1723,10 +1745,12 @@ class TestFinancialCalculationConsistency(BaseFinancialTestCase):
 
         total_fee = TransferDispatchService.calculate_total_platform_fee(order)
 
-        _, _, _, _, fee_a, _ = TransferDispatchService.calculate_seller_split(
+        # New return: (product_cents, shipping_cents, fee_cents, net_cents,
+        #              product_decimal, shipping_decimal, fee_decimal, net_decimal)
+        _, _, _, _, _, _, fee_a, _ = TransferDispatchService.calculate_seller_split(
             order, self.seller_a, D('10')
         )
-        _, _, _, _, fee_b, _ = TransferDispatchService.calculate_seller_split(
+        _, _, _, _, _, _, fee_b, _ = TransferDispatchService.calculate_seller_split(
             order, self.seller_b, D('10')
         )
 

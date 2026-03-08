@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>Teste de Pagamento — Stripe</title>
+  <script src="https://js.stripe.com/v3/"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #f0f2f5; display: flex; justify-content: center; padding: 40px 16px; }
+    .card { background: #fff; border-radius: 10px; padding: 32px; width: 100%; max-width: 520px; box-shadow: 0 2px 12px rgba(0,0,0,.1); }
+    h2 { margin-bottom: 24px; font-size: 20px; color: #1a1a2e; }
+    h3 { margin: 20px 0 10px; font-size: 15px; color: #444; border-bottom: 1px solid #eee; padding-bottom: 6px; }
+    label { display: block; font-size: 13px; color: #555; margin-bottom: 4px; margin-top: 12px; }
+    input, select { width: 100%; padding: 9px 12px; border: 1px solid #d0d5dd; border-radius: 6px; font-size: 14px; }
+    input:focus, select:focus { outline: none; border-color: #635bff; }
+    #card-element { padding: 10px 12px; border: 1px solid #d0d5dd; border-radius: 6px; background: #fff; }
+    button { margin-top: 20px; width: 100%; padding: 11px; background: #635bff; color: #fff; border: none; border-radius: 6px; font-size: 15px; cursor: pointer; font-weight: 600; }
+    button:hover { background: #4b44cc; }
+    button:disabled { background: #a09de0; cursor: not-allowed; }
+    #log { margin-top: 20px; background: #f8f9fc; border: 1px solid #e5e7eb; border-radius: 6px; padding: 14px; font-size: 12px; font-family: monospace; max-height: 280px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+    .log-ok   { color: #16a34a; }
+    .log-err  { color: #dc2626; }
+    .log-info { color: #2563eb; }
+    .log-warn { color: #d97706; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-left: 6px; }
+    .badge-pending  { background: #fef3c7; color: #92400e; }
+    .badge-ok       { background: #dcfce7; color: #166534; }
+    .badge-err      { background: #fee2e2; color: #991b1b; }
+    #status-bar { margin-top: 12px; padding: 10px 14px; border-radius: 6px; font-size: 13px; display: none; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <h2>Teste de Pagamento Stripe</h2>
+
+  <h3>1. Autenticação</h3>
+  <label>JWT Token</label>
+  <input id="jwt" type="text" placeholder="Bearer eyJ..." />
+
+  <label>API Base URL</label>
+  <input id="api-url" type="text" value="https://api.megdev.com.br" />
+
+  <h3>2. Pedido <span style="color:#888;font-weight:400;font-size:12px">(opcional se já tiver o client_secret)</span></h3>
+  <label>Order ID (UUID)</label>
+  <input id="order-id" type="text" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+
+  <label>Método de Pagamento</label>
+  <select id="payment-method">
+    <option value="credit_card">Cartão de Crédito</option>
+    <option value="debit_card">Cartão de Débito</option>
+  </select>
+
+  <button id="btn-intent" onclick="criarIntent()">Criar Payment Intent</button>
+
+  <div id="card-section" style="display:none">
+    <h3>3. Client Secret</h3>
+    <label>Client Secret <span style="color:#888;font-weight:400">(preenchido automaticamente ou cole manualmente)</span></label>
+    <input id="client-secret-input" type="text" placeholder="pi_xxx_secret_xxx" oninput="onClientSecretManual()" />
+
+    <h3>4. Dados do Cartão</h3>
+    <label>Use um cartão de teste Stripe:</label>
+    <div style="font-size:12px; color:#666; margin-bottom:8px; line-height:1.6;">
+      ✅ Aprovado: <b>4242 4242 4242 4242</b><br>
+      ❌ Recusado: <b>4000 0000 0000 0002</b><br>
+      🔐 3D Secure: <b>4000 0025 0000 3155</b><br>
+      Validade: qualquer data futura &nbsp;|&nbsp; CVV: qualquer 3 dígitos
+    </div>
+    <div id="card-element"></div>
+    <div id="card-error" style="color:#dc2626;font-size:13px;margin-top:6px;"></div>
+    <button id="btn-pay" onclick="confirmarPagamento()">Confirmar Pagamento</button>
+  </div>
+
+  <div id="status-bar"></div>
+  <div id="log"></div>
+</div>
+
+<script>
+  const STRIPE_PK = 'pk_test_51SudBpEuTCBCFjgD48bM1NDTk0kCTKVYkaEs7WNiQiVQtpt129F4FxmqASF5m0nvMJICd7KRBOGBZimtDuUR9lfA00xk2c5t8m';
+  const stripe = Stripe(STRIPE_PK);
+  const elements = stripe.elements();
+  const cardElement = elements.create('card', {
+    style: { base: { fontSize: '15px', color: '#1a1a2e', '::placeholder': { color: '#9ca3af' } } }
+  });
+
+  let clientSecret = null;
+  let cardMounted = false;
+
+  function mostrarCartao() {
+    document.getElementById('card-section').style.display = 'block';
+    if (!cardMounted) {
+      cardElement.mount('#card-element');
+      cardMounted = true;
+    }
+  }
+
+  function onClientSecretManual() {
+    const val = document.getElementById('client-secret-input').value.trim();
+    if (val) {
+      clientSecret = val;
+      mostrarCartao();
+    }
+  }
+
+  function log(msg, type = 'info') {
+    const el = document.getElementById('log');
+    const ts = new Date().toLocaleTimeString('pt-BR');
+    const line = document.createElement('div');
+    line.className = `log-${type}`;
+    line.textContent = `[${ts}] ${msg}`;
+    el.appendChild(line);
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function setStatus(msg, type) {
+    const bar = document.getElementById('status-bar');
+    bar.style.display = 'block';
+    bar.style.background = type === 'ok' ? '#dcfce7' : type === 'err' ? '#fee2e2' : '#eff6ff';
+    bar.style.color     = type === 'ok' ? '#166534' : type === 'err' ? '#991b1b' : '#1e40af';
+    bar.style.border    = `1px solid ${type === 'ok' ? '#bbf7d0' : type === 'err' ? '#fecaca' : '#bfdbfe'}`;
+    bar.textContent = msg;
+  }
+
+  async function criarIntent() {
+    const jwt    = document.getElementById('jwt').value.trim();
+    const apiUrl = document.getElementById('api-url').value.trim().replace(/\/$/, '');
+    const orderId = document.getElementById('order-id').value.trim();
+    const method = document.getElementById('payment-method').value;
+
+    if (!jwt)     return alert('Informe o JWT Token.');
+    if (!orderId) return alert('Informe o Order ID.');
+
+    document.getElementById('btn-intent').disabled = true;
+    log('Criando Payment Intent...', 'info');
+
+    try {
+      const res = await fetch(`${apiUrl}/api/payments/create-intent/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': jwt.startsWith('Bearer ') ? jwt : `Bearer ${jwt}`,
+        },
+        body: JSON.stringify({ order_id: orderId, payment_method: method }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        log(`Erro ${res.status}: ${JSON.stringify(data)}`, 'err');
+        setStatus(`Erro ao criar intent: ${data.error || data.detail || res.status}`, 'err');
+        document.getElementById('btn-intent').disabled = false;
+        return;
+      }
+
+      clientSecret = data.client_secret;
+      log(`Payment Intent criado!`, 'ok');
+      log(`  payment_id   : ${data.payment_id}`, 'ok');
+      log(`  client_secret: ${clientSecret.substring(0, 30)}...`, 'ok');
+      log(`  amount       : R$ ${data.amount}`, 'ok');
+      log(`  reused       : ${data.reused || false}`, 'info');
+
+      setStatus('Payment Intent criado. Preencha os dados do cartão.', 'info');
+
+      document.getElementById('client-secret-input').value = clientSecret;
+      mostrarCartao();
+
+    } catch (err) {
+      log(`Exceção: ${err.message}`, 'err');
+      setStatus('Falha na requisição. Veja o log.', 'err');
+      document.getElementById('btn-intent').disabled = false;
+    }
+  }
+
+  async function confirmarPagamento() {
+    const manual = document.getElementById('client-secret-input').value.trim();
+    if (manual) clientSecret = manual;
+    if (!clientSecret) return alert('Informe o Client Secret.');
+
+    document.getElementById('btn-pay').disabled = true;
+    document.getElementById('card-error').textContent = '';
+    log('Confirmando pagamento via Stripe.js...', 'info');
+
+    const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
+      payment_method: { card: cardElement }
+    });
+
+    if (error) {
+      log(`Erro Stripe: ${error.message}`, 'err');
+      document.getElementById('card-error').textContent = error.message;
+      setStatus(`Pagamento recusado: ${error.message}`, 'err');
+      document.getElementById('btn-pay').disabled = false;
+      return;
+    }
+
+    log(`Pagamento confirmado pelo Stripe!`, 'ok');
+    log(`  payment_intent_id: ${paymentIntent.id}`, 'ok');
+    log(`  status           : ${paymentIntent.status}`, 'ok');
+    log('Aguardando webhook payment_intent.succeeded processar o pedido...', 'warn');
+    setStatus(`Pagamento confirmado! Status: ${paymentIntent.status}. O webhook irá atualizar o pedido.`, 'ok');
+
+    // Polling simples para verificar status no backend
+    const apiUrl = document.getElementById('api-url').value.trim().replace(/\/$/, '');
+    const jwt    = document.getElementById('jwt').value.trim();
+    log('Verificando status no backend (aguarda webhook)...', 'info');
+
+    let tentativas = 0;
+    const intervalo = setInterval(async () => {
+      tentativas++;
+      try {
+        const res = await fetch(`${apiUrl}/api/payments/status/${paymentIntent.id}/`, {
+          headers: { 'Authorization': jwt.startsWith('Bearer ') ? jwt : `Bearer ${jwt}` }
+        });
+        const data = await res.json();
+        log(`  [tentativa ${tentativas}] status no banco: ${data.status}`, data.status === 'succeeded' ? 'ok' : 'info');
+
+        if (data.status === 'succeeded') {
+          clearInterval(intervalo);
+          setStatus('Pedido confirmado no banco! Webhook processado com sucesso.', 'ok');
+        } else if (tentativas >= 10) {
+          clearInterval(intervalo);
+          log('Timeout no polling. Verifique o webhook manualmente.', 'warn');
+        }
+      } catch (e) {
+        log(`Erro no polling: ${e.message}`, 'err');
+        clearInterval(intervalo);
+      }
+    }, 2000);
+  }
+</script>
+</body>
+</html>

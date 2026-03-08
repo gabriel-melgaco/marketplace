@@ -71,29 +71,58 @@ class TestTransferDispatchServiceSplitCalculation(TestCase):
         )
 
     def test_calculate_seller_split_full_order(self):
-        """Seller gross = items subtotal + shipping, fee = 10%, net = gross - fee"""
+        """
+        New formula: fee only on product_amount (NOT shipping).
+        product=200, shipping=20, fee=200*10%=20.00, net=200-20=180.00
+        Transfer=net=180.00 (shipping excluded from Transfer)
+        """
         platform_fee_pct = Decimal('10')
-        gross_cents, fee_cents, net_cents, gross_dec, fee_dec, net_dec = \
-            TransferDispatchService.calculate_seller_split(
-                self.order, self.seller, platform_fee_pct
-            )
+        (
+            product_cents, shipping_cents, fee_cents, net_cents,
+            product_dec, shipping_dec, fee_dec, net_dec
+        ) = TransferDispatchService.calculate_seller_split(
+            self.order, self.seller, platform_fee_pct
+        )
 
-        # gross = 200 (items) + 20 (shipping) = 220
-        self.assertEqual(gross_dec, Decimal('220.00'))
-        # fee = 220 * 10% = 22.00
-        self.assertEqual(fee_dec, Decimal('22.00'))
-        # net = 220 - 22 = 198.00
-        self.assertEqual(net_dec, Decimal('198.00'))
+        # product = 200 (items subtotal only)
+        self.assertEqual(product_dec, Decimal('200.00'))
+        # shipping = 20 (retained by platform)
+        self.assertEqual(shipping_dec, Decimal('20.00'))
+        # fee = 200 * 10% = 20.00 (applied only on product, NOT on shipping)
+        self.assertEqual(fee_dec, Decimal('20.00'))
+        # net = 200 - 20 = 180.00 (Transfer amount)
+        self.assertEqual(net_dec, Decimal('180.00'))
         # cents
-        self.assertEqual(gross_cents, 22000)
-        self.assertEqual(fee_cents, 2200)
-        self.assertEqual(net_cents, 19800)
+        self.assertEqual(product_cents, 20000)
+        self.assertEqual(shipping_cents, 2000)
+        self.assertEqual(fee_cents, 2000)
+        self.assertEqual(net_cents, 18000)
+
+    def test_calculate_seller_split_shipping_not_in_fee_base(self):
+        """Verify shipping is excluded from fee calculation base"""
+        platform_fee_pct = Decimal('10')
+        (
+            product_cents, shipping_cents, fee_cents, net_cents,
+            product_dec, shipping_dec, fee_dec, net_dec
+        ) = TransferDispatchService.calculate_seller_split(
+            self.order, self.seller, platform_fee_pct
+        )
+
+        # Fee must equal product * 10%, not (product+shipping) * 10%
+        expected_fee_on_product_only = (product_dec * Decimal('10') / Decimal('100')).quantize(
+            Decimal('0.01')
+        )
+        expected_fee_on_gross = ((product_dec + shipping_dec) * Decimal('10') / Decimal('100')).quantize(
+            Decimal('0.01')
+        )
+        self.assertEqual(fee_dec, expected_fee_on_product_only)
+        self.assertNotEqual(fee_dec, expected_fee_on_gross)
 
     def test_calculate_total_platform_fee(self):
-        """Total platform fee should be sum of all sellers' fees"""
+        """Total platform fee should be fee only on product amount (not shipping)"""
         total_fee = TransferDispatchService.calculate_total_platform_fee(self.order)
-        # Only one seller: fee = 22.00
-        self.assertEqual(total_fee, Decimal('22.00'))
+        # Only one seller: product=200, fee = 200 * 10% = 20.00 (shipping=20 excluded)
+        self.assertEqual(total_fee, Decimal('20.00'))
 
 
 class TestTransferDispatchServiceDispatch(TestCase):
@@ -178,7 +207,7 @@ class TestTransferDispatchServiceDispatch(TestCase):
 
     @patch('payments.services.transfer_dispatch_service.stripe.Transfer.create')
     def test_dispatch_creates_transfers_for_each_seller(self, mock_transfer_create):
-        """dispatch_transfers_for_order creates one Transfer per seller"""
+        """dispatch_transfers_for_order creates one Transfer per seller with correct amounts"""
         charge_id = 'ch_test_dispatch'
 
         # Mock transfer responses
@@ -207,13 +236,47 @@ class TestTransferDispatchServiceDispatch(TestCase):
         # Verify source_transaction is set on each call
         for call_args in mock_transfer_create.call_args_list:
             kwargs = call_args[1]  # keyword args
-            args = call_args[0]   # positional args
-            all_args = {**kwargs}
-            if args:
-                # Transfer.create(amount=..., currency=..., destination=..., source_transaction=...)
-                pass
-            self.assertIn('source_transaction', all_args)
-            self.assertEqual(all_args['source_transaction'], charge_id)
+            self.assertIn('source_transaction', kwargs)
+            self.assertEqual(kwargs['source_transaction'], charge_id)
+
+        # Verify new fields on splits
+        for split in splits:
+            # product_amount and shipping_amount must be populated
+            self.assertGreater(split.product_amount, 0)
+            self.assertGreaterEqual(split.shipping_amount, 0)
+            # gross_amount = product + shipping (backward compat)
+            self.assertEqual(split.gross_amount, split.product_amount + split.shipping_amount)
+            # net_amount = product - fee (shipping excluded)
+            self.assertEqual(split.net_amount, split.product_amount - split.platform_fee_amount)
+
+    @patch('payments.services.transfer_dispatch_service.stripe.Transfer.create')
+    def test_transfer_amount_excludes_shipping(self, mock_transfer_create):
+        """Transfer amount must be net (product - fee) — shipping must NOT be included"""
+        charge_id = 'ch_test_shipping_excluded'
+
+        mock_tr_s1 = MagicMock()
+        mock_tr_s1.id = 'tr_no_shipping_1'
+        mock_tr_s2 = MagicMock()
+        mock_tr_s2.id = 'tr_no_shipping_2'
+        mock_transfer_create.side_effect = [mock_tr_s1, mock_tr_s2]
+
+        splits = TransferDispatchService.dispatch_transfers_for_order(
+            order=self.order,
+            payment=self.payment,
+            charge_id=charge_id,
+        )
+
+        for call_args, split in zip(mock_transfer_create.call_args_list, splits):
+            kwargs = call_args[1]
+            # Transfer amount in cents must equal net_amount (no shipping)
+            expected_net_cents = int(split.net_amount * 100)
+            self.assertEqual(kwargs['amount'], expected_net_cents)
+            # Metadata must contain product_amount and shipping_amount
+            metadata = kwargs['metadata']
+            self.assertIn('product_amount', metadata)
+            self.assertIn('shipping_amount', metadata)
+            # shipping_amount in metadata must match the split record
+            self.assertEqual(Decimal(metadata['shipping_amount']), split.shipping_amount)
 
     @patch('payments.services.transfer_dispatch_service.stripe.Transfer.create')
     def test_dispatch_uses_deterministic_idempotency_key(self, mock_transfer_create):

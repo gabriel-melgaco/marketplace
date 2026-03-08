@@ -8,10 +8,16 @@ Architecture: Separate Charges and Transfers
 - MANDATORY: uses source_transaction=charge_id on every Transfer
 - This links the Transfer to the original charge, enabling proper reporting and refunds
 
-Split Calculation:
-    seller_gross = sum of seller's items (unit_price * qty) + seller's shipping cost
-    platform_fee = seller_gross * PLATFORM_FEE_PERCENTAGE / 100
-    seller_net   = seller_gross - platform_fee
+Split Calculation (shipping separation):
+    product_amount  = sum(item.subtotal)        ← base da comissão (somente produtos)
+    shipping_amount = sum(item.shipping_cost)   ← retido integralmente pela plataforma
+    platform_fee    = product_amount * PLATFORM_FEE_PERCENTAGE / 100
+    seller_net      = product_amount - platform_fee
+    gross_amount    = product_amount + shipping_amount (mantido para compatibilidade)
+    Transfer Stripe = seller_net (NUNCA inclui shipping)
+
+Nota: o frete é retido no saldo Stripe da plataforma para cobrir débitos ME via API.
+O Melhor Envio NÃO é uma Stripe Connected Account — não há Transfer para o ME.
 """
 
 import stripe
@@ -36,7 +42,7 @@ class TransferDispatchService:
     @staticmethod
     def calculate_seller_split(order, seller, platform_fee_pct: Decimal):
         """
-        Calculate gross, platform_fee and net amounts for a specific seller.
+        Calculate split amounts for a specific seller separating product and shipping.
 
         Args:
             order: Order instance
@@ -44,29 +50,36 @@ class TransferDispatchService:
             platform_fee_pct: Platform fee percentage as Decimal (e.g. Decimal('10'))
 
         Returns:
-            tuple: (gross_cents: int, fee_cents: int, net_cents: int,
-                    gross_decimal: Decimal, fee_decimal: Decimal, net_decimal: Decimal)
+            tuple: (product_cents: int, shipping_cents: int, fee_cents: int, net_cents: int,
+                    product_decimal: Decimal, shipping_decimal: Decimal,
+                    fee_decimal: Decimal, net_decimal: Decimal)
 
-        The calculation groups all OrderItems belonging to this seller,
-        including their individual shipping costs per item.
+        Formula:
+            product_amount  = sum(item.subtotal)        — base da comissão
+            shipping_amount = sum(item.shipping_cost)   — retido pela plataforma
+            platform_fee    = product_amount * fee_pct / 100
+            seller_net      = product_amount - platform_fee
+            Transfer Stripe = seller_net  (NUNCA inclui shipping)
         """
         seller_items = order.items.filter(seller=seller)
 
-        gross_decimal = Decimal('0.00')
+        product_decimal = Decimal('0.00')
+        shipping_decimal = Decimal('0.00')
         for item in seller_items:
             # item.subtotal = unit_price * quantity (auto-calculated on save)
-            gross_decimal += item.subtotal
-            # Add per-item shipping cost attributed to this seller
-            gross_decimal += item.shipping_cost
+            product_decimal += item.subtotal
+            # Shipping is retained by the platform — never transferred to seller
+            shipping_decimal += item.shipping_cost
 
-        # Platform fee rounded half-up to avoid floating point issues
-        fee_decimal = (gross_decimal * platform_fee_pct / Decimal('100')).quantize(
+        # Platform fee is applied only on product amount (not shipping)
+        fee_decimal = (product_decimal * platform_fee_pct / Decimal('100')).quantize(
             Decimal('0.01'), rounding=ROUND_HALF_UP
         )
-        net_decimal = gross_decimal - fee_decimal
+        net_decimal = product_decimal - fee_decimal
 
         # Convert to cents for Stripe (integer)
-        gross_cents = int(gross_decimal * 100)
+        product_cents = int(product_decimal * 100)
+        shipping_cents = int(shipping_decimal * 100)
         fee_cents = int(fee_decimal * 100)
         net_cents = int(net_decimal * 100)
 
@@ -76,14 +89,18 @@ class TransferDispatchService:
                 'order_id': str(order.id),
                 'seller_id': seller.id,
                 'seller_email': seller.email,
-                'gross_cents': gross_cents,
+                'product_cents': product_cents,
+                'shipping_cents': shipping_cents,
                 'fee_cents': fee_cents,
                 'net_cents': net_cents,
                 'platform_fee_pct': str(platform_fee_pct),
             }
         )
 
-        return gross_cents, fee_cents, net_cents, gross_decimal, fee_decimal, net_decimal
+        return (
+            product_cents, shipping_cents, fee_cents, net_cents,
+            product_decimal, shipping_decimal, fee_decimal, net_decimal
+        )
 
     @staticmethod
     @transaction.atomic
@@ -140,13 +157,16 @@ class TransferDispatchService:
         for seller_id in sellers:
             seller = CustomUser.objects.get(pk=seller_id)
 
-            # Calculate amounts for this seller
+            # Calculate amounts for this seller (new formula: product/shipping separated)
             (
-                gross_cents, fee_cents, net_cents,
-                gross_decimal, fee_decimal, net_decimal
+                product_cents, shipping_cents, fee_cents, net_cents,
+                product_decimal, shipping_decimal, fee_decimal, net_decimal
             ) = TransferDispatchService.calculate_seller_split(
                 order, seller, platform_fee_pct
             )
+
+            # gross_amount kept for backward compatibility = product + shipping
+            gross_decimal = product_decimal + shipping_decimal
 
             # Get or create PaymentSplit record (idempotent)
             split, created = PaymentSplit.objects.get_or_create(
@@ -154,6 +174,8 @@ class TransferDispatchService:
                 seller=seller,
                 defaults={
                     'gross_amount': gross_decimal,
+                    'product_amount': product_decimal,
+                    'shipping_amount': shipping_decimal,
                     'platform_fee_amount': fee_decimal,
                     'net_amount': net_decimal,
                     'transfer_status': 'pending',
@@ -203,6 +225,9 @@ class TransferDispatchService:
                     'seller_id': seller.id,
                     'seller_email': seller.email,
                     'stripe_account_id': seller.stripe_account_id,
+                    'product_cents': product_cents,
+                    'shipping_cents': shipping_cents,
+                    'fee_cents': fee_cents,
                     'net_cents': net_cents,
                     'charge_id': charge_id,
                     'idempotency_key': idempotency_key,
@@ -211,7 +236,7 @@ class TransferDispatchService:
 
             try:
                 transfer = stripe.Transfer.create(
-                    amount=net_cents,
+                    amount=net_cents,  # seller_net = product - fee (shipping EXCLUDED)
                     currency='brl',
                     destination=seller.stripe_account_id,
                     source_transaction=charge_id,
@@ -226,7 +251,8 @@ class TransferDispatchService:
                         'seller_id': str(seller.id),
                         'seller_email': seller.email,
                         'payment_id': str(payment.id),
-                        'gross_amount': str(gross_decimal),
+                        'product_amount': str(product_decimal),
+                        'shipping_amount': str(shipping_decimal),
                         'platform_fee': str(fee_decimal),
                         'net_amount': str(net_decimal),
                     },
@@ -326,7 +352,9 @@ class TransferDispatchService:
         for seller_id in sellers:
             from authentication.models import CustomUser
             seller = CustomUser.objects.get(pk=seller_id)
-            _, _, _, _, fee_decimal, _ = TransferDispatchService.calculate_seller_split(
+            # New return: (product_cents, shipping_cents, fee_cents, net_cents,
+            #              product_decimal, shipping_decimal, fee_decimal, net_decimal)
+            _, _, _, _, _, _, fee_decimal, _ = TransferDispatchService.calculate_seller_split(
                 order, seller, platform_fee_pct
             )
             total_fee += fee_decimal
