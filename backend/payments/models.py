@@ -106,10 +106,34 @@ class PaymentSplit(models.Model):
         related_name='payment_splits'
     )
 
+    SHIPPING_STATUS_CHOICES = [
+        ('held', 'Retido'),
+        ('released', 'Liberado p/ Logística'),
+        ('refunded', 'Reembolsado'),
+    ]
+
     # Valores financeiros (em BRL)
     gross_amount = models.DecimalField(max_digits=10, decimal_places=2)
     platform_fee_amount = models.DecimalField(max_digits=10, decimal_places=2)
     net_amount = models.DecimalField(max_digits=10, decimal_places=2)
+
+    # Separação produto vs frete (nova fórmula de split)
+    # product_amount: base de cálculo da comissão (somente produtos)
+    # shipping_amount: frete retido integralmente pela plataforma (NÃO entra no Transfer)
+    product_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0,
+        help_text='Subtotal somente dos produtos (base da comissão)'
+    )
+    shipping_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, default=0,
+        help_text='Frete retido pela plataforma para cobrir débitos ME'
+    )
+    shipping_status = models.CharField(
+        max_length=20,
+        choices=SHIPPING_STATUS_CHOICES,
+        default='held',
+        help_text='Status do frete retido: held/released/refunded'
+    )
 
     # Stripe Transfer ID quando transfer for criada
     stripe_transfer_id = models.CharField(max_length=255, blank=True, db_index=True)
