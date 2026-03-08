@@ -360,7 +360,7 @@ MELHOR_ENVIO_DEFAULT_SERVICES = os.getenv('MELHOR_ENVIO_DEFAULT_SERVICES', '1,2,
 
 # =================== PAYMENT CONFIGURATION ===================
 # Taxa da plataforma (%)
-PLATFORM_FEE_PERCENTAGE = 10  # 10% de taxa
+PLATFORM_FEE_PERCENTAGE = int(os.getenv('PLATFORM_FEE_PERCENTAGE', 10))
 
 # Dias para liberar pagamento ao vendedor
 PAYOUT_DAYS = 7  # Após 7 dias da confirmação da entrega
