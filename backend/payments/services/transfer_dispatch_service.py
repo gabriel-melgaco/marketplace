@@ -8,16 +8,17 @@ Architecture: Separate Charges and Transfers
 - MANDATORY: uses source_transaction=charge_id on every Transfer
 - This links the Transfer to the original charge, enabling proper reporting and refunds
 
-Split Calculation (shipping separation):
-    product_amount  = sum(item.subtotal)        ← base da comissão (somente produtos)
-    shipping_amount = sum(item.shipping_cost)   ← retido integralmente pela plataforma
+Split Calculation (Fluxo B — vendedor pré-financia carteira ME):
+    product_amount  = sum of seller's items (unit_price * qty)
+    shipping_amount = sum of seller's shipping costs (reimbursed to seller)
     platform_fee    = product_amount * PLATFORM_FEE_PERCENTAGE / 100
-    seller_net      = product_amount - platform_fee
+    seller_net      = (product_amount - platform_fee) + shipping_amount
     gross_amount    = product_amount + shipping_amount (mantido para compatibilidade)
-    Transfer Stripe = seller_net (NUNCA inclui shipping)
+    Transfer Stripe = seller_net  (produto líquido + frete integral)
 
-Nota: o frete é retido no saldo Stripe da plataforma para cobrir débitos ME via API.
-O Melhor Envio NÃO é uma Stripe Connected Account — não há Transfer para o ME.
+Nota: o vendedor pré-financia a própria carteira Melhor Envio com saldo próprio,
+portanto o shipping_amount cobrado do comprador é devolvido integralmente ao vendedor.
+O Melhor Envio NÃO é uma Stripe Connected Account — não há Transfer separada para o ME.
 """
 
 import stripe
@@ -54,12 +55,12 @@ class TransferDispatchService:
                     product_decimal: Decimal, shipping_decimal: Decimal,
                     fee_decimal: Decimal, net_decimal: Decimal)
 
-        Formula:
+        Formula (Fluxo B — vendedor pré-financia carteira ME):
             product_amount  = sum(item.subtotal)        — base da comissão
-            shipping_amount = sum(item.shipping_cost)   — retido pela plataforma
+            shipping_amount = sum(item.shipping_cost)   — repassado integralmente ao vendedor
             platform_fee    = product_amount * fee_pct / 100
-            seller_net      = product_amount - platform_fee
-            Transfer Stripe = seller_net  (NUNCA inclui shipping)
+            seller_net      = (product_amount - platform_fee) + shipping_amount
+            Transfer Stripe = seller_net  (produto líquido + frete integral)
         """
         seller_items = order.items.filter(seller=seller)
 
@@ -68,14 +69,15 @@ class TransferDispatchService:
         for item in seller_items:
             # item.subtotal = unit_price * quantity (auto-calculated on save)
             product_decimal += item.subtotal
-            # Shipping is retained by the platform — never transferred to seller
+            # Shipping is reimbursed to the seller (Fluxo B: seller pre-funds ME wallet)
             shipping_decimal += item.shipping_cost
 
         # Platform fee is applied only on product amount (not shipping)
         fee_decimal = (product_decimal * platform_fee_pct / Decimal('100')).quantize(
             Decimal('0.01'), rounding=ROUND_HALF_UP
         )
-        net_decimal = product_decimal - fee_decimal
+        # seller_net = (product - fee) + shipping  — frete integral devolvido ao vendedor
+        net_decimal = product_decimal - fee_decimal + shipping_decimal
 
         # Convert to cents for Stripe (integer)
         product_cents = int(product_decimal * 100)
@@ -169,6 +171,7 @@ class TransferDispatchService:
             gross_decimal = product_decimal + shipping_decimal
 
             # Get or create PaymentSplit record (idempotent)
+            # shipping_status='released': frete transferido integralmente ao vendedor (Fluxo B)
             split, created = PaymentSplit.objects.get_or_create(
                 payment=payment,
                 seller=seller,
@@ -178,6 +181,7 @@ class TransferDispatchService:
                     'shipping_amount': shipping_decimal,
                     'platform_fee_amount': fee_decimal,
                     'net_amount': net_decimal,
+                    'shipping_status': 'released',
                     'transfer_status': 'pending',
                 }
             )
@@ -236,7 +240,7 @@ class TransferDispatchService:
 
             try:
                 transfer = stripe.Transfer.create(
-                    amount=net_cents,  # seller_net = product - fee (shipping EXCLUDED)
+                    amount=net_cents,  # seller_net = (product - fee) + shipping (Fluxo B)
                     currency='brl',
                     destination=seller.stripe_account_id,
                     source_transaction=charge_id,
