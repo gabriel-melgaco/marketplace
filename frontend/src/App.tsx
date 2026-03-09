@@ -15,13 +15,14 @@ import { ListingForm } from "@/pages/Dashboard/ListingForm";
 import { MyPurchase } from "@/pages/Dashboard/MyPurchases";
 import { MySales } from "@/pages/Dashboard/MySales";
 import { MyReviews } from "@/pages/Dashboard/MyReviews";
-import PivateRoutes from "@/routes/PrivateRoutes";
+import PrivateRoutes from "@/routes/PrivateRoutes";
 import EmailSent from "@/pages/auth/EmailSent";
 import ConfirmEmail from "@/pages/auth/ConfirmEmail";
 import { Chat } from "@/pages/private/Chat";
 import { AccountPage } from "@/pages/account";
 import { StateProductList } from "@/pages/public/StateProductList";
 import { GoogleCallback } from "@/pages/auth/GoogleCallback";
+import { MelhorEnvioCallback } from "@/pages/auth/MelhorEnvioCallback";
 import { CategoryProductList } from "@/pages/public/CategoryProductList";
 import { NotFound } from "@/pages/public/NotFound";
 import { ROUTES } from "@/routes/routePaths";
@@ -42,6 +43,7 @@ const router = createBrowserRouter([
 
   // AUTH — no shared header
   { path: ROUTES.GOOGLE_CALLBACK, element: <GoogleCallback /> },
+  { path: ROUTES.MELHOR_ENVIO_CALLBACK, element: <MelhorEnvioCallback /> },
   { path: "/login", element: <LoginPage /> },
   { path: "/register", element: <Register /> },
   { path: "/forgotpassword", element: <ForgotPassword /> },
@@ -51,7 +53,7 @@ const router = createBrowserRouter([
 
   // PRIVATE — require authentication
   {
-    element: <PivateRoutes />,
+    element: <PrivateRoutes />,
     children: [
       {
         element: <HomeLayout />,

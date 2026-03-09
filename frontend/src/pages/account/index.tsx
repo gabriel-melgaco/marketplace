@@ -13,6 +13,9 @@ import {
   AlertTriangle,
   Loader2,
   Camera,
+  ExternalLink,
+  CheckCircle2,
+  Link2,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { userService, type CustomUser } from "@/services/userService";
@@ -51,6 +54,14 @@ const SECTIONS: {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+// Notification defaults (UI only — no backend yet; toggles are purely decorative)
+const NOTIFICATION_DEFAULTS = {
+  newListings: false,
+  messages: false,
+  orders: true,
+  promotions: false,
+} as const;
 
 function isoToDisplay(iso: string | undefined): string {
   if (!iso || !iso.includes("-")) return iso ?? "";
@@ -198,13 +209,16 @@ function AddressModal({ onClose, onSaved }: AddressModalProps) {
     } catch (err: unknown) {
       const data = (err as { response?: { data?: unknown } })?.response?.data;
       if (data && typeof data === "object") {
+        // Map per-field API validation errors to inline field messages
         const msgs: Record<string, string> = {};
         for (const [k, v] of Object.entries(data as Record<string, unknown>)) {
           msgs[k] = Array.isArray(v) ? (v as string[])[0] : String(v);
         }
         setErrors(msgs);
       } else {
-        setErrors({ submit: "Erro ao salvar endereço. Tente novamente." });
+        setErrors({
+          submit: getAxiosErrorMessage(err, "Erro ao salvar endereço. Tente novamente."),
+        });
       }
     } finally {
       setIsLoading(false);
@@ -525,6 +539,14 @@ export function AccountPage() {
   const [showAddressModal, setShowAddressModal] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
+  // Melhor Envio connection
+  const [meConnected, setMeConnected] = useState(false);
+  const [meCheckLoading, setMeCheckLoading] = useState(false);
+  const [meConnectUrl, setMeConnectUrl] = useState<string | null>(null);
+  const [mePolling, setMePolling] = useState(false);
+  const mePopupRef = useRef<Window | null>(null);
+  const mePollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // Security — password
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
@@ -540,13 +562,7 @@ export function AccountPage() {
   const [socialAccounts, setSocialAccounts] = useState<SocialAccount[]>([]);
   const [socialLoading, setSocialLoading] = useState(false);
 
-  // Notifications (UI only — no backend yet; toggles are purely decorative)
-  const NOTIFICATION_DEFAULTS = {
-    newListings: false,
-    messages: false,
-    orders: true,
-    promotions: false,
-  } as const;
+  // Notifications state is intentionally omitted — toggles are UI-only decorators.
 
   const loadAddresses = useCallback(async () => {
     setAddressesLoading(true);
@@ -554,17 +570,56 @@ export function AccountPage() {
       const data = await logisticsService.getAddresses();
       setAddresses(data);
     } catch {
-      // silent
+      Swal.fire({
+        icon: "error",
+        title: "Erro",
+        text: "Não foi possível carregar os endereços. Tente novamente.",
+        confirmButtonColor: "#1e3a5f",
+      });
     } finally {
       setAddressesLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (activeSection === "addresses") {
-      loadAddresses();
-    }
+    if (activeSection !== "addresses") return;
+
+    let cancelled = false;
+    loadAddresses();
+
+    setMeCheckLoading(true);
+    logisticsService
+      .getMelhorEnvioStatus()
+      .then((status) => {
+        if (cancelled) return;
+        if (status.connected && !status.is_expired) {
+          setMeConnected(true);
+        } else {
+          setMeConnected(false);
+          return logisticsService.getMelhorEnvioConnectUrl().then((data) => {
+            if (!cancelled) setMeConnectUrl(data.authorization_url);
+          });
+        }
+      })
+      .catch(() => {
+        // Non-fatal: button simply won't appear if URL fetch fails
+      })
+      .finally(() => {
+        if (!cancelled) setMeCheckLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [activeSection, loadAddresses]);
+
+  // Cleanup ME popup and polling on unmount
+  useEffect(() => {
+    return () => {
+      if (mePollingIntervalRef.current) clearInterval(mePollingIntervalRef.current);
+      if (mePopupRef.current && !mePopupRef.current.closed) mePopupRef.current.close();
+    };
+  }, []);
 
   useEffect(() => {
     if (activeSection === "security") {
@@ -578,6 +633,62 @@ export function AccountPage() {
   }, [activeSection]);
 
   // ── Handlers ────────────────────────────────────────────────────────────────
+
+  const startMeConnection = useCallback(() => {
+    // Prevent double-click from starting a second interval
+    if (!meConnectUrl || mePollingIntervalRef.current) return;
+
+    const popup = window.open(
+      meConnectUrl,
+      "melhorenvio_oauth",
+      "width=640,height=720,left=200,top=100,toolbar=no,menubar=no,scrollbars=yes",
+    );
+
+    if (!popup) {
+      Swal.fire({
+        icon: "warning",
+        title: "Pop-up bloqueado",
+        text: "Habilite pop-ups no navegador para conectar o Melhor Envio e tente novamente.",
+        confirmButtonColor: "#1e3a5f",
+      });
+      return;
+    }
+
+    mePopupRef.current = popup;
+    setMePolling(true);
+
+    const MAX_POLLS = 20; // 60 s total
+    let pollCount = 0;
+
+    mePollingIntervalRef.current = setInterval(async () => {
+      pollCount += 1;
+      try {
+        const status = await logisticsService.getMelhorEnvioStatus();
+        if (status.connected && !status.is_expired) {
+          clearInterval(mePollingIntervalRef.current!);
+          mePollingIntervalRef.current = null;
+          if (mePopupRef.current && !mePopupRef.current.closed) mePopupRef.current.close();
+          setMePolling(false);
+          setMeConnected(true);
+          return;
+        }
+      } catch {
+        // Ignore transient errors during polling
+      }
+      if (mePopupRef.current?.closed) {
+        clearInterval(mePollingIntervalRef.current!);
+        mePollingIntervalRef.current = null;
+        setMePolling(false);
+        return;
+      }
+      if (pollCount >= MAX_POLLS) {
+        clearInterval(mePollingIntervalRef.current!);
+        mePollingIntervalRef.current = null;
+        if (mePopupRef.current && !mePopupRef.current.closed) mePopupRef.current.close();
+        setMePolling(false);
+      }
+    }, 3000);
+  }, [meConnectUrl]);
 
   const handleBirthdayChange = (value: string) => {
     const numbers = value.replace(/\D/g, "");
@@ -922,18 +1033,75 @@ export function AccountPage() {
 
   const renderAddresses = () => (
     <div className="bg-white rounded-2xl shadow p-6">
-      <div className="flex items-center justify-between mb-5">
+      {/* Header row: title + primary action */}
+      <div className="flex items-center justify-between mb-3 gap-2">
         <h2 className="text-lg font-bold text-gray-900 min-w-0">
           Meus Endereços
         </h2>
         <button
           onClick={() => setShowAddressModal(true)}
-          className="flex items-center gap-1.5 px-4 py-2 bg-blue-900 text-white rounded-lg text-sm font-semibold hover:bg-blue-800 transition cursor-pointer shrink-0 ml-3"
+          className="flex items-center gap-1.5 px-4 py-2 bg-blue-900 text-white rounded-lg text-sm font-semibold hover:bg-blue-800 focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 transition cursor-pointer shrink-0"
         >
-          <Plus size={15} />
+          <Plus size={15} aria-hidden="true" />
           Novo endereço
         </button>
       </div>
+
+      {/* Melhor Envio integration status — secondary row, visually distinct */}
+      <div className="mb-5">
+        {meCheckLoading ? (
+          <div
+            aria-live="polite"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-400"
+          >
+            <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+            Verificando Melhor Envio…
+          </div>
+        ) : meConnected ? (
+          <div
+            role="status"
+            aria-label="Melhor Envio conectado com sucesso"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-50 border border-green-200 rounded-lg text-xs font-semibold text-green-700"
+          >
+            <CheckCircle2 size={12} aria-hidden="true" />
+            Melhor Envio conectado
+          </div>
+        ) : mePolling ? (
+          <div
+            aria-live="polite"
+            className="inline-flex items-center gap-2 px-3 py-1.5 border border-blue-200 bg-blue-50 rounded-lg text-xs text-blue-700"
+          >
+            <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+            <span>Aguardando autorização… <span className="text-blue-400">(até 60&nbsp;s)</span></span>
+            <button
+              onClick={() => {
+                if (mePollingIntervalRef.current) {
+                  clearInterval(mePollingIntervalRef.current);
+                  mePollingIntervalRef.current = null;
+                }
+                if (mePopupRef.current && !mePopupRef.current.closed) {
+                  mePopupRef.current.close();
+                }
+                setMePolling(false);
+              }}
+              aria-label="Cancelar conexão com Melhor Envio"
+              className="ml-1 p-0.5 rounded hover:bg-blue-100 focus-visible:ring-2 focus-visible:ring-blue-500 transition cursor-pointer"
+            >
+              <X size={12} aria-hidden="true" />
+            </button>
+          </div>
+        ) : meConnectUrl ? (
+          <button
+            onClick={startMeConnection}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-blue-900 text-blue-900 rounded-lg text-xs font-semibold hover:bg-blue-50 focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 transition cursor-pointer"
+          >
+            <Link2 size={13} aria-hidden="true" />
+            Conectar Melhor Envio
+            <ExternalLink size={11} className="text-blue-400" aria-hidden="true" />
+          </button>
+        ) : null}
+      </div>
+
 
       {addressesLoading ? (
         <div className="flex justify-center py-10">
