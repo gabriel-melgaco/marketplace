@@ -18,11 +18,14 @@ import {
   ShoppingBag,
   AlertCircle,
   ExternalLink,
+  Plus,
+  Truck,
 } from "lucide-react";
 import { productService } from "@/services/productService";
 import { storageService, IMAGE_UPLOAD_LIMITS } from "@/services/storageService";
 import { listingImageService } from "@/services/listingImageService";
 import { logisticsService } from "@/services/logisticsService";
+import { getMarketplaceFee } from "@/services/configService";
 import type {
   FilterOptionsResponse,
   MarketplaceListingImage,
@@ -30,10 +33,13 @@ import type {
   FormData,
   PendingImage,
   ProductListItem,
+  ListingPackageRequest,
+  ShippingMethod,
 } from "@/types/product";
 import { INITIAL_FORMDATA } from "@/constants/brazilianStates";
 import {
   validateStep as validateStepHelper,
+  validatePackageDraft as validatePackageDraftHelper,
   formatDecimal,
   buildListingData as buildListingDataHelper,
 } from "@/utils/listingHelpers";
@@ -62,10 +68,7 @@ const FIELD_TO_STEP: Record<string, number> = {
   description: 3,
   price: 5,
   quantity: 5,
-  weight_kg: 6,
-  height_cm: 6,
-  width_cm: 6,
-  length_cm: 6,
+  packages: 6,
 };
 
 const STEP_NAMES: Record<number, string> = {
@@ -74,7 +77,7 @@ const STEP_NAMES: Record<number, string> = {
   3: "Descrição",
   4: "Marca e Condição",
   5: "Preço",
-  6: "Dimensões",
+  6: "Pacotes & Envio",
   7: "Imagens",
 };
 
@@ -95,9 +98,14 @@ interface UploadedImageUrl {
   order: number;
 }
 
+interface PackageEntry extends ListingPackageRequest {
+  _key: string;
+}
+
 interface DraftData {
   step: number;
   formData: FormData;
+  packages?: PackageEntry[];
 }
 
 export function ListingForm() {
@@ -138,6 +146,7 @@ export function ListingForm() {
     useState<ProductListItem | null>(null);
   const [searchingProducts, setSearchingProducts] = useState(false);
   const searchAbortControllerRef = useRef<AbortController | null>(null);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const draftProductRestoredRef = useRef(false);
 
   // Draft timing refs
@@ -160,6 +169,18 @@ export function ListingForm() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [hasDraft, setHasDraft] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [platformFeePercentage, setPlatformFeePercentage] = useState<number | null>(null);
+  const [packages, setPackages] = useState<PackageEntry[]>([]);
+  const [showPackageModal, setShowPackageModal] = useState(false);
+  const [editingPackageIndex, setEditingPackageIndex] = useState<number | null>(null);
+  const [packageDraft, setPackageDraft] = useState<ListingPackageRequest>({
+    weight_kg: "",
+    height_cm: "",
+    width_cm: "",
+    length_cm: "",
+    description: "",
+  });
+  const [packageDraftErrors, setPackageDraftErrors] = useState<Record<string, string>>({});
 
   const draftKey = isEditMode ? `listing_draft_${id}` : "listing_draft";
 
@@ -202,6 +223,9 @@ export function ListingForm() {
       }
       if (mePopupRef.current && !mePopupRef.current.closed) {
         mePopupRef.current.close();
+      }
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
       }
     };
   }, []);
@@ -277,6 +301,14 @@ export function ListingForm() {
         draftJustLoadedRef.current = true;
         setHasDraft(true);
         setFormData(draft.formData);
+        if (draft.packages && draft.packages.length > 0) {
+          setPackages(
+            draft.packages.map((pkg) => ({
+              ...pkg,
+              _key: (pkg as PackageEntry)._key ?? crypto.randomUUID(),
+            }))
+          );
+        }
       }
     } catch (err) {
       console.error("Error loading draft:", err);
@@ -319,12 +351,13 @@ export function ListingForm() {
       const draft: DraftData = {
         step: currentStep,
         formData,
+        packages,
       };
       localStorage.setItem(draftKey, JSON.stringify(draft));
     } catch (err) {
       console.error("Error saving draft:", err);
     }
-  }, [currentStep, formData, draftKey, isEditMode]);
+  }, [currentStep, formData, packages, draftKey, isEditMode]);
 
   useEffect(() => {
     if (!isEditMode && currentStep > 0 && !draftJustLoadedRef.current) {
@@ -351,6 +384,7 @@ export function ListingForm() {
     setHasDraft(false);
     setCurrentStep(1);
     setFormData(INITIAL_FORMDATA);
+    setPackages([]);
     setPendingImages([]);
     setErrors({});
   }, [draftKey]);
@@ -380,13 +414,12 @@ export function ListingForm() {
   }, [isEditMode]);
 
   // Fetch the seller's Melhor Envio default address ID for use during listing
-  // creation. Runs once on mount and is non-blocking — failures leave
-  // meAddressId as null, which is a valid state (listing created without it).
+  // creation. Runs after meConnected is confirmed true by the gate check effect,
+  // avoiding a redundant getMelhorEnvioStatus call on mount.
   useEffect(() => {
+    if (!meConnected) return;
     async function fetchMeAddress() {
       try {
-        const status = await logisticsService.getMelhorEnvioStatus();
-        if (!status.connected || status.is_expired) return;
         const addresses = await logisticsService.getAddresses();
         if (addresses.length === 0) return;
         const defaultAddr = addresses.find((a) => a.is_default) ?? addresses[0];
@@ -396,6 +429,15 @@ export function ListingForm() {
       }
     }
     fetchMeAddress();
+  }, [meConnected]);
+
+  // Fetch marketplace fee once on mount (no auth required)
+  useEffect(() => {
+    getMarketplaceFee()
+      .then(setPlatformFeePercentage)
+      .catch((err) => {
+        console.error("Erro ao carregar taxa da plataforma:", err);
+      });
   }, []);
 
   // Load existing listing data in edit mode
@@ -405,7 +447,6 @@ export function ListingForm() {
     async function loadListing() {
       try {
         const listing = await productService.getListingById(Number(id));
-        const firstPkg = listing.packages?.[0] ?? listing;
         setFormData({
           product: String(listing.product.id),
           title: listing.title || "",
@@ -414,12 +455,29 @@ export function ListingForm() {
           description: listing.description,
           price: listing.price,
           quantity: String(listing.quantity),
-          weight_kg: firstPkg.weight_kg || "",
-          height_cm: firstPkg.height_cm || "",
-          width_cm: firstPkg.width_cm || "",
-          length_cm: firstPkg.length_cm || "",
-          package_description: firstPkg.description || "",
+          shipping_method: (listing.shipping_method || "both") as ShippingMethod,
         });
+        if (listing.packages && listing.packages.length > 0) {
+          setPackages(
+            listing.packages.map((pkg) => ({
+              weight_kg: pkg.weight_kg || "",
+              height_cm: pkg.height_cm || "",
+              width_cm: pkg.width_cm || "",
+              length_cm: pkg.length_cm || "",
+              description: pkg.description || "",
+              _key: crypto.randomUUID(),
+            }))
+          );
+        } else if (listing.weight_kg) {
+          setPackages([{
+            weight_kg: listing.weight_kg || "",
+            height_cm: listing.height_cm || "",
+            width_cm: listing.width_cm || "",
+            length_cm: listing.length_cm || "",
+            description: "",
+            _key: crypto.randomUUID(),
+          }]);
+        }
         setSelectedProduct({
           id: listing.product.id,
           name: listing.product.name,
@@ -472,6 +530,11 @@ export function ListingForm() {
   const handleProductSearch = useCallback((term: string) => {
     setProductSearch(term);
 
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = null;
+    }
+
     if (!term.trim()) {
       setProductResults([]);
       setSearchingProducts(false);
@@ -488,7 +551,7 @@ export function ListingForm() {
 
     setSearchingProducts(true);
 
-    const timeoutId = setTimeout(async () => {
+    searchDebounceRef.current = setTimeout(async () => {
       const controller = new AbortController();
       searchAbortControllerRef.current = controller;
 
@@ -510,8 +573,6 @@ export function ListingForm() {
         }
       }
     }, 300);
-
-    return () => clearTimeout(timeoutId);
   }, []);
 
   const selectProduct = useCallback(
@@ -554,7 +615,7 @@ export function ListingForm() {
   }, [loadingMoreProducts, hasMoreProducts, productsPage]);
 
   const validateCurrentStep = (step: number): boolean => {
-    const newErrors = validateStepHelper(step, formData);
+    const newErrors = validateStepHelper(step, formData, step === 6 ? packages : undefined);
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -756,8 +817,11 @@ export function ListingForm() {
   );
 
   const buildListingData = useCallback(
-    () => buildListingDataHelper(formData),
-    [formData],
+    () => buildListingDataHelper(
+      formData,
+      packages.map(({ _key: _, ...pkg }) => pkg)
+    ),
+    [formData, packages],
   );
 
   // ============================================
@@ -858,7 +922,7 @@ export function ListingForm() {
         // ── Edit mode ────────────────────────────────────────────────────
         const allErrors: Record<string, string> = {};
         for (let step = 1; step <= 6; step++) {
-          const stepErrors = validateStepHelper(step, formData);
+          const stepErrors = validateStepHelper(step, formData, step === 6 ? packages : undefined);
           Object.assign(allErrors, stepErrors);
         }
         if (Object.keys(allErrors).length > 0) {
@@ -1549,6 +1613,36 @@ export function ListingForm() {
                     {errors.price && (
                       <p className="text-sm text-red-500">{errors.price}</p>
                     )}
+                    {(() => {
+                      const priceNum = Number(formData.price);
+                      if (
+                        !formData.price ||
+                        isNaN(priceNum) ||
+                        priceNum <= 0 ||
+                        platformFeePercentage === null ||
+                        platformFeePercentage === 0
+                      )
+                        return null;
+                      const netValue =
+                        Math.round(
+                          priceNum * (1 - platformFeePercentage / 100) * 100,
+                        ) / 100;
+                      return (
+                        <p className="text-sm text-green-700">
+                          Você irá receber{" "}
+                          <span className="font-semibold">
+                            R${" "}
+                            {netValue.toLocaleString("pt-BR", {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </span>{" "}
+                          <span className="text-green-600">
+                            (-{platformFeePercentage}%)
+                          </span>
+                        </p>
+                      );
+                    })()}
                   </div>
 
                   <div className="space-y-2">
@@ -1568,118 +1662,363 @@ export function ListingForm() {
                 </div>
               )}
 
-              {/* STEP 6 — Dimensões do Pacote */}
+              {/* STEP 6 — Pacotes & Envio */}
               {currentStep === 6 && (
-                <div className="space-y-4">
-
-                  <p className="text-sm text-gray-500">
-                    Informe as dimensões do pacote que será enviado. Esses dados
-                    são usados para calcular o frete.
-                  </p>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">
-                        Peso (kg)
-                      </label>
-                      <input
-                        type="number"
-                        name="weight_kg"
-                        value={formData.weight_kg}
-                        onChange={handleChange}
-                        min="0.01"
-                        step="0.01"
-                        placeholder="0.00"
-                        className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
-                      />
-                      {errors.weight_kg && (
-                        <p className="text-xs text-red-500">
-                          {errors.weight_kg}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">
-                        Altura (cm)
-                      </label>
-                      <input
-                        type="number"
-                        name="height_cm"
-                        value={formData.height_cm}
-                        onChange={handleChange}
-                        min="0.1"
-                        step="0.1"
-                        placeholder="0.0"
-                        className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
-                      />
-                      {errors.height_cm && (
-                        <p className="text-xs text-red-500">
-                          {errors.height_cm}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">
-                        Largura (cm)
-                      </label>
-                      <input
-                        type="number"
-                        name="width_cm"
-                        value={formData.width_cm}
-                        onChange={handleChange}
-                        min="0.1"
-                        step="0.1"
-                        placeholder="0.0"
-                        className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
-                      />
-                      {errors.width_cm && (
-                        <p className="text-xs text-red-500">
-                          {errors.width_cm}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">
-                        Comprimento (cm)
-                      </label>
-                      <input
-                        type="number"
-                        name="length_cm"
-                        value={formData.length_cm}
-                        onChange={handleChange}
-                        min="0.1"
-                        step="0.1"
-                        placeholder="0.0"
-                        className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
-                      />
-                      {errors.length_cm && (
-                        <p className="text-xs text-red-500">
-                          {errors.length_cm}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
+                <div className="space-y-6">
+                  {/* Shipping Method */}
                   <div className="space-y-2">
                     <label className="block text-sm font-medium text-gray-700">
-                      Descrição do pacote{" "}
-                      <span className="text-gray-400 font-normal">
-                        (opcional)
-                      </span>
+                      Método de envio
                     </label>
-                    <input
-                      type="text"
-                      name="package_description"
-                      value={formData.package_description}
-                      onChange={handleChange}
-                      maxLength={100}
-                      placeholder="Ex: Caixa com espuma protetora"
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
-                    />
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" role="radiogroup" aria-label="Método de envio">
+                      {(
+                        [
+                          { value: "both" as ShippingMethod, label: "Ambos" },
+                          { value: "melhor_envio" as ShippingMethod, label: "Somente Melhor Envio" },
+                          { value: "in_person" as ShippingMethod, label: "Somente Presencial" },
+                        ]
+                      ).map((opt) => (
+                        <label
+                          key={opt.value}
+                          className={`flex items-center gap-2.5 px-4 py-3 border-2 rounded-xl cursor-pointer transition ${
+                            formData.shipping_method === opt.value
+                              ? "border-blue-900 bg-blue-50"
+                              : "border-gray-200 hover:border-gray-300"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="shipping_method"
+                            value={opt.value}
+                            checked={formData.shipping_method === opt.value}
+                            onChange={() =>
+                              setFormData((prev) => ({ ...prev, shipping_method: opt.value }))
+                            }
+                            className="sr-only"
+                          />
+                          <Truck
+                            size={16}
+                            className={
+                              formData.shipping_method === opt.value
+                                ? "text-blue-900 shrink-0"
+                                : "text-gray-400 shrink-0"
+                            }
+                          />
+                          <span
+                            className={`text-sm font-medium ${
+                              formData.shipping_method === opt.value
+                                ? "text-blue-900"
+                                : "text-gray-700"
+                            }`}
+                          >
+                            {opt.label}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
                   </div>
+
+                  {/* Package list */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-sm font-medium text-gray-700">
+                        Pacotes{" "}
+                        <span className="text-gray-400 font-normal">
+                          ({packages.length})
+                        </span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPackageDraft({
+                            weight_kg: "",
+                            height_cm: "",
+                            width_cm: "",
+                            length_cm: "",
+                            description: "",
+                          });
+                          setPackageDraftErrors({});
+                          setEditingPackageIndex(null);
+                          setShowPackageModal(true);
+                        }}
+                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-blue-900 text-white rounded-lg hover:bg-blue-800 transition cursor-pointer"
+                      >
+                        <Plus size={14} />
+                        Adicionar Pacote
+                      </button>
+                    </div>
+
+                    <p className="text-sm text-gray-500">
+                      Informe as dimensões de cada pacote que será enviado. Esses dados são usados para calcular o frete.
+                    </p>
+
+                    {errors.packages && (
+                      <p className="text-sm text-red-500">{errors.packages}</p>
+                    )}
+
+                    {packages.length === 0 && (
+                      <div className="border-2 border-dashed border-gray-200 rounded-xl py-8 text-center">
+                        <Package size={28} className="mx-auto text-gray-300 mb-2" />
+                        <p className="text-sm text-gray-400">
+                          Nenhum pacote adicionado ainda.
+                        </p>
+                        <p className="text-xs text-gray-300 mt-0.5">
+                          Clique em "+ Adicionar Pacote" para começar.
+                        </p>
+                      </div>
+                    )}
+
+                    {packages.map((pkg, idx) => (
+                      <div
+                        key={pkg._key}
+                        className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-xl px-4 py-3"
+                      >
+                        <div>
+                          <p className="text-sm font-medium text-gray-800">
+                            Pacote {idx + 1}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {pkg.weight_kg} kg · {pkg.height_cm}×{pkg.width_cm}×
+                            {pkg.length_cm} cm
+                            {pkg.description ? ` · ${pkg.description}` : ""}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const { _key: _ignored, ...draftFields } = pkg;
+                              setPackageDraft(draftFields);
+                              setPackageDraftErrors({});
+                              setEditingPackageIndex(idx);
+                              setShowPackageModal(true);
+                            }}
+                            className="text-xs px-2.5 py-1 border border-gray-200 text-gray-600 rounded-lg hover:bg-white transition cursor-pointer"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            disabled={packages.length <= 1}
+                            onClick={() =>
+                              setPackages((prev) => prev.filter((_, i) => i !== idx))
+                            }
+                            className="p-1.5 text-gray-400 hover:text-red-500 transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                            title="Remover pacote"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Package modal */}
+                  {showPackageModal && (
+                    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+                      <div
+                        className="absolute inset-0 bg-black/40"
+                        onClick={() => setShowPackageModal(false)}
+                      />
+                      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-base font-bold text-gray-900">
+                            {editingPackageIndex !== null
+                              ? "Editar pacote"
+                              : "Adicionar pacote"}
+                          </h3>
+                          <button
+                            type="button"
+                            onClick={() => setShowPackageModal(false)}
+                            className="text-gray-400 hover:text-gray-600 transition cursor-pointer"
+                          >
+                            <X size={20} />
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <label className="block text-xs font-medium text-gray-700">
+                              Peso (kg)
+                            </label>
+                            <input
+                              type="number"
+                              value={packageDraft.weight_kg}
+                              onChange={(e) => {
+                                setPackageDraft((prev) => ({
+                                  ...prev,
+                                  weight_kg: e.target.value,
+                                }));
+                                if (packageDraftErrors.weight_kg)
+                                  setPackageDraftErrors((prev) => {
+                                    const n = { ...prev };
+                                    delete n.weight_kg;
+                                    return n;
+                                  });
+                              }}
+                              min="0.01"
+                              step="0.01"
+                              placeholder="0.00"
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                            />
+                            {packageDraftErrors.weight_kg && (
+                              <p className="text-xs text-red-500">
+                                {packageDraftErrors.weight_kg}
+                              </p>
+                            )}
+                          </div>
+                          <div className="space-y-1">
+                            <label className="block text-xs font-medium text-gray-700">
+                              Altura (cm)
+                            </label>
+                            <input
+                              type="number"
+                              value={packageDraft.height_cm}
+                              onChange={(e) => {
+                                setPackageDraft((prev) => ({
+                                  ...prev,
+                                  height_cm: e.target.value,
+                                }));
+                                if (packageDraftErrors.height_cm)
+                                  setPackageDraftErrors((prev) => {
+                                    const n = { ...prev };
+                                    delete n.height_cm;
+                                    return n;
+                                  });
+                              }}
+                              min="0.1"
+                              step="0.1"
+                              placeholder="0.0"
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                            />
+                            {packageDraftErrors.height_cm && (
+                              <p className="text-xs text-red-500">
+                                {packageDraftErrors.height_cm}
+                              </p>
+                            )}
+                          </div>
+                          <div className="space-y-1">
+                            <label className="block text-xs font-medium text-gray-700">
+                              Largura (cm)
+                            </label>
+                            <input
+                              type="number"
+                              value={packageDraft.width_cm}
+                              onChange={(e) => {
+                                setPackageDraft((prev) => ({
+                                  ...prev,
+                                  width_cm: e.target.value,
+                                }));
+                                if (packageDraftErrors.width_cm)
+                                  setPackageDraftErrors((prev) => {
+                                    const n = { ...prev };
+                                    delete n.width_cm;
+                                    return n;
+                                  });
+                              }}
+                              min="0.1"
+                              step="0.1"
+                              placeholder="0.0"
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                            />
+                            {packageDraftErrors.width_cm && (
+                              <p className="text-xs text-red-500">
+                                {packageDraftErrors.width_cm}
+                              </p>
+                            )}
+                          </div>
+                          <div className="space-y-1">
+                            <label className="block text-xs font-medium text-gray-700">
+                              Comprimento (cm)
+                            </label>
+                            <input
+                              type="number"
+                              value={packageDraft.length_cm}
+                              onChange={(e) => {
+                                setPackageDraft((prev) => ({
+                                  ...prev,
+                                  length_cm: e.target.value,
+                                }));
+                                if (packageDraftErrors.length_cm)
+                                  setPackageDraftErrors((prev) => {
+                                    const n = { ...prev };
+                                    delete n.length_cm;
+                                    return n;
+                                  });
+                              }}
+                              min="0.1"
+                              step="0.1"
+                              placeholder="0.0"
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                            />
+                            {packageDraftErrors.length_cm && (
+                              <p className="text-xs text-red-500">
+                                {packageDraftErrors.length_cm}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="block text-xs font-medium text-gray-700">
+                            Descrição{" "}
+                            <span className="text-gray-400 font-normal">(opcional)</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={packageDraft.description || ""}
+                            onChange={(e) =>
+                              setPackageDraft((prev) => ({
+                                ...prev,
+                                description: e.target.value,
+                              }))
+                            }
+                            maxLength={100}
+                            placeholder="Ex: Caixa com espuma protetora"
+                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                          />
+                        </div>
+
+                        <div className="flex gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => setShowPackageModal(false)}
+                            className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition cursor-pointer"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const errs = validatePackageDraftHelper(packageDraft);
+                              if (Object.keys(errs).length > 0) {
+                                setPackageDraftErrors(errs);
+                                return;
+                              }
+                              if (editingPackageIndex !== null) {
+                                setPackages((prev) =>
+                                  prev.map((p, i) => (i === editingPackageIndex ? { ...packageDraft, _key: p._key } : p))
+                                );
+                              } else {
+                                setPackages((prev) => [...prev, { ...packageDraft, _key: crypto.randomUUID() }]);
+                              }
+                              if (errors.packages) {
+                                setErrors((prev) => {
+                                  const n = { ...prev };
+                                  delete n.packages;
+                                  return n;
+                                });
+                              }
+                              setShowPackageModal(false);
+                            }}
+                            className="flex-1 px-4 py-2.5 bg-blue-900 text-white rounded-xl text-sm font-semibold hover:bg-blue-800 transition cursor-pointer"
+                          >
+                            {editingPackageIndex !== null ? "Salvar" : "Adicionar"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

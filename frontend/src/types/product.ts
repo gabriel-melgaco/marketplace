@@ -240,6 +240,7 @@ export interface MarketplaceListingDetail {
   length_cm: string | null;
   /** Array de pacotes — presente em create e detail */
   packages?: ListingPackage[];
+  shipping_method?: ShippingMethod;
   created_at: string;
   updated_at: string;
   sold_at: string | null;
@@ -253,11 +254,7 @@ export interface FormData {
   description: string;
   price: string;
   quantity: string;
-  weight_kg: string;
-  height_cm: string;
-  width_cm: string;
-  length_cm: string;
-  package_description: string;
+  shipping_method: ShippingMethod;
 }
 
 export interface PendingImage {
@@ -265,4 +262,19 @@ export interface PendingImage {
   file: File;
   previewUrl: string;
   isPrimary: boolean;
+}
+
+export interface ListingFreightOption {
+  service_id: number;
+  name: string;
+  company: string;
+  company_picture: string;
+  price: string;
+  delivery_days: number;
+}
+
+export interface ListingFreightQuoteResponse {
+  available: boolean;
+  options?: ListingFreightOption[];
+  message?: string;
 }

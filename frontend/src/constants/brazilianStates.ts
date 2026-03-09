@@ -1,3 +1,5 @@
+import type { ShippingMethod } from "@/types/product";
+
 export const BRAZILIAN_STATES = [
   { uf: "AC", name: "Acre" },
   { uf: "AL", name: "Alagoas" },
@@ -40,9 +42,5 @@ export const INITIAL_FORMDATA = {
   description: "",
   price: "",
   quantity: "1",
-  weight_kg: "",
-  height_cm: "",
-  width_cm: "",
-  length_cm: "",
-  package_description: "",
+  shipping_method: "both" as ShippingMethod,
 };

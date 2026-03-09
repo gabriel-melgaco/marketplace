@@ -1,4 +1,5 @@
 import api from "@/api/axios";
+import type { ListingFreightQuoteResponse } from "@/types/product";
 
 export interface SellerMEStatusResponse {
   connected: boolean;
@@ -101,5 +102,17 @@ export const logisticsService = {
 
   async deleteAddress(id: number): Promise<void> {
     await api.delete(`/logistics/addresses/${id}/`);
+  },
+
+  async getFreightQuote(
+    listingId: number,
+    destinationCep: string
+  ): Promise<ListingFreightQuoteResponse> {
+    const cleanCep = destinationCep.replace(/\D/g, "");
+    const response = await api.post<ListingFreightQuoteResponse>(
+      `/logistics/listings/${listingId}/freight-quote/`,
+      { destination_cep: cleanCep }
+    );
+    return response.data;
   },
 };

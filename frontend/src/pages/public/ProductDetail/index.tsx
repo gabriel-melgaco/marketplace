@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import {
   ChevronLeft,
@@ -15,6 +15,9 @@ import {
   Ruler,
   ShoppingCart,
   ShoppingBag,
+  Loader2,
+  AlertCircle,
+  Truck,
 } from "lucide-react";
 import { productService } from "@/services/productService";
 import { toPublicUrl } from "@/services/storageService";
@@ -26,7 +29,142 @@ import { ProductCard, formatListingDate } from "@/components/ui/ProductCard";
 import type {
   MarketplaceListingDetail,
   MarketplaceListing,
+  ListingFreightQuoteResponse,
 } from "@/types/product";
+import { logisticsService } from "@/services/logisticsService";
+
+function FreightCalculator({ listingId }: { listingId: number }) {
+  const [cep, setCep] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<ListingFreightQuoteResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const handleCepChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.replace(/\D/g, "").slice(0, 8);
+    const formatted =
+      raw.length > 5 ? `${raw.slice(0, 5)}-${raw.slice(5)}` : raw;
+    setCep(formatted);
+    if (result) setResult(null);
+    if (error) setError(null);
+  };
+
+  const handleCalculate = async () => {
+    const rawCep = cep.replace(/\D/g, "");
+    if (rawCep.length !== 8) return;
+
+    // Cancel any in-flight request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+
+    setLoading(true);
+    setResult(null);
+    setError(null);
+    try {
+      const data = await logisticsService.getFreightQuote(listingId, rawCep);
+      setResult(data);
+    } catch (err: unknown) {
+      const e = err as { name?: string };
+      if (e.name !== "AbortError" && e.name !== "CanceledError") {
+        setError("Não foi possível calcular o frete. Tente novamente.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const rawCep = cep.replace(/\D/g, "");
+
+  return (
+    <div className="bg-white rounded-xl p-5 shadow-md">
+      <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+        <Truck size={16} className="text-blue-800" />
+        Calcular Frete
+      </h3>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          inputMode="numeric"
+          placeholder="00000-000"
+          value={cep}
+          onChange={handleCepChange}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleCalculate();
+          }}
+          maxLength={9}
+          className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-800/20 focus:border-blue-800 transition"
+        />
+        <button
+          onClick={handleCalculate}
+          disabled={rawCep.length !== 8 || loading}
+          className="px-4 py-2 bg-blue-800 text-white rounded-lg text-sm font-medium hover:bg-blue-900 transition disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
+        >
+          {loading ? (
+            <Loader2 size={16} className="animate-spin" />
+          ) : (
+            "Calcular"
+          )}
+        </button>
+      </div>
+
+      {error && (
+        <div className="mt-3 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
+          <AlertCircle size={15} className="text-red-500 shrink-0 mt-0.5" />
+          <p className="text-sm text-red-700">{error}</p>
+        </div>
+      )}
+
+      {result && !result.available && (
+        <div className="mt-3 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+          <AlertCircle size={15} className="text-amber-600 shrink-0 mt-0.5" />
+          <p className="text-sm text-amber-700">
+            {result.message || "Frete não disponível para este CEP."}
+          </p>
+        </div>
+      )}
+
+      {result?.available && result.options && result.options.length > 0 && (
+        <div className="mt-3 divide-y divide-gray-100">
+          {result.options.map((option) => (
+            <div
+              key={option.service_id}
+              className="flex items-center justify-between py-2.5"
+            >
+              <div className="flex items-center gap-2">
+                {option.company_picture && (
+                  <img
+                    src={option.company_picture}
+                    alt={option.company}
+                    className="h-5 max-w-16 object-contain"
+                  />
+                )}
+                <div>
+                  <p className="text-sm font-medium text-gray-800">
+                    {option.name}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Prazo: {option.delivery_days}{" "}
+                    {option.delivery_days === 1
+                      ? "dia útil"
+                      : "dias úteis"}
+                  </p>
+                </div>
+              </div>
+              <p className="text-sm font-semibold text-blue-800">
+                R${" "}
+                {Number(option.price).toLocaleString("pt-BR", {
+                  minimumFractionDigits: 2,
+                })}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function formatPrice(price: string): string {
   const num = Number(price);
@@ -254,7 +392,7 @@ export function ProductDetail() {
 
   const handleChatClick = () => {
     if (isAuthenticated) {
-      navigate(`/chat/${id}`);
+      navigate(`/chat/${listing?.id ?? id}`);
     } else {
       navigate("/login");
     }
@@ -282,11 +420,13 @@ export function ProductDetail() {
     );
   }
 
+  const firstPackage = listing.packages?.[0];
   const hasDimensions =
     listing.weight_kg ||
     listing.height_cm ||
     listing.width_cm ||
-    listing.length_cm;
+    listing.length_cm ||
+    (listing.packages?.length ?? 0) > 0;
 
   return (
     <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900">
@@ -356,6 +496,10 @@ export function ProductDetail() {
                   Chat com vendedor
                 </button>
               </div>
+
+              {listing.shipping_method !== "in_person" && (
+                <FreightCalculator listingId={listing.id} />
+              )}
             </div>
 
             {/* Title */}
@@ -479,46 +623,46 @@ export function ProductDetail() {
                     Dimensões e peso
                   </h3>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    {listing.weight_kg && (
+                    {(listing.weight_kg || firstPackage?.weight_kg) && (
                       <div className="flex items-center gap-2">
                         <Weight size={16} className="text-gray-500" />
                         <div>
                           <p className="text-xs text-gray-500">Peso</p>
                           <p className="text-sm text-gray-800">
-                            {listing.weight_kg} kg
+                            {listing.weight_kg || firstPackage?.weight_kg} kg
                           </p>
                         </div>
                       </div>
                     )}
-                    {listing.height_cm && (
+                    {(listing.height_cm || firstPackage?.height_cm) && (
                       <div className="flex items-center gap-2">
                         <Ruler size={16} className="text-gray-500" />
                         <div>
                           <p className="text-xs text-gray-500">Altura</p>
                           <p className="text-sm text-gray-800">
-                            {listing.height_cm} cm
+                            {listing.height_cm || firstPackage?.height_cm} cm
                           </p>
                         </div>
                       </div>
                     )}
-                    {listing.width_cm && (
+                    {(listing.width_cm || firstPackage?.width_cm) && (
                       <div className="flex items-center gap-2">
                         <Ruler size={16} className="text-gray-500" />
                         <div>
                           <p className="text-xs text-gray-500">Largura</p>
                           <p className="text-sm text-gray-800">
-                            {listing.width_cm} cm
+                            {listing.width_cm || firstPackage?.width_cm} cm
                           </p>
                         </div>
                       </div>
                     )}
-                    {listing.length_cm && (
+                    {(listing.length_cm || firstPackage?.length_cm) && (
                       <div className="flex items-center gap-2">
                         <Ruler size={16} className="text-gray-500" />
                         <div>
                           <p className="text-xs text-gray-500">Comprimento</p>
                           <p className="text-sm text-gray-800">
-                            {listing.length_cm} cm
+                            {listing.length_cm || firstPackage?.length_cm} cm
                           </p>
                         </div>
                       </div>
@@ -583,6 +727,10 @@ export function ProductDetail() {
                   Chat com vendedor
                 </button>
               </div>
+
+              {listing.shipping_method !== "in_person" && (
+                <FreightCalculator listingId={listing.id} />
+              )}
             </div>
           </div>
         </div>
