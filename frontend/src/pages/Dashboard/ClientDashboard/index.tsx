@@ -203,7 +203,7 @@ function SkeletonRow() {
   return (
     <div className="animate-pulse flex items-center gap-3 py-3.5 px-2">
       {/* Thumbnail */}
-      <div className="w-14 h-14 bg-gray-100 rounded-xl flex-shrink-0" />
+      <div className="w-14 h-14 bg-gray-100 rounded-xl shrink-0" />
       {/* Text lines */}
       <div className="flex-1 space-y-2.5 min-w-0">
         <div className="h-3.5 bg-gray-100 rounded-md w-3/4" />
@@ -211,7 +211,7 @@ function SkeletonRow() {
         <div className="h-2.5 bg-gray-100 rounded-md w-1/2" />
       </div>
       {/* Badge placeholder */}
-      <div className="h-5 bg-gray-100 rounded-full w-14 flex-shrink-0" />
+      <div className="h-5 bg-gray-100 rounded-full w-14 shrink-0" />
     </div>
   );
 }
@@ -499,7 +499,7 @@ function SalesSection() {
                 {new Date(sale.created_at).toLocaleDateString("pt-BR")}
               </p>
             </div>
-            <div className="flex items-center gap-3 flex-shrink-0">
+            <div className="flex items-center gap-3 shrink-0">
               <p className="text-sm font-bold text-gray-800">
                 R${" "}
                 {Number(sale.total).toLocaleString("pt-BR", {
@@ -689,7 +689,9 @@ function ReviewsSection({ stats }: { stats: ReviewStats | null }) {
         </div>
       )}
 
-      {!loading && error && <SectionError message={error} onRetry={fetch} />}
+      {!loading && error && (
+        <SectionError message={error} onRetry={loadReviews} />
+      )}
 
       {!loading && !error && reviews.length === 0 && (
         <EmptyState
@@ -907,12 +909,16 @@ export function Dashboard() {
         const activeListings = listingsData.filter(
           (l) => l.is_active && !l.sold_at,
         ).length;
-        const totalSalesRevenue = salesData
-          .filter((s) => s.status !== "cancelled")
-          .reduce((sum, s) => sum + Number(s.total), 0);
+        const completedSales = salesData.filter(
+          (s) => s.status !== "cancelled",
+        );
+        const totalSalesRevenue = completedSales.reduce(
+          (sum, s) => sum + Number(s.total),
+          0,
+        );
 
         setStats({
-          totalSales: salesData.length,
+          totalSales: completedSales.length,
           totalSalesRevenue,
           totalPurchases: purchasesData.length,
           activeListings,
@@ -943,8 +949,9 @@ export function Dashboard() {
       }
     }
 
-    fetchStats();
-    fetchReviewStats();
+    // fetchReviewStats runs after fetchStats to avoid a race where setStats(prev => ...)
+    // receives prev=null (because fetchStats hasn't resolved yet) and silently drops the data.
+    fetchStats().then(() => fetchReviewStats());
     return () => {
       cancelled = true;
     };
@@ -953,7 +960,7 @@ export function Dashboard() {
   const firstName = user?.full_name?.split(" ")[0] ?? "usuário";
 
   return (
-    {/* bg-black is intentional: the dashboard uses a dark premium aesthetic distinct from the buyer-facing gray-50 pages */}
+    // bg-black is intentional: the dashboard uses a dark premium aesthetic distinct from the buyer-facing gray-50 pages
     <div className="min-h-screen bg-black pb-24">
       {/* ── Header banner ── */}
       <div className="relative bg-gray-800 overflow-hidden">
@@ -986,7 +993,11 @@ export function Dashboard() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 mt-5 space-y-4">
         {/* ── Tab navigation ── */}
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-          <div className="flex overflow-x-auto no-scrollbar">
+          <div
+            role="tablist"
+            aria-label="Seções do painel"
+            className="flex overflow-x-auto no-scrollbar"
+          >
             {TABS.map(({ id, label, icon: Icon }) => {
               const isActive = activeTab === id;
               return (
@@ -1028,7 +1039,11 @@ export function Dashboard() {
         </div>
 
         {/* ── Tab content ── */}
-        <div className="bg-white rounded-xl shadow-sm p-5 sm:p-6">
+        <div
+          role="tabpanel"
+          aria-label={TABS.find((t) => t.id === activeTab)?.label}
+          className="bg-white rounded-xl shadow-sm p-5 sm:p-6"
+        >
           {activeTab === "overview" && (
             <OverviewSection stats={stats} goToTab={setActiveTab} />
           )}

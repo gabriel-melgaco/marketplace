@@ -48,6 +48,7 @@ export interface User {
   full_name: string;
   birthday: string;
   cpf: string;
+  /** Empty string ("") means no picture — use truthiness check before rendering. */
   picture: string;
   is_active: boolean;
 }

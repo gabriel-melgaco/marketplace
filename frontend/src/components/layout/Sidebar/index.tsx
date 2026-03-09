@@ -74,11 +74,12 @@ export function Sidebar() {
         aria-hidden="true"
       />
 
-      {/* Drawer */}
+      {/* Drawer — aria-hidden when closed so screen readers cannot navigate into it */}
       <aside
         role="dialog"
         aria-modal="true"
         aria-label="Menu da conta"
+        aria-hidden={!isOpen}
         className={`
           fixed top-0 bottom-0 right-0 z-50
           w-1/2 md:w-1/4

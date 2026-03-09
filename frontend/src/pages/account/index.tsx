@@ -52,7 +52,7 @@ const SECTIONS: {
 
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
-function isoToDisplay(iso: string): string {
+function isoToDisplay(iso: string | undefined): string {
   if (!iso || !iso.includes("-")) return iso ?? "";
   const [year, month, day] = iso.split("-");
   return `${day}/${month}/${year}`;
@@ -90,14 +90,18 @@ function mapToUser(updated: CustomUser, fallbackIsActive?: boolean): User {
   };
 }
 
-/** Extracts a human-readable message from an unknown catch value. */
+/** Extracts a human-readable message from an unknown catch value.
+ *  Axios errors are checked first because AxiosError extends Error —
+ *  checking instanceof Error first would return the generic Axios message
+ *  (e.g. "Request failed with status code 422") instead of the API body.
+ */
 function getAxiosErrorMessage(err: unknown, fallback: string): string {
-  if (err instanceof Error) return err.message;
-  const response = (err as { response?: { data?: unknown } })?.response?.data;
-  if (response && typeof response === "object") {
-    return (Object.values(response).flat() as string[]).join(" ") || fallback;
+  const responseData = (err as { response?: { data?: unknown } })?.response?.data;
+  if (responseData && typeof responseData === "object") {
+    return (Object.values(responseData).flat() as string[]).join(" ") || fallback;
   }
-  if (typeof response === "string" && response) return response;
+  if (typeof responseData === "string" && responseData) return responseData;
+  if (err instanceof Error) return err.message;
   return fallback;
 }
 
@@ -108,7 +112,7 @@ interface AddressModalProps {
   onSaved: (address: AddressData) => void;
 }
 
-export function AddressModal({ onClose, onSaved }: AddressModalProps) {
+function AddressModal({ onClose, onSaved }: AddressModalProps) {
   const [form, setForm] = useState<Omit<CreateAddressRequest, "country">>({
     address_type: "Residencial",
     nickname: "",
@@ -508,7 +512,7 @@ export function AccountPage() {
 
   // Personal data
   const [fullName, setFullName] = useState(user?.full_name ?? "");
-  const [birthday, setBirthday] = useState(isoToDisplay(user?.birthday ?? ""));
+  const [birthday, setBirthday] = useState(isoToDisplay(user?.birthday));
   const [personalLoading, setPersonalLoading] = useState(false);
   const [personalSuccess, setPersonalSuccess] = useState(false);
   const [personalError, setPersonalError] = useState("");
@@ -536,13 +540,13 @@ export function AccountPage() {
   const [socialAccounts, setSocialAccounts] = useState<SocialAccount[]>([]);
   const [socialLoading, setSocialLoading] = useState(false);
 
-  // Notifications (UI only — no backend yet)
-  const [notifications, setNotifications] = useState({
+  // Notifications (UI only — no backend yet; toggles are purely decorative)
+  const NOTIFICATION_DEFAULTS = {
     newListings: false,
     messages: false,
     orders: true,
     promotions: false,
-  });
+  } as const;
 
   const loadAddresses = useCallback(async () => {
     setAddressesLoading(true);
@@ -748,7 +752,8 @@ export function AccountPage() {
       logout();
       navigate("/", { replace: true });
     } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status;
+      const responseData = (err as { response?: { data?: unknown; status?: number } })?.response;
+      const status = responseData?.status;
       if (status === 404 || status === 405) {
         Swal.fire(
           "Funcionalidade em implementação",
@@ -758,7 +763,7 @@ export function AccountPage() {
       } else {
         Swal.fire(
           "Erro",
-          "Não foi possível excluir a conta. Tente novamente.",
+          getAxiosErrorMessage(err, "Não foi possível excluir a conta. Tente novamente."),
           "error",
         );
       }
@@ -885,7 +890,7 @@ export function AccountPage() {
           <input
             ref={pictureInputRef}
             type="file"
-            accept="image/*"
+            accept="image/jpeg,image/png,image/webp"
             className="sr-only"
             onChange={handlePictureUpload}
           />
@@ -1167,12 +1172,12 @@ export function AccountPage() {
             <div
               aria-hidden="true"
               className={`relative w-11 h-6 rounded-full shrink-0 ${
-                notifications[key] ? "bg-blue-900" : "bg-gray-300"
+                NOTIFICATION_DEFAULTS[key] ? "bg-blue-900" : "bg-gray-300"
               }`}
             >
               <span
                 className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 ${
-                  notifications[key] ? "translate-x-5" : "translate-x-0"
+                  NOTIFICATION_DEFAULTS[key] ? "translate-x-5" : "translate-x-0"
                 }`}
               />
             </div>

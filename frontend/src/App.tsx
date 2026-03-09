@@ -40,9 +40,6 @@ const router = createBrowserRouter([
     ],
   },
 
-  // CATCH-ALL — no layout (standalone NotFound page)
-  { path: "*", element: <NotFound /> },
-
   // AUTH — no shared header
   { path: ROUTES.GOOGLE_CALLBACK, element: <GoogleCallback /> },
   { path: "/login", element: <LoginPage /> },
@@ -74,6 +71,9 @@ const router = createBrowserRouter([
       },
     ],
   },
+
+  // CATCH-ALL — no layout (standalone NotFound page)
+  { path: "*", element: <NotFound /> },
 ]);
 
 export { router };
