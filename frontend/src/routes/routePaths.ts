@@ -9,10 +9,11 @@ export const ROUTES = {
 
   // Auth
   GOOGLE_CALLBACK: "/google",
+  MELHOR_ENVIO_CALLBACK: "/auth/melhor-envio/callback",
   LOGIN: "/login",
   REGISTER: "/register",
   FORGOT_PASSWORD: "/forgotpassword",
-  RESET_PASSWORD: "/resetpassword",
+  RESET_PASSWORD: "/reset-password",
 
   // Dashboard
   DASHBOARD: "/dashboard",
