@@ -19,6 +19,8 @@ export function Sidebar() {
   const [isOpen, setIsOpen] = useState(false);
   const { isAuthenticated, logout, user } = useAuth();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const asideRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -34,6 +36,11 @@ export function Sidebar() {
     return () => {
       document.body.style.overflow = "";
       document.removeEventListener("keydown", handleEscape);
+      // When closing, return focus to the trigger if focus is still inside the drawer.
+      // This prevents the "aria-hidden on focused descendant" browser warning.
+      if (asideRef.current?.contains(document.activeElement)) {
+        triggerRef.current?.focus();
+      }
     };
   }, [isOpen]);
 
@@ -41,6 +48,7 @@ export function Sidebar() {
     <>
       {/* Botão Avatar */}
       <button
+        ref={triggerRef}
         onClick={() => setIsOpen(true)}
         aria-label={isAuthenticated ? "Abrir menu da conta" : "Abrir menu"}
         aria-expanded={isOpen}
@@ -76,6 +84,7 @@ export function Sidebar() {
 
       {/* Drawer — aria-hidden when closed so screen readers cannot navigate into it */}
       <aside
+        ref={asideRef}
         role="dialog"
         aria-modal="true"
         aria-label="Menu da conta"
