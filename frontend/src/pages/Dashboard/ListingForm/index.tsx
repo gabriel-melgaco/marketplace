@@ -20,11 +20,13 @@ import {
   ExternalLink,
   Plus,
   Truck,
+  CreditCard,
 } from "lucide-react";
 import { productService } from "@/services/productService";
 import { storageService, IMAGE_UPLOAD_LIMITS } from "@/services/storageService";
 import { listingImageService } from "@/services/listingImageService";
 import { logisticsService } from "@/services/logisticsService";
+import { stripeConnectService } from "@/services/stripeConnectService";
 import { getMarketplaceFee } from "@/services/configService";
 import type {
   FilterOptionsResponse,
@@ -124,6 +126,12 @@ export function ListingForm() {
     null,
   );
 
+  // Stripe Connect gate
+  const [stripeCheckLoading, setStripeCheckLoading] = useState(true);
+  const [stripeConnected, setStripeConnected] = useState(false);
+  const [stripeCheckError, setStripeCheckError] = useState(false);
+  const [stripeOnboardingLoading, setStripeOnboardingLoading] = useState(false);
+
   // Seller's default Melhor Envio address ID — fetched on mount, used when
   // creating a listing. Stays null if the seller has no ME addresses.
   const [meAddressId, setMeAddressId] = useState<number | null>(null);
@@ -185,7 +193,7 @@ export function ListingForm() {
   const draftKey = isEditMode ? `listing_draft_${id}` : "listing_draft";
 
   // ============================================
-  // MELHOR ENVIO GATE CHECK
+  // MELHOR ENVIO + STRIPE GATE CHECK (parallel)
   // ============================================
   useEffect(() => {
     async function checkMelhorEnvioConnection() {
@@ -212,7 +220,22 @@ export function ListingForm() {
         setMeCheckLoading(false);
       }
     }
+
+    async function checkStripeConnection() {
+      setStripeCheckLoading(true);
+      setStripeCheckError(false);
+      try {
+        const status = await stripeConnectService.getAccountStatus();
+        setStripeConnected(status.has_account && status.ready_to_receive_payments);
+      } catch {
+        setStripeCheckError(true);
+      } finally {
+        setStripeCheckLoading(false);
+      }
+    }
+
     checkMelhorEnvioConnection();
+    checkStripeConnection();
   }, []);
 
   // Cleanup polling and popup on unmount
@@ -285,6 +308,30 @@ export function ListingForm() {
       }
     }, 3000);
   }, [meConnectUrl]);
+
+  const startStripeOnboarding = useCallback(async () => {
+    if (stripeOnboardingLoading) return;
+    setStripeOnboardingLoading(true);
+    try {
+      // Ensure account exists first — may already exist, that's fine
+      try {
+        await stripeConnectService.createConnectedAccount();
+      } catch {
+        // Account may already exist — this is expected
+      }
+      const link = await stripeConnectService.getOnboardingLink();
+      window.location.href = link.url;
+    } catch (err: unknown) {
+      Swal.fire({
+        icon: "error",
+        title: "Erro",
+        text: "Não foi possível iniciar o cadastro Stripe. Tente novamente.",
+        confirmButtonColor: "#1e3a5f",
+      });
+    } finally {
+      setStripeOnboardingLoading(false);
+    }
+  }, [stripeOnboardingLoading]);
 
   // ============================================
   // DRAFT MANAGEMENT
@@ -1180,6 +1227,110 @@ export function ListingForm() {
                 </button>
               </>
             )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================
+  // STRIPE CONNECT GATE SCREENS
+  // ============================================
+
+  if (stripeCheckLoading) {
+    return (
+      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl p-10 max-w-sm w-full text-center">
+          <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
+            <Loader2 className="h-8 w-8 animate-spin text-blue-900" />
+          </div>
+          <h2 className="text-lg font-bold text-gray-900 mb-1">
+            Verificando conexão
+          </h2>
+          <p className="text-sm text-gray-500">
+            Verificando conta Stripe…
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (stripeCheckError) {
+    return (
+      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden max-w-sm w-full">
+          <div className="bg-linear-to-r from-blue-900 to-gray-900 p-8 text-white text-center">
+            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
+              <AlertCircle size={32} className="text-white" />
+            </div>
+            <h2 className="text-xl font-bold mb-1">Erro de conexão</h2>
+            <p className="text-blue-100 text-sm">Stripe Connect</p>
+          </div>
+          <div className="p-8 text-center">
+            <p className="text-gray-600 text-sm mb-6">
+              Não foi possível verificar sua conta Stripe. Verifique sua
+              conexão e tente novamente.
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full px-6 py-3 bg-blue-900 text-white rounded-xl font-semibold hover:bg-blue-800 active:bg-blue-950 transition cursor-pointer"
+            >
+              Tentar novamente
+            </button>
+            <button
+              onClick={() => navigate(-1)}
+              className="block w-full mt-3 py-2.5 text-sm text-gray-500 hover:text-gray-700 transition cursor-pointer"
+            >
+              Voltar
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!stripeConnected) {
+    return (
+      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden w-full max-w-xs mx-auto">
+          <div className="bg-linear-to-r from-blue-900 to-gray-900 p-8 text-white text-center">
+            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
+              <CreditCard size={32} className="text-white" />
+            </div>
+            <h2 className="text-xl font-bold mb-1">Conecte sua conta Stripe</h2>
+            <p className="text-blue-100 text-sm">
+              Necessário para receber pagamentos
+            </p>
+          </div>
+          <div className="p-8 text-center">
+            <p className="text-gray-600 text-sm mb-6">
+              Para anunciar produtos você precisa conectar uma conta Stripe.
+              Isso nos permite processar pagamentos e repassar os valores das
+              suas vendas.
+            </p>
+            <button
+              onClick={startStripeOnboarding}
+              disabled={stripeOnboardingLoading}
+              className="inline-flex items-center justify-center gap-2 w-full px-6 py-3 bg-blue-900 text-white rounded-xl font-semibold hover:bg-blue-800 active:bg-blue-950 transition disabled:opacity-50 cursor-pointer"
+            >
+              {stripeOnboardingLoading ? (
+                <>
+                  <Loader2 size={18} className="animate-spin" />
+                  Aguarde...
+                </>
+              ) : (
+                <>
+                  <CreditCard size={18} />
+                  Conectar Stripe
+                </>
+              )}
+            </button>
+            <button
+              onClick={() => navigate(-1)}
+              className="block w-full mt-3 py-2.5 text-sm text-gray-500 hover:text-gray-700 transition cursor-pointer"
+            >
+              Voltar
+            </button>
           </div>
         </div>
       </div>

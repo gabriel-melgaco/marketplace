@@ -16,6 +16,7 @@ import {
   ExternalLink,
   CheckCircle2,
   Link2,
+  Truck,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { userService, type CustomUser } from "@/services/userService";
@@ -29,6 +30,10 @@ import {
   type AddressData,
   type CreateAddressRequest,
 } from "@/services/logisticsService";
+import {
+  stripeConnectService,
+  type AccountStatusResponse,
+} from "@/services/stripeConnectService";
 import { tokenStorage } from "@/utils/tokenStorage";
 import { toISODate } from "@/utils/formatters";
 import { startGoogleOAuth } from "@/hooks/useGoogleAuth";
@@ -38,7 +43,7 @@ import { storageService, toPublicUrl } from "@/services/storageService";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Section = "personal" | "addresses" | "security" | "notifications";
+type Section = "personal" | "addresses" | "security" | "notifications" | "connections";
 
 const SECTIONS: {
   id: Section;
@@ -49,6 +54,7 @@ const SECTIONS: {
   { id: "addresses", label: "Endereços", icon: MapPin },
   { id: "security", label: "Segurança", icon: Shield },
   { id: "notifications", label: "Notificações", icon: Bell },
+  { id: "connections", label: "Conexões", icon: Link2 },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -547,6 +553,11 @@ export function AccountPage() {
   const mePopupRef = useRef<Window | null>(null);
   const mePollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Stripe Connect
+  const [stripeStatus, setStripeStatus] = useState<AccountStatusResponse | null>(null);
+  const [stripeCheckLoading, setStripeCheckLoading] = useState(false);
+  const [stripeOnboardingLoading, setStripeOnboardingLoading] = useState(false);
+
   // Security — password
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
@@ -583,10 +594,16 @@ export function AccountPage() {
 
   useEffect(() => {
     if (activeSection !== "addresses") return;
+    loadAddresses();
+  }, [activeSection, loadAddresses]);
+
+  // Connections section: load ME + Stripe status in parallel
+  useEffect(() => {
+    if (activeSection !== "connections") return;
 
     let cancelled = false;
-    loadAddresses();
 
+    // Melhor Envio check
     setMeCheckLoading(true);
     logisticsService
       .getMelhorEnvioStatus()
@@ -608,10 +625,24 @@ export function AccountPage() {
         if (!cancelled) setMeCheckLoading(false);
       });
 
+    // Stripe check
+    setStripeCheckLoading(true);
+    stripeConnectService
+      .getAccountStatus()
+      .then((status) => {
+        if (!cancelled) setStripeStatus(status);
+      })
+      .catch(() => {
+        // Non-fatal: status stays null
+      })
+      .finally(() => {
+        if (!cancelled) setStripeCheckLoading(false);
+      });
+
     return () => {
       cancelled = true;
     };
-  }, [activeSection, loadAddresses]);
+  }, [activeSection]);
 
   // Cleanup ME popup and polling on unmount
   useEffect(() => {
@@ -689,6 +720,29 @@ export function AccountPage() {
       }
     }, 3000);
   }, [meConnectUrl]);
+
+  const startStripeOnboarding = useCallback(async () => {
+    if (stripeOnboardingLoading) return;
+    setStripeOnboardingLoading(true);
+    try {
+      try {
+        await stripeConnectService.createConnectedAccount();
+      } catch {
+        // Account may already exist — this is expected
+      }
+      const link = await stripeConnectService.getOnboardingLink();
+      window.location.href = link.url;
+    } catch (err: unknown) {
+      Swal.fire({
+        icon: "error",
+        title: "Erro",
+        text: "Não foi possível iniciar o cadastro Stripe. Tente novamente.",
+        confirmButtonColor: "#1e3a5f",
+      });
+    } finally {
+      setStripeOnboardingLoading(false);
+    }
+  }, [stripeOnboardingLoading]);
 
   const handleBirthdayChange = (value: string) => {
     const numbers = value.replace(/\D/g, "");
@@ -1047,62 +1101,6 @@ export function AccountPage() {
         </button>
       </div>
 
-      {/* Melhor Envio integration status — secondary row, visually distinct */}
-      <div className="mb-5">
-        {meCheckLoading ? (
-          <div
-            aria-live="polite"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-400"
-          >
-            <Loader2 size={12} className="animate-spin" aria-hidden="true" />
-            Verificando Melhor Envio…
-          </div>
-        ) : meConnected ? (
-          <div
-            role="status"
-            aria-label="Melhor Envio conectado com sucesso"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-50 border border-green-200 rounded-lg text-xs font-semibold text-green-700"
-          >
-            <CheckCircle2 size={12} aria-hidden="true" />
-            Melhor Envio conectado
-          </div>
-        ) : mePolling ? (
-          <div
-            aria-live="polite"
-            className="inline-flex items-center gap-2 px-3 py-1.5 border border-blue-200 bg-blue-50 rounded-lg text-xs text-blue-700"
-          >
-            <Loader2 size={12} className="animate-spin" aria-hidden="true" />
-            <span>Aguardando autorização… <span className="text-blue-400">(até 60&nbsp;s)</span></span>
-            <button
-              onClick={() => {
-                if (mePollingIntervalRef.current) {
-                  clearInterval(mePollingIntervalRef.current);
-                  mePollingIntervalRef.current = null;
-                }
-                if (mePopupRef.current && !mePopupRef.current.closed) {
-                  mePopupRef.current.close();
-                }
-                setMePolling(false);
-              }}
-              aria-label="Cancelar conexão com Melhor Envio"
-              className="ml-1 p-0.5 rounded hover:bg-blue-100 focus-visible:ring-2 focus-visible:ring-blue-500 transition cursor-pointer"
-            >
-              <X size={12} aria-hidden="true" />
-            </button>
-          </div>
-        ) : meConnectUrl ? (
-          <button
-            onClick={startMeConnection}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-blue-900 text-blue-900 rounded-lg text-xs font-semibold hover:bg-blue-50 focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 transition cursor-pointer"
-          >
-            <Link2 size={13} aria-hidden="true" />
-            Conectar Melhor Envio
-            <ExternalLink size={11} className="text-blue-400" aria-hidden="true" />
-          </button>
-        ) : null}
-      </div>
-
-
       {addressesLoading ? (
         <div className="flex justify-center py-10">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-900" />
@@ -1360,6 +1358,152 @@ export function AccountPage() {
     </div>
   );
 
+  // ── Section: Conexões ────────────────────────────────────────────────────────
+
+  const renderConnections = () => (
+    <div className="space-y-4">
+      <h2 className="text-lg font-bold text-gray-900">Conexões</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* Melhor Envio card */}
+        <div className="border border-gray-200 rounded-xl p-5">
+          <div className="flex items-center gap-3 mb-1">
+            <Truck size={20} className="text-gray-700 shrink-0" />
+            <div>
+              <p className="font-bold text-gray-900 text-sm">Melhor Envio</p>
+              <p className="text-xs text-gray-500">Integração de frete</p>
+            </div>
+          </div>
+          <hr className="my-3 border-gray-100" />
+          {meCheckLoading ? (
+            <div
+              aria-live="polite"
+              className="flex items-center gap-1.5 text-xs text-gray-400"
+            >
+              <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+              Verificando...
+            </div>
+          ) : meConnected ? (
+            <div
+              role="status"
+              aria-label="Melhor Envio conectado"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-green-50 border border-green-200 rounded-lg text-xs font-semibold text-green-700"
+            >
+              <CheckCircle2 size={12} aria-hidden="true" />
+              Conectado
+            </div>
+          ) : mePolling ? (
+            <div
+              aria-live="polite"
+              className="flex items-center gap-2 text-xs text-blue-700"
+            >
+              <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+              <span>Aguardando autorização…</span>
+              <button
+                onClick={() => {
+                  if (mePollingIntervalRef.current) {
+                    clearInterval(mePollingIntervalRef.current);
+                    mePollingIntervalRef.current = null;
+                  }
+                  if (mePopupRef.current && !mePopupRef.current.closed) {
+                    mePopupRef.current.close();
+                  }
+                  setMePolling(false);
+                }}
+                aria-label="Cancelar conexão com Melhor Envio"
+                className="p-0.5 rounded hover:bg-blue-100 transition cursor-pointer"
+              >
+                <X size={12} aria-hidden="true" />
+              </button>
+            </div>
+          ) : meConnectUrl ? (
+            <button
+              onClick={startMeConnection}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-blue-900 text-blue-900 rounded-lg text-xs font-semibold hover:bg-blue-50 transition cursor-pointer"
+            >
+              <Link2 size={13} aria-hidden="true" />
+              Conectar Melhor Envio
+              <ExternalLink size={11} className="text-blue-400" aria-hidden="true" />
+            </button>
+          ) : (
+            <p className="text-xs text-gray-400">Não disponível</p>
+          )}
+        </div>
+
+        {/* Stripe card */}
+        <div className="border border-gray-200 rounded-xl p-5">
+          <div className="flex items-center gap-3 mb-1">
+            <svg viewBox="0 0 60 25" className="h-5 w-auto text-gray-700" aria-label="Stripe" fill="currentColor">
+              <path d="M59.64 14.28h-8.06c.19 1.93 1.6 2.55 3.2 2.55 1.64 0 2.96-.37 4.05-.95v3.32a12.08 12.08 0 0 1-4.56.83c-4.43 0-7.19-2.99-7.19-7.28 0-4.4 2.72-7.26 6.43-7.26 3.89 0 5.96 2.87 5.96 7.07l-.03.72zm-5.81-4.52c-.78 0-1.59.56-1.62 2.1h3.24c0-1.54-.72-2.1-1.62-2.1zM41.42 2.83v3.65h-2.83V9.9h2.83v6.82c0 2.76.97 4.01 3.35 4.01 1.01 0 2.14-.19 2.83-.45v-3.3a5.14 5.14 0 0 1-1.39.19c-.82 0-1.16-.44-1.16-1.42V9.9h2.55V6.48h-2.55V2.83h-3.63zM27.38 6.13c-.78 0-1.4.24-1.9.72v-.37h-3.6v14.05h3.6v-9.4c.3-.41.81-.65 1.32-.65.91 0 1.18.61 1.18 1.62v8.43h3.6V11.9c0-3.3-1.63-5.77-4.2-5.77zm-11.55 0c-2.54 0-3.97 1.25-3.97 3.32 0 3.65 4.85 2.94 4.85 4.73 0 .63-.52 1.01-1.3 1.01-1.15 0-2.44-.52-3.32-1.28v3.46c.94.58 2.17.9 3.35.9 2.52 0 4.14-1.24 4.14-3.41 0-3.74-4.88-3.1-4.88-4.76 0-.56.47-.9 1.16-.9.93 0 1.96.41 2.77.97V6.75a8.23 8.23 0 0 0-2.8-.62zM5.43 7.73C4.3 8.87 3.6 10.56 3.6 12.6c0 4.04 2.36 7.13 6.97 7.13 1.01 0 1.99-.19 2.89-.52v-3.46c-.65.38-1.44.58-2.18.58-1.97 0-3.21-1.32-3.21-3.73 0-2.3 1.2-3.67 3.17-3.67.77 0 1.56.22 2.22.58V6.04a7.84 7.84 0 0 0-2.78-.52c-2.05 0-3.88.76-5.25 2.21z" />
+            </svg>
+            <div>
+              <p className="font-bold text-gray-900 text-sm">Stripe</p>
+              <p className="text-xs text-gray-500">Recebimento de pagamentos</p>
+            </div>
+          </div>
+          <hr className="my-3 border-gray-100" />
+          {stripeCheckLoading ? (
+            <div
+              aria-live="polite"
+              className="flex items-center gap-1.5 text-xs text-gray-400"
+            >
+              <Loader2 size={12} className="animate-spin" aria-hidden="true" />
+              Verificando...
+            </div>
+          ) : stripeStatus?.has_account && stripeStatus?.ready_to_receive_payments ? (
+            <div
+              role="status"
+              aria-label="Stripe conectado"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-green-50 border border-green-200 rounded-lg text-xs font-semibold text-green-700"
+            >
+              <CheckCircle2 size={12} aria-hidden="true" />
+              Conectado
+            </div>
+          ) : stripeStatus?.has_account && !stripeStatus?.ready_to_receive_payments ? (
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 border border-amber-200 rounded-lg text-xs font-semibold text-amber-700">
+                Cadastro incompleto
+              </div>
+              <div>
+                <button
+                  onClick={startStripeOnboarding}
+                  disabled={stripeOnboardingLoading}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-blue-900 text-blue-900 rounded-lg text-xs font-semibold hover:bg-blue-50 transition disabled:opacity-50 cursor-pointer"
+                >
+                  {stripeOnboardingLoading ? (
+                    <>
+                      <Loader2 size={12} className="animate-spin" />
+                      Aguarde...
+                    </>
+                  ) : (
+                    "Continuar cadastro"
+                  )}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={startStripeOnboarding}
+              disabled={stripeOnboardingLoading}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-blue-900 text-blue-900 rounded-lg text-xs font-semibold hover:bg-blue-50 transition disabled:opacity-50 cursor-pointer"
+            >
+              {stripeOnboardingLoading ? (
+                <>
+                  <Loader2 size={12} className="animate-spin" />
+                  Aguarde...
+                </>
+              ) : (
+                <>
+                  <Link2 size={13} aria-hidden="true" />
+                  Conectar Stripe
+                </>
+              )}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
@@ -1420,6 +1564,7 @@ export function AccountPage() {
             {activeSection === "addresses" && renderAddresses()}
             {activeSection === "security" && renderSecurity()}
             {activeSection === "notifications" && renderNotifications()}
+            {activeSection === "connections" && renderConnections()}
           </main>
         </div>
       </div>

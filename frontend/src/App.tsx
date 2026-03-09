@@ -23,6 +23,7 @@ import { AccountPage } from "@/pages/account";
 import { StateProductList } from "@/pages/public/StateProductList";
 import { GoogleCallback } from "@/pages/auth/GoogleCallback";
 import { MelhorEnvioCallback } from "@/pages/auth/MelhorEnvioCallback";
+import { StripeOnboardingComplete } from "@/pages/seller/onboarding/complete";
 import { CategoryProductList } from "@/pages/public/CategoryProductList";
 import { NotFound } from "@/pages/public/NotFound";
 import { ROUTES } from "@/routes/routePaths";
@@ -44,6 +45,7 @@ const router = createBrowserRouter([
   // AUTH — no shared header
   { path: ROUTES.GOOGLE_CALLBACK, element: <GoogleCallback /> },
   { path: ROUTES.MELHOR_ENVIO_CALLBACK, element: <MelhorEnvioCallback /> },
+  { path: ROUTES.STRIPE_ONBOARDING_COMPLETE, element: <StripeOnboardingComplete /> },
   { path: "/login", element: <LoginPage /> },
   { path: "/register", element: <Register /> },
   { path: "/forgotpassword", element: <ForgotPassword /> },
