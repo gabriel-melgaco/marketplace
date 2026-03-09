@@ -20,6 +20,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { productService } from "@/services/productService";
 import { confirmDelete } from "@/utils/confirmDialog";
+import Swal from "sweetalert2";
 import { orderService } from "@/services/orderService";
 import { reviewService } from "@/services/reviewService";
 import { toPublicUrl } from "@/services/storageService";
@@ -223,7 +224,7 @@ function ListingsSection() {
   const [error, setError] = useState<string | null>(null);
   const [togglingId, setTogglingId] = useState<number | null>(null);
 
-  const fetch = useCallback(async () => {
+  const loadListings = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -237,8 +238,8 @@ function ListingsSection() {
   }, []);
 
   useEffect(() => {
-    fetch();
-  }, [fetch]);
+    loadListings();
+  }, [loadListings]);
 
   async function handleToggleActive(listing: MarketplaceListing) {
     if (listing.sold_at) return;
@@ -251,7 +252,15 @@ function ListingsSection() {
         ),
       );
     } catch {
-      // silently fail - UI reverts on next fetch
+      Swal.fire({
+        icon: "error",
+        title: "Erro",
+        text: "Não foi possível alterar o status do anúncio.",
+        toast: true,
+        position: "top-end",
+        showConfirmButton: false,
+        timer: 3000,
+      });
     } finally {
       setTogglingId(null);
     }
@@ -264,7 +273,15 @@ function ListingsSection() {
       await productService.deleteListing(id);
       setListings((prev) => prev.filter((l) => l.id !== id));
     } catch {
-      // silently fail
+      Swal.fire({
+        icon: "error",
+        title: "Erro",
+        text: "Não foi possível excluir o anúncio.",
+        toast: true,
+        position: "top-end",
+        showConfirmButton: false,
+        timer: 3000,
+      });
     }
   }
 
@@ -278,7 +295,7 @@ function ListingsSection() {
     );
   }
 
-  if (error) return <SectionError message={error} onRetry={fetch} />;
+  if (error) return <SectionError message={error} onRetry={loadListings} />;
 
   if (listings.length === 0) {
     return (
@@ -424,7 +441,7 @@ function SalesSection() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetch = useCallback(async () => {
+  const loadSales = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -438,8 +455,8 @@ function SalesSection() {
   }, []);
 
   useEffect(() => {
-    fetch();
-  }, [fetch]);
+    loadSales();
+  }, [loadSales]);
 
   if (loading) {
     return (
@@ -451,7 +468,7 @@ function SalesSection() {
     );
   }
 
-  if (error) return <SectionError message={error} onRetry={fetch} />;
+  if (error) return <SectionError message={error} onRetry={loadSales} />;
 
   if (sales.length === 0) {
     return (
@@ -505,7 +522,7 @@ function PurchasesSection() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetch = useCallback(async () => {
+  const loadOrders = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -519,8 +536,8 @@ function PurchasesSection() {
   }, []);
 
   useEffect(() => {
-    fetch();
-  }, [fetch]);
+    loadOrders();
+  }, [loadOrders]);
 
   if (loading) {
     return (
@@ -532,7 +549,7 @@ function PurchasesSection() {
     );
   }
 
-  if (error) return <SectionError message={error} onRetry={fetch} />;
+  if (error) return <SectionError message={error} onRetry={loadOrders} />;
 
   if (orders.length === 0) {
     return (
@@ -595,7 +612,7 @@ function ReviewsSection({ stats }: { stats: ReviewStats | null }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetch = useCallback(async () => {
+  const loadReviews = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -609,8 +626,8 @@ function ReviewsSection({ stats }: { stats: ReviewStats | null }) {
   }, []);
 
   useEffect(() => {
-    fetch();
-  }, [fetch]);
+    loadReviews();
+  }, [loadReviews]);
 
   return (
     <div>
@@ -715,7 +732,7 @@ function ReviewsSection({ stats }: { stats: ReviewStats | null }) {
                   <div className="flex items-center gap-2 mt-0.5">
                     <StarRating rating={review.rating} />
                     <span className="text-xs text-gray-400 font-medium">
-                      {review.rating}.0
+                      {review.rating.toFixed(1)}
                     </span>
                   </div>
                   <p className="text-xs text-gray-400 mt-1 truncate">
@@ -936,6 +953,7 @@ export function Dashboard() {
   const firstName = user?.full_name?.split(" ")[0] ?? "usuário";
 
   return (
+    {/* bg-black is intentional: the dashboard uses a dark premium aesthetic distinct from the buyer-facing gray-50 pages */}
     <div className="min-h-screen bg-black pb-24">
       {/* ── Header banner ── */}
       <div className="relative bg-gray-800 overflow-hidden">
@@ -950,23 +968,9 @@ export function Dashboard() {
         />
         <div className="relative max-w-4xl mx-auto px-4 sm:px-6 py-8">
           <div className="flex items-center gap-4">
-            {/* Avatar initials */}
-            <div className="w-12 h-12 rounded-full bg-white/10 border border-white/20 flex items-center justify-center flex-shrink-0 backdrop-blur-sm">
-              {user?.picture ? (
-                <img
-                  src={toPublicUrl(user.picture)}
-                  alt={user.full_name}
-                  className="w-full h-full rounded-full object-cover"
-                />
-              ) : (
-                <span className="text-white font-bold text-lg">
-                  {firstName.charAt(0).toUpperCase()}
-                </span>
-              )}
-            </div>
             <div>
               <p className="text-white/60 text-xs font-medium uppercase tracking-widest">
-                Painel do vendedor
+                Painel Administrativo
               </p>
               <h1 className="text-white text-xl font-bold mt-0.5">
                 Olá, {firstName}!

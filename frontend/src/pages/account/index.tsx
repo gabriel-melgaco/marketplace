@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type FormEvent } from "react";
+import { useState, useEffect, useRef, useCallback, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   User as UserIcon,
@@ -11,9 +11,11 @@ import {
   EyeOff,
   X,
   AlertTriangle,
+  Loader2,
+  Camera,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { userService } from "@/services/userService";
+import { userService, type CustomUser } from "@/services/userService";
 import { authService } from "@/services/authService";
 import {
   socialAuthService,
@@ -27,9 +29,9 @@ import {
 import { tokenStorage } from "@/utils/tokenStorage";
 import { toISODate } from "@/utils/formatters";
 import { startGoogleOAuth } from "@/hooks/useGoogleAuth";
-import api from "@/api/axios";
 import Swal from "sweetalert2";
 import type { User } from "@/types/auth";
+import { storageService, toPublicUrl } from "@/services/storageService";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -48,29 +50,55 @@ const SECTIONS: {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-export function isoToDisplay(iso: string): string {
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+function isoToDisplay(iso: string): string {
   if (!iso || !iso.includes("-")) return iso ?? "";
   const [year, month, day] = iso.split("-");
   return `${day}/${month}/${year}`;
 }
 
-export function formatCpfDisplay(cpf: string): string {
+function formatCpfDisplay(cpf: string): string {
   const clean = cpf.replace(/\D/g, "");
   if (clean.length !== 11) return cpf;
   return `${clean.slice(0, 3)}.${clean.slice(3, 6)}.${clean.slice(6, 9)}-${clean.slice(9)}`;
 }
 
-export function formatPhone(value: string): string {
+function formatPhone(value: string): string {
   const n = value.replace(/\D/g, "").slice(0, 11);
   if (n.length <= 2) return n;
   if (n.length <= 7) return `(${n.slice(0, 2)}) ${n.slice(2)}`;
   return `(${n.slice(0, 2)}) ${n.slice(2, 7)}-${n.slice(7)}`;
 }
 
-export function formatZipcode(value: string): string {
+function formatZipcode(value: string): string {
   const n = value.replace(/\D/g, "").slice(0, 8);
   if (n.length <= 5) return n;
   return `${n.slice(0, 5)}-${n.slice(5)}`;
+}
+
+/** Maps a CustomUser API response to the AuthContext User shape. */
+function mapToUser(updated: CustomUser, fallbackIsActive?: boolean): User {
+  return {
+    id: updated.id,
+    email: updated.email,
+    full_name: updated.full_name,
+    birthday: updated.birthday ?? "",
+    cpf: updated.cpf,
+    picture: updated.picture ?? "",
+    is_active: updated.is_active ?? fallbackIsActive ?? true,
+  };
+}
+
+/** Extracts a human-readable message from an unknown catch value. */
+function getAxiosErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error) return err.message;
+  const response = (err as { response?: { data?: unknown } })?.response?.data;
+  if (response && typeof response === "object") {
+    return (Object.values(response).flat() as string[]).join(" ") || fallback;
+  }
+  if (typeof response === "string" && response) return response;
+  return fallback;
 }
 
 // ─── Address Modal ────────────────────────────────────────────────────────────
@@ -163,11 +191,11 @@ export function AddressModal({ onClose, onSaved }: AddressModalProps) {
         country: "BR",
       });
       onSaved(saved);
-    } catch (err: any) {
-      const data = err?.response?.data;
+    } catch (err: unknown) {
+      const data = (err as { response?: { data?: unknown } })?.response?.data;
       if (data && typeof data === "object") {
         const msgs: Record<string, string> = {};
-        for (const [k, v] of Object.entries(data)) {
+        for (const [k, v] of Object.entries(data as Record<string, unknown>)) {
           msgs[k] = Array.isArray(v) ? (v as string[])[0] : String(v);
         }
         setErrors(msgs);
@@ -484,6 +512,8 @@ export function AccountPage() {
   const [personalLoading, setPersonalLoading] = useState(false);
   const [personalSuccess, setPersonalSuccess] = useState(false);
   const [personalError, setPersonalError] = useState("");
+  const [pictureUploading, setPictureUploading] = useState(false);
+  const pictureInputRef = useRef<HTMLInputElement>(null);
 
   // Addresses
   const [addresses, setAddresses] = useState<AddressData[]>([]);
@@ -514,11 +544,23 @@ export function AccountPage() {
     promotions: false,
   });
 
+  const loadAddresses = useCallback(async () => {
+    setAddressesLoading(true);
+    try {
+      const data = await logisticsService.getAddresses();
+      setAddresses(data);
+    } catch {
+      // silent
+    } finally {
+      setAddressesLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (activeSection === "addresses") {
       loadAddresses();
     }
-  }, [activeSection]);
+  }, [activeSection, loadAddresses]);
 
   useEffect(() => {
     if (activeSection === "security") {
@@ -531,18 +573,6 @@ export function AccountPage() {
     }
   }, [activeSection]);
 
-  async function loadAddresses() {
-    setAddressesLoading(true);
-    try {
-      const data = await logisticsService.getAddresses();
-      setAddresses(data);
-    } catch {
-      // silent
-    } finally {
-      setAddressesLoading(false);
-    }
-  }
-
   // ── Handlers ────────────────────────────────────────────────────────────────
 
   const handleBirthdayChange = (value: string) => {
@@ -554,6 +584,62 @@ export function AccountPage() {
       formatted = `${numbers.slice(0, 2)}/${numbers.slice(2, 4)}/${numbers.slice(4, 8)}`;
     }
     setBirthday(formatted);
+  };
+
+  const handlePictureUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Reset input before early returns so the same file can be re-selected if needed
+    e.target.value = "";
+    if (!file) return;
+
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      Swal.fire({
+        icon: "error",
+        title: "Arquivo inválido",
+        text: "Selecione apenas imagens JPG, PNG ou WebP.",
+      });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      Swal.fire({
+        icon: "error",
+        title: "Arquivo muito grande",
+        text: "O tamanho máximo permitido é 5 MB.",
+      });
+      return;
+    }
+
+    setPictureUploading(true);
+    try {
+      // Use getPresignedUrl + uploadToS3 directly so we can obtain object_name,
+      // which is what the backend expects in the picture field (not the public URL).
+      const { upload_url, object_name } = await storageService.getPresignedUrl(
+        file.name,
+        file.type,
+      );
+      await storageService.uploadToS3(upload_url, file);
+      const updated = await userService.updateCurrentUser({ picture: object_name });
+      const newUser = mapToUser(updated, user?.is_active);
+      tokenStorage.saveUser(newUser);
+      setUser(newUser);
+      Swal.fire({
+        icon: "success",
+        title: "Foto atualizada!",
+        toast: true,
+        position: "top-end",
+        showConfirmButton: false,
+        timer: 2000,
+        timerProgressBar: true,
+      });
+    } catch (err: unknown) {
+      Swal.fire({
+        icon: "error",
+        title: "Erro",
+        text: getAxiosErrorMessage(err, "Não foi possível atualizar a foto. Tente novamente."),
+      });
+    } finally {
+      setPictureUploading(false);
+    }
   };
 
   const handleSavePersonal = async (e: FormEvent) => {
@@ -570,26 +656,13 @@ export function AccountPage() {
         full_name: fullName.trim(),
         ...(birthday.length === 10 && { birthday: toISODate(birthday) }),
       });
-      const newUser: User = {
-        id: updated.id,
-        email: updated.email,
-        full_name: updated.full_name,
-        birthday: updated.birthday,
-        cpf: updated.cpf,
-        picture: updated.picture ?? "",
-        is_active: true,
-      };
+      const newUser = mapToUser(updated, user?.is_active);
       tokenStorage.saveUser(newUser);
       setUser(newUser);
       setPersonalSuccess(true);
       setTimeout(() => setPersonalSuccess(false), 3000);
-    } catch (err: any) {
-      const data = err?.response?.data;
-      const msg =
-        data && typeof data === "object"
-          ? (Object.values(data).flat() as string[]).join(" ")
-          : data || "Erro ao salvar. Tente novamente.";
-      setPersonalError(String(msg));
+    } catch (err: unknown) {
+      setPersonalError(getAxiosErrorMessage(err, "Erro ao salvar. Tente novamente."));
     } finally {
       setPersonalLoading(false);
     }
@@ -640,19 +713,14 @@ export function AccountPage() {
         old_password: currentPw,
         new_password1: newPw,
         new_password2: confirmPw,
-      } as any);
+      });
       setPwSuccess(true);
       setCurrentPw("");
       setNewPw("");
       setConfirmPw("");
       setTimeout(() => setPwSuccess(false), 4000);
-    } catch (err: any) {
-      const data = err?.response?.data;
-      const msg =
-        data && typeof data === "object"
-          ? (Object.values(data).flat() as string[]).join(" ")
-          : data || "Erro ao alterar senha. Tente novamente.";
-      setPwError(String(msg));
+    } catch (err: unknown) {
+      setPwError(getAxiosErrorMessage(err, "Erro ao alterar senha. Tente novamente."));
     } finally {
       setPwLoading(false);
     }
@@ -676,11 +744,11 @@ export function AccountPage() {
     });
     if (!result.isConfirmed) return;
     try {
-      await api.delete("/auth/user/");
+      await userService.deleteCurrentUser();
       logout();
       navigate("/", { replace: true });
-    } catch (err: any) {
-      const status = err?.response?.status;
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
       if (status === 404 || status === 405) {
         Swal.fire(
           "Funcionalidade em implementação",
@@ -782,15 +850,45 @@ export function AccountPage() {
         </div>
 
         <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-1">
-            Foto de perfil{" "}
-            <span className="text-xs font-normal text-gray-400">
-              (em breve)
-            </span>
+          <label className="block text-sm font-semibold text-gray-700 mb-3">
+            Foto de perfil
           </label>
-          <div className="px-3 py-2.5 border-2 border-dashed border-gray-200 rounded-lg text-sm text-gray-400 bg-gray-50 select-none">
-            Funcionalidade disponível em breve
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 rounded-full overflow-hidden bg-blue-100 flex items-center justify-center shrink-0">
+              {pictureUploading ? (
+                <Loader2 size={24} className="animate-spin text-blue-900" />
+              ) : user?.picture ? (
+                <img
+                  src={toPublicUrl(user.picture)}
+                  alt="Foto de perfil"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <UserIcon size={32} className="text-blue-400" />
+              )}
+            </div>
+            <div>
+              <button
+                type="button"
+                disabled={pictureUploading}
+                onClick={() => pictureInputRef.current?.click()}
+                className="flex items-center gap-2 px-4 py-2 border-2 border-blue-900 text-blue-900 rounded-lg text-sm font-semibold hover:bg-blue-50 transition disabled:opacity-50 cursor-pointer"
+              >
+                <Camera size={16} />
+                {pictureUploading ? "Enviando..." : "Alterar foto"}
+              </button>
+              <p className="mt-1.5 text-xs text-gray-400">
+                JPG, PNG ou WebP · Máx. 5 MB
+              </p>
+            </div>
           </div>
+          <input
+            ref={pictureInputRef}
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            onChange={handlePictureUpload}
+          />
         </div>
 
         <div className="flex justify-end pt-1">
@@ -1065,14 +1163,10 @@ export function AccountPage() {
               <p className="text-sm font-medium text-gray-800">{label}</p>
               <p className="text-xs text-gray-500 mt-0.5">Em breve</p>
             </div>
-            <button
-              role="switch"
-              aria-checked={notifications[key]}
-              aria-label={label}
-              onClick={() =>
-                setNotifications((prev) => ({ ...prev, [key]: !prev[key] }))
-              }
-              className={`relative w-11 h-6 rounded-full transition duration-200 cursor-not-allowed shrink-0 pointer-events-none ${
+            {/* Visual-only toggle — notifications backend not yet available */}
+            <div
+              aria-hidden="true"
+              className={`relative w-11 h-6 rounded-full shrink-0 ${
                 notifications[key] ? "bg-blue-900" : "bg-gray-300"
               }`}
             >
@@ -1081,7 +1175,7 @@ export function AccountPage() {
                   notifications[key] ? "translate-x-5" : "translate-x-0"
                 }`}
               />
-            </button>
+            </div>
           </div>
         ))}
       </div>
@@ -1093,15 +1187,8 @@ export function AccountPage() {
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
-  const sectionContent: Record<Section, React.ReactNode> = {
-    personal: renderPersonal(),
-    addresses: renderAddresses(),
-    security: renderSecurity(),
-    notifications: renderNotifications(),
-  };
-
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 pb-24">
       {/* Page header */}
       <div className="bg-linear-to-r from-black via-gray-800 to-blue-900 px-4 py-6">
         <div className="max-w-5xl mx-auto">
@@ -1152,9 +1239,12 @@ export function AccountPage() {
             ))}
           </aside>
 
-          {/* Content */}
+          {/* Content — only the active section is rendered to avoid wasted computation */}
           <main className="flex-1 min-w-0">
-            {sectionContent[activeSection]}
+            {activeSection === "personal" && renderPersonal()}
+            {activeSection === "addresses" && renderAddresses()}
+            {activeSection === "security" && renderSecurity()}
+            {activeSection === "notifications" && renderNotifications()}
           </main>
         </div>
       </div>
