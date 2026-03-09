@@ -146,6 +146,7 @@ class ListingPackageSerializer(serializers.ModelSerializer):
 class MarketplaceListingSerializer(serializers.ModelSerializer):
     """Serializer completo de listagem para listagem"""
     product = ProductSimpleSerializer(read_only=True)
+    category = CategorySimpleSerializer(source='product.category', read_only=True)
     brand = BrandSimpleSerializer(read_only=True)
     condition = ConditionSerializer(read_only=True)
     images = MarketplaceListingImageSerializer(many=True, read_only=True)
@@ -157,7 +158,7 @@ class MarketplaceListingSerializer(serializers.ModelSerializer):
     class Meta:
         model = MarketplaceListing
         fields = [
-            'id', 'product', 'seller', 'seller_name', 'title', 'price', 'brand',
+            'id', 'product', 'category', 'seller', 'seller_name', 'title', 'price', 'brand',
             'quantity', 'is_active', 'description', 'condition',
             'views_count', 'weight_kg', 'height_cm', 'width_cm',
             'length_cm', 'shipping_method', 'created_at', 'updated_at', 'sold_at',
