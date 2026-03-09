@@ -615,14 +615,16 @@ export function AccountPage() {
 
     setPictureUploading(true);
     try {
-      // Use getPresignedUrl + uploadToS3 directly so we can obtain object_name,
-      // which is what the backend expects in the picture field (not the public URL).
-      const { upload_url, object_name } = await storageService.getPresignedUrl(
+      // Use getPresignedUrl + uploadToS3 to upload; save file_url (full public URL)
+      // to the backend — consistent with how product images are stored in the system.
+      // object_name is a bare storage key (e.g. "products/abc.jpg") and cannot be
+      // passed to toPublicUrl, which expects a full URL.
+      const { upload_url, file_url } = await storageService.getPresignedUrl(
         file.name,
         file.type,
       );
       await storageService.uploadToS3(upload_url, file);
-      const updated = await userService.updateCurrentUser({ picture: object_name });
+      const updated = await userService.updateCurrentUser({ picture: file_url });
       const newUser = mapToUser(updated, user?.is_active);
       tokenStorage.saveUser(newUser);
       setUser(newUser);
