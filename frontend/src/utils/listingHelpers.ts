@@ -1,4 +1,4 @@
-import type { FormData } from "@/types/product";
+import type { FormData, ListingPackageRequest } from "@/types/product";
 
 /**
  * Formats a decimal string to 2 decimal places.
@@ -18,6 +18,7 @@ export function formatDecimal(value: string): string {
 export function validateStep(
   step: number,
   formData: FormData,
+  packages?: ListingPackageRequest[],
 ): Record<string, string> {
   const errors: Record<string, string> = {};
 
@@ -34,13 +35,13 @@ export function validateStep(
     case 2: // Title
       if (!formData.title.trim())
         errors.title = "O título do anúncio é obrigatório";
-      if (formData.title.length > 150)
+      else if (formData.title.length > 150)
         errors.title = "Máximo 150 caracteres";
       break;
     case 3: // Description
       if (!formData.description.trim())
         errors.description = "Descrição é obrigatória";
-      if (formData.description.length > 255)
+      else if (formData.description.length > 255)
         errors.description = "Máximo 255 caracteres";
       break;
     case 4: // Brand and Condition
@@ -51,15 +52,10 @@ export function validateStep(
       if (!formData.price || Number(formData.price) <= 0)
         errors.price = "Preço inválido";
       break;
-    case 6: // Package dimensions
-      if (!formData.weight_kg || Number(formData.weight_kg) <= 0)
-        errors.weight_kg = "Peso inválido";
-      if (!formData.height_cm || Number(formData.height_cm) <= 0)
-        errors.height_cm = "Altura inválida";
-      if (!formData.width_cm || Number(formData.width_cm) <= 0)
-        errors.width_cm = "Largura inválida";
-      if (!formData.length_cm || Number(formData.length_cm) <= 0)
-        errors.length_cm = "Comprimento inválido";
+    case 6: // Pacotes & Método de Envio
+      if (!packages || packages.length === 0) {
+        errors.packages = "Adicione pelo menos um pacote";
+      }
       break;
     case 7: // Images — optional, no validation required
       break;
@@ -69,20 +65,29 @@ export function validateStep(
 }
 
 /**
+ * Validates a single package draft before adding/editing.
+ * Returns a map of field names to error messages.
+ */
+export function validatePackageDraft(
+  pkg: ListingPackageRequest,
+): Record<string, string> {
+  const errors: Record<string, string> = {};
+  if (!pkg.weight_kg || Number(pkg.weight_kg) <= 0)
+    errors.weight_kg = "Peso inválido";
+  if (!pkg.height_cm || Number(pkg.height_cm) <= 0)
+    errors.height_cm = "Altura inválida";
+  if (!pkg.width_cm || Number(pkg.width_cm) <= 0)
+    errors.width_cm = "Largura inválida";
+  if (!pkg.length_cm || Number(pkg.length_cm) <= 0)
+    errors.length_cm = "Comprimento inválido";
+  return errors;
+}
+
+/**
  * Builds the listing request data from form data.
  * Returns packages as an array per the new API contract.
  */
-export function buildListingData(formData: FormData) {
-  const pkg: { weight_kg: string; height_cm: string; width_cm: string; length_cm: string; description?: string } = {
-    weight_kg: formatDecimal(formData.weight_kg),
-    height_cm: formatDecimal(formData.height_cm),
-    width_cm: formatDecimal(formData.width_cm),
-    length_cm: formatDecimal(formData.length_cm),
-  };
-  if (formData.package_description?.trim()) {
-    pkg.description = formData.package_description.trim();
-  }
-
+export function buildListingData(formData: FormData, packages: ListingPackageRequest[]) {
   return {
     product: Number(formData.product),
     title: formData.title.trim(),
@@ -91,6 +96,13 @@ export function buildListingData(formData: FormData) {
     description: formData.description.trim(),
     price: formatDecimal(formData.price),
     quantity: Number(formData.quantity) || 1,
-    packages: [pkg],
+    packages: packages.map((pkg) => ({
+      weight_kg: formatDecimal(pkg.weight_kg),
+      height_cm: formatDecimal(pkg.height_cm),
+      width_cm: formatDecimal(pkg.width_cm),
+      length_cm: formatDecimal(pkg.length_cm),
+      ...(pkg.description?.trim() ? { description: pkg.description.trim() } : {}),
+    })),
+    shipping_method: formData.shipping_method,
   };
 }
