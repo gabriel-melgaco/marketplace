@@ -7,6 +7,7 @@ export interface CustomUser {
   cpf: string;
   birthday: string;
   picture?: string;
+  is_active?: boolean;
   is_seller: boolean;
   created_at: string;
   updated_at: string;
@@ -33,5 +34,9 @@ export const userService = {
   async replaceCurrentUser(data: CustomUserUpdateRequest) {
     const response = await api.put<CustomUser>("/auth/user/", data);
     return response.data;
+  },
+
+  async deleteCurrentUser() {
+    await api.delete("/auth/user/");
   },
 };

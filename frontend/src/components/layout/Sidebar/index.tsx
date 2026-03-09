@@ -3,20 +3,22 @@ import { FaUserCircle } from "react-icons/fa";
 import { CgClose } from "react-icons/cg";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { toPublicUrl } from "@/services/storageService";
+
+// Module-level constants — defined outside component to avoid per-render allocation
+const GUEST_MENU = [
+  { label: "Entrar", path: "/login" },
+  { label: "Cadastrar", path: "/register" },
+];
+
+const AUTH_MENU = [
+  { label: "Minha Conta", path: "/account" },
+];
 
 export function Sidebar() {
   const [isOpen, setIsOpen] = useState(false);
-  const { isAuthenticated, logout } = useAuth();
+  const { isAuthenticated, logout, user } = useAuth();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-
-  const menu = [
-    { label: "Entrar", path: "/login" },
-    { label: "Cadastrar", path: "/register" },
-  ];
-
-  const loggedMenu = [
-    { label: "Minha Conta", path: "/account" },
-  ];
 
   useEffect(() => {
     if (!isOpen) return;
@@ -46,8 +48,18 @@ export function Sidebar() {
         className="focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-1 focus:ring-offset-transparent rounded-lg"
       >
         {isAuthenticated ? (
-          <FaUserCircle className="w-8 h-8 md:w-10 md:h-10 text-text-primary cursor-pointer" aria-hidden="true" />
+          user?.picture ? (
+            <img
+              src={toPublicUrl(user.picture)}
+              alt={user.full_name ?? "Avatar"}
+              className="w-8 h-8 md:w-10 md:h-10 rounded-full object-cover cursor-pointer"
+            />
+          ) : (
+            <FaUserCircle className="w-8 h-8 md:w-10 md:h-10 text-text-primary cursor-pointer" aria-hidden="true" />
+          )
         ) : (
+          // md:hidden because the desktop header renders its own login link;
+          // the avatar button is only needed on mobile when unauthenticated.
           <FaUserCircle className="w-8 h-8 md:w-10 md:h-10 md:hidden text-text-primary cursor-pointer" aria-hidden="true" />
         )}
       </button>
@@ -89,10 +101,10 @@ export function Sidebar() {
         </div>
 
         {/* Conteúdo */}
-        <nav className="flex-1 overflow-y-auto" aria-label="Menu da conta">
+        <nav className="flex-1 overflow-y-auto" aria-label="Navegação da conta">
           {isAuthenticated ? (
             <>
-              {loggedMenu.map((item) => (
+              {AUTH_MENU.map((item) => (
                 <Link
                   key={item.label}
                   to={item.path}
@@ -115,7 +127,7 @@ export function Sidebar() {
             </>
           ) : (
             <>
-              {menu.map((item) => (
+              {GUEST_MENU.map((item) => (
                 <Link
                   key={item.label}
                   to={item.path}
