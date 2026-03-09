@@ -10,6 +10,7 @@ export const ROUTES = {
   // Auth
   GOOGLE_CALLBACK: "/google",
   MELHOR_ENVIO_CALLBACK: "/auth/melhor-envio/callback",
+  STRIPE_ONBOARDING_COMPLETE: "/seller/onboarding/complete",
   LOGIN: "/login",
   REGISTER: "/register",
   FORGOT_PASSWORD: "/forgotpassword",
