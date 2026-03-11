@@ -146,6 +146,9 @@ class ProductValidationService:
         Uses atomic F() expression to prevent race conditions where
         multiple users could buy the same item simultaneously.
 
+        After decrementing, automatically deactivates the listing if
+        quantity reaches zero to prevent further purchases.
+
         Args:
             listing: MarketplaceListing instance
             quantity: Quantity to reserve
@@ -183,6 +186,10 @@ class ProductValidationService:
             }
         )
 
+        # Deactivate listing if stock reached zero
+        if listing.quantity == 0:
+            ProductValidationService.deactivate_if_out_of_stock(listing)
+
     @staticmethod
     def release_stock(listing, quantity: int) -> None:
         """
@@ -215,6 +222,50 @@ class ProductValidationService:
                 'new_qty': listing.quantity,
             }
         )
+
+    @staticmethod
+    def deactivate_if_out_of_stock(listing) -> None:
+        """
+        Deactivate a listing when its stock reaches zero.
+
+        Called automatically by reserve_stock() after a successful decrement
+        that leaves quantity == 0. Uses a filtered update (is_active=True guard)
+        to avoid unnecessary writes and to be safe against concurrent calls.
+
+        The listing instance is refreshed after the update so callers always
+        see the current state.
+
+        Args:
+            listing: MarketplaceListing instance (quantity already refreshed)
+        """
+        from products.models import MarketplaceListing
+
+        updated_count = MarketplaceListing.objects.filter(
+            id=listing.id,
+            quantity=0,
+            is_active=True,
+        ).update(is_active=False)
+
+        # Reflect the DB state on the in-memory instance
+        listing.refresh_from_db()
+
+        if updated_count > 0:
+            logger.info(
+                f"Listing {listing.id} deactivated because stock reached zero",
+                extra={
+                    'listing_id': listing.id,
+                    'product_name': listing.product.name,
+                    'seller_id': listing.seller_id,
+                }
+            )
+        else:
+            # Already deactivated by another process, or quantity was restored
+            # before this update ran — log for observability
+            logger.debug(
+                f"deactivate_if_out_of_stock: listing {listing.id} was already "
+                "inactive or quantity changed before update — no-op",
+                extra={'listing_id': listing.id}
+            )
 
     @staticmethod
     def mark_as_sold(listing) -> None:
