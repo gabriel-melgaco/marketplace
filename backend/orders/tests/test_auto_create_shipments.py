@@ -305,6 +305,192 @@ class TestAutoCreateShipments(TestCase):
         self.assertIn('meeting_location_name', delivery_choices[0])
 
     @override_settings(AUTO_CREATE_SHIPMENTS=True)
+    def test_split_delivery_creates_order_delivery_and_in_person_delivery(self):
+        """
+        Regression test: split delivery (single seller with both in_person and melhor_envio
+        items) must create an OrderDelivery(SPLIT) with an associated InPersonDelivery after
+        payment confirmation.
+
+        Root cause that was fixed: DeliveryOrchestrationService._create_shipping_delivery()
+        and _create_split_delivery() were passing shipment=None to OrderDelivery.objects.create().
+        OrderDelivery has no 'shipment' field — Shipments point TO OrderDelivery via FK, not
+        the other way around.  This caused a silent exception in the signal handler that
+        swallowed the error and left the order with zero deliveries created.
+        """
+        from logistics.models import InPersonDelivery, OrderDelivery
+
+        # Create order with split delivery (one seller, both in_person + shipping parts)
+        order = Order.objects.create(
+            buyer=self.buyer,
+            subtotal=Decimal('100.00'),
+            shipping_cost=Decimal('20.00'),
+            total=Decimal('120.00'),
+            shipping_address={
+                'street': 'Test St', 'city': 'Test', 'state': 'TS', 'zipcode': '12345'
+            },
+            shipping_services={
+                str(self.seller.id): {
+                    'delivery_method': 'split',
+                    'shipping': {
+                        'per_listing': {
+                            str(self.listing.id): {'service_id': 1, 'cost': 20.0}
+                        }
+                    },
+                    'in_person': {
+                        'meeting_location_name': 'Shopping Center',
+                        'meeting_address': {},
+                        'seller_contact_phone': '',
+                        'buyer_contact_phone': '',
+                        'scheduled_date': None,
+                        'scheduled_time': None,
+                        'meeting_notes': '',
+                    },
+                }
+            },
+            status='pending_payment'
+        )
+
+        OrderItem.objects.create(
+            order=order,
+            listing=self.listing,
+            seller=self.seller,
+            quantity=1,
+            unit_price=Decimal('100.00'),
+            subtotal=Decimal('100.00'),
+            product_name=self.product.name,
+            product_code='',
+            brand_name=self.brand.name,
+            condition_name=self.condition.name,
+            weight_kg=self.listing.weight_kg,
+            height_cm=self.listing.height_cm,
+            width_cm=self.listing.width_cm,
+            length_cm=self.listing.length_cm,
+        )
+
+        before_od = OrderDelivery.objects.filter(order=order).count()
+        before_ip = InPersonDelivery.objects.count()
+
+        # Trigger signal by transitioning to PAID
+        order.status = OrderStateMachine.PAID
+        order.save()
+
+        after_od = OrderDelivery.objects.filter(order=order).count()
+        after_ip = InPersonDelivery.objects.count()
+
+        # One OrderDelivery of type SPLIT must exist
+        self.assertEqual(after_od, before_od + 1)
+        order_delivery = OrderDelivery.objects.get(order=order)
+        self.assertEqual(order_delivery.delivery_method, 'split')
+
+        # One InPersonDelivery must have been created and linked to the OrderDelivery
+        self.assertEqual(after_ip, before_ip + 1)
+        self.assertIsNotNone(order_delivery.in_person_delivery_id)
+
+    @override_settings(AUTO_CREATE_SHIPMENTS=True)
+    def test_mixed_order_two_sellers_both_deliveries_created(self):
+        """
+        Regression test: when an order has two sellers — one using in_person and another
+        using melhor_envio — both OrderDelivery records must be created after payment.
+
+        Before the fix, DeliveryOrchestrationService._create_shipping_delivery() passed
+        shipment=None to OrderDelivery.objects.create(), causing a TypeError that was
+        silently caught in the signal handler. This meant neither delivery was created
+        for ANY order that included a shipping seller.
+        """
+        from django.contrib.auth import get_user_model
+        from logistics.models import InPersonDelivery, OrderDelivery
+        from products.models import Products, MarketplaceListing
+
+        User = get_user_model()
+
+        seller_me = User.objects.create_user(
+            email='seller_me_mixed@test.com',
+            password='testpass123'
+        )
+
+        listing_me = MarketplaceListing.objects.create(
+            product=self.product,
+            seller=seller_me,
+            brand=self.brand,
+            condition=self.condition,
+            price=Decimal('200.00'),
+            quantity=5,
+            is_active=True,
+            weight_kg=Decimal('3.00'),
+            height_cm=Decimal('10.00'),
+            width_cm=Decimal('10.00'),
+            length_cm=Decimal('10.00'),
+        )
+
+        order = Order.objects.create(
+            buyer=self.buyer,
+            subtotal=Decimal('300.00'),
+            shipping_cost=Decimal('20.00'),
+            total=Decimal('320.00'),
+            shipping_address={
+                'street': 'Test St', 'city': 'Test', 'state': 'TS', 'zipcode': '12345'
+            },
+            shipping_services={
+                str(self.seller.id): {
+                    'delivery_method': 'in_person',
+                    'cost': 0,
+                    'meeting_location_name': 'Mall',
+                    'meeting_address': {},
+                    'seller_contact_phone': '',
+                    'buyer_contact_phone': '',
+                    'scheduled_date': None,
+                    'scheduled_time': None,
+                    'meeting_notes': '',
+                },
+                str(seller_me.id): {
+                    'delivery_method': 'shipping',
+                    'per_listing': {
+                        str(listing_me.id): {'service_id': 3, 'cost': 20.0}
+                    },
+                },
+            },
+            status='pending_payment'
+        )
+
+        for lx, sx in [(self.listing, self.seller), (listing_me, seller_me)]:
+            OrderItem.objects.create(
+                order=order,
+                listing=lx,
+                seller=sx,
+                quantity=1,
+                unit_price=lx.price,
+                subtotal=lx.price,
+                product_name=self.product.name,
+                product_code='',
+                brand_name=self.brand.name,
+                condition_name=self.condition.name,
+                weight_kg=lx.weight_kg,
+                height_cm=lx.height_cm,
+                width_cm=lx.width_cm,
+                length_cm=lx.length_cm,
+            )
+
+        before_ip = InPersonDelivery.objects.count()
+
+        order.status = OrderStateMachine.PAID
+        order.save()
+
+        after_od = OrderDelivery.objects.filter(order=order).count()
+        after_ip = InPersonDelivery.objects.count()
+
+        # Both sellers must have an OrderDelivery
+        self.assertEqual(after_od, 2, 'Expected 2 OrderDelivery records (one per seller)')
+
+        # The in_person seller must have an InPersonDelivery
+        self.assertEqual(after_ip, before_ip + 1, 'Expected 1 new InPersonDelivery')
+
+        methods = set(
+            OrderDelivery.objects.filter(order=order).values_list('delivery_method', flat=True)
+        )
+        self.assertIn('in_person', methods)
+        self.assertIn('shipping', methods)
+
+    @override_settings(AUTO_CREATE_SHIPMENTS=True)
     @patch('logistics.services.delivery_orchestration_service.DeliveryOrchestrationService.create_order_deliveries')
     def test_handles_order_without_shipping_services(self, mock_create_deliveries):
         """
