@@ -75,7 +75,7 @@ def auto_create_shipments_on_payment(sender, instance, created, **kwargs):
     from logistics.models import OrderDelivery
 
     # Build delivery choices for this order, skipping sellers that already have
-    # an OrderDelivery (in_person ones are created at order creation time).
+    # an OrderDelivery (idempotency guard — avoids duplicates on re-save).
     existing_seller_ids = set(
         OrderDelivery.objects.filter(order=instance).values_list('seller_id', flat=True)
     )
@@ -97,10 +97,9 @@ def auto_create_shipments_on_payment(sender, instance, created, **kwargs):
         )
 
         # Attempt to create shipments/deliveries
-        # This will create OrderDelivery records based on order's shipping_services
+        # This will create OrderDelivery records based on order's shipping_services.
+        # ALL delivery types (shipping, in_person, split) are created here, after payment.
         if instance.shipping_services:
-            # Create deliveries for each seller that doesn't have one yet,
-            # and link Shipments to existing split/shipping OrderDeliveries.
             delivery_choices = []
 
             for seller_id, shipping_info in instance.shipping_services.items():
@@ -111,38 +110,10 @@ def auto_create_shipments_on_payment(sender, instance, created, **kwargs):
                 delivery_method = shipping_info.get('delivery_method', 'shipping')
 
                 if seller_id_int in existing_seller_ids:
-                    # For split: the OrderDelivery(split) was created at order creation.
-                    # Link ALL Shipments for this seller to that OrderDelivery now.
-                    if delivery_method == 'split':
-                        try:
-                            from logistics.models import Shipment, OrderDelivery as OD
-                            order_delivery = OD.objects.get(
-                                order=instance, seller_id=seller_id_int
-                            )
-                            all_shipments = Shipment.objects.filter(
-                                order=instance, seller_id=seller_id_int
-                            )
-                            for s in all_shipments:
-                                if s.order_delivery_id is None:
-                                    s.order_delivery = order_delivery
-                                    s.save(update_fields=['order_delivery', 'updated_at'])
-                                    logger.info(
-                                        f"Linked Shipment {s.id} to split "
-                                        f"OrderDelivery {order_delivery.id} "
-                                        f"(order {instance.order_number})"
-                                    )
-                        except Exception as e:
-                            logger.error(
-                                f"Failed to link Shipments to split OrderDelivery "
-                                f"for seller {seller_id_int} in order "
-                                f"{instance.order_number}: {e}",
-                                exc_info=True,
-                            )
-                    else:
-                        logger.debug(
-                            f"OrderDelivery already exists for seller {seller_id_int} "
-                            f"in order {instance.order_number}, skipping."
-                        )
+                    logger.debug(
+                        f"OrderDelivery already exists for seller {seller_id_int} "
+                        f"in order {instance.order_number}, skipping."
+                    )
                     continue
 
                 if delivery_method == 'shipping':
@@ -168,11 +139,19 @@ def auto_create_shipments_on_payment(sender, instance, created, **kwargs):
                         'delivery_cost': total_cost,
                     })
                 elif delivery_method == 'in_person':
-                    # in_person already created at order creation — only as fallback
+                    # Create in_person OrderDelivery now that payment is confirmed
                     delivery_choices.append({
                         'seller_id': seller_id_int,
                         'delivery_method': 'in_person',
                         **shipping_info,
+                    })
+                elif delivery_method == 'split':
+                    # Create split OrderDelivery (in_person + shipping parts) after payment
+                    delivery_choices.append({
+                        'seller_id': seller_id_int,
+                        'delivery_method': 'split',
+                        'shipping': shipping_info.get('shipping', {}),
+                        'in_person': shipping_info.get('in_person', {}),
                     })
                 else:
                     logger.warning(
@@ -187,12 +166,12 @@ def auto_create_shipments_on_payment(sender, instance, created, **kwargs):
                     delivery_choices=delivery_choices
                 )
 
-                # Link ALL Shipments (created at order creation) to shipping OrderDeliveries.
-                # A seller can have multiple Shipments (one per listing) for a single
-                # OrderDelivery, so we link every unlinked Shipment for that seller.
+                # Link ALL Shipments (created at order creation) to shipping/split
+                # OrderDeliveries. A seller can have multiple Shipments (one per listing)
+                # for a single OrderDelivery, so we link every unlinked Shipment.
                 from logistics.models import Shipment
                 for order_delivery in created_deliveries:
-                    if order_delivery.delivery_method == 'shipping':
+                    if order_delivery.delivery_method in ('shipping', 'split'):
                         all_shipments = Shipment.objects.filter(
                             order=instance, seller=order_delivery.seller
                         )
@@ -201,7 +180,8 @@ def auto_create_shipments_on_payment(sender, instance, created, **kwargs):
                                 s.order_delivery = order_delivery
                                 s.save(update_fields=['order_delivery', 'updated_at'])
                                 logger.info(
-                                    f"Linked Shipment {s.id} to shipping "
+                                    f"Linked Shipment {s.id} to "
+                                    f"{order_delivery.delivery_method} "
                                     f"OrderDelivery {order_delivery.id} "
                                     f"(order {instance.order_number})"
                                 )

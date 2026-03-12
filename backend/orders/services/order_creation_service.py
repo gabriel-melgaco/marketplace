@@ -188,10 +188,9 @@ class OrderCreationService:
         if me_cart_results:
             cls._create_shipment_records_from_cart(order, me_cart_results)
 
-        # Step 7.6: Create OrderDelivery records for in_person sellers immediately.
-        # This makes meeting details visible in admin before payment confirmation.
-        # (Shipping OrderDelivery records are created by the payment signal.)
-        cls._create_in_person_delivery_records(order, shipping_services_data)
+        # NOTE: In-person OrderDelivery records are NOT created here.
+        # All delivery records (in_person and shipping) are created after
+        # payment confirmation via the auto_create_shipments_on_payment signal.
 
         # Step 8: Handle stock management based on strategy
         if cls.STOCK_STRATEGY == 'immediate':
