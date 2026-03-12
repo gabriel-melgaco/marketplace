@@ -158,14 +158,14 @@ class DeliveryOrchestrationService:
             raise ValueError('shipping_service_id é obrigatório para envio via transportadora')
 
         # Criar OrderDelivery (sem Shipment ainda)
-        # O Shipment será criado depois que o pagamento for confirmado
+        # O Shipment será linkado depois que o pagamento for confirmado
+        # via Shipment.order_delivery FK (relação inversa — OrderDelivery não tem campo 'shipment')
         order_delivery = OrderDelivery.objects.create(
             order=order,
             seller=seller,
             delivery_method=DeliveryMethod.SHIPPING,
             status='pending',
             delivery_cost=delivery_cost,
-            shipment=None  # Será criado após pagamento confirmado
         )
 
         # Criar log
@@ -270,7 +270,8 @@ class DeliveryOrchestrationService:
             status='pending',
             delivery_cost=delivery_cost,
             in_person_delivery=in_person_delivery,
-            shipment=None,  # será linkado após pagamento
+            # Shipments são linkados via Shipment.order_delivery FK após pagamento confirmado
+            # (OrderDelivery não tem campo 'shipment' — a relação é inversa)
         )
 
         DeliveryStatusLog.objects.create(
