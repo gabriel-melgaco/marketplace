@@ -6,13 +6,13 @@ import Logo from "@/assets/logo1.png";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { CartDrawer } from "@/components/layout/CartDrawer";
 import { useAuth } from "@/contexts/AuthContext";
-import type { ProductCategory } from "@/types/product";
+import type { CategorySimple } from "@/types/product";
 import { FaBell } from "react-icons/fa";
 
 interface HeaderProps extends HTMLAttributes<HTMLDivElement> {}
 
 function Header(props: HeaderProps) {
-  const [categories, setCategories] = useState<ProductCategory[]>([]);
+  const [categories, setCategories] = useState<CategorySimple[]>([]);
   const { isAuthenticated } = useAuth();
   const location = useLocation();
 
@@ -22,9 +22,19 @@ function Header(props: HeaderProps) {
         const response = await axios.get<{
           count: number;
           next: string | null;
-          results: ProductCategory[];
-        }>("/products/categories/");
-        setCategories(response.data.results);
+          results: { product: { category: CategorySimple | null } }[];
+        }>("/products/listings/", { params: { page_size: 100 } });
+
+        const seen = new Set<string>();
+        const unique: CategorySimple[] = [];
+        for (const listing of response.data.results) {
+          const cat = listing.product.category;
+          if (cat && !seen.has(cat.slug)) {
+            seen.add(cat.slug);
+            unique.push(cat);
+          }
+        }
+        setCategories(unique);
       } catch (error) {
         console.error("Erro ao buscar categorias:", error);
       }
