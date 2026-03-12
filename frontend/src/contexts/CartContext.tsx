@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useMemo, type ReactNode } from "react";
+import { createContext, useContext, useState, useMemo, useEffect, type ReactNode } from "react";
 import type { MarketplaceListing, MarketplaceListingDetail } from "@/types/product";
 
 /** Accepts both the summary and detail listing shapes so callers do not need unsafe casts. */
@@ -20,8 +20,23 @@ interface CartContextData {
 
 export const CartContext = createContext<CartContextData | undefined>(undefined);
 
+const CART_STORAGE_KEY = "cart_items";
+
+function loadCartFromStorage(): CartItem[] {
+  try {
+    const stored = localStorage.getItem(CART_STORAGE_KEY);
+    return stored ? (JSON.parse(stored) as CartItem[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 export function CartProvider({ children }: { children: ReactNode }) {
-  const [items, setItems] = useState<CartItem[]>([]);
+  const [items, setItems] = useState<CartItem[]>(loadCartFromStorage);
+
+  useEffect(() => {
+    localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
+  }, [items]);
 
   const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);
 
