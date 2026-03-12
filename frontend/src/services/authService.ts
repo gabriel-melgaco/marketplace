@@ -189,9 +189,26 @@ export const authService = {
       );
       return response.data;
     } catch (error: any) {
-      throw new Error(
-        error.response?.data?.detail || "Erro ao redefinir senha",
-      );
+      console.error("❌ confirmPasswordReset error:", error.response?.data);
+
+      const apiError = error.response?.data;
+
+      if (apiError?.detail) {
+        throw new Error(apiError.detail);
+      }
+
+      if (typeof apiError === "object") {
+        const fieldMessages: string[] = [];
+        for (const [field, messages] of Object.entries(apiError)) {
+          const msg = Array.isArray(messages) ? messages[0] : messages;
+          fieldMessages.push(String(msg));
+        }
+        if (fieldMessages.length > 0) {
+          throw new Error(fieldMessages[0]);
+        }
+      }
+
+      throw new Error("Erro ao redefinir senha. Tente novamente.");
     }
   },
 
