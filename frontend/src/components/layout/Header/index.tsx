@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import type { HTMLAttributes } from "react";
 import { Link, useLocation } from "react-router-dom";
-import axios from "@/api/axios";
+import { productService } from "@/services/productService";
 import Logo from "@/assets/logo1.png";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { CartDrawer } from "@/components/layout/CartDrawer";
@@ -19,22 +19,8 @@ function Header(props: HeaderProps) {
   useEffect(() => {
     async function fetchCategories() {
       try {
-        const response = await axios.get<{
-          count: number;
-          next: string | null;
-          results: { product: { category: CategorySimple | null } }[];
-        }>("/products/listings/", { params: { page_size: 100 } });
-
-        const seen = new Set<string>();
-        const unique: CategorySimple[] = [];
-        for (const listing of response.data.results) {
-          const cat = listing.product.category;
-          if (cat && !seen.has(cat.slug)) {
-            seen.add(cat.slug);
-            unique.push(cat);
-          }
-        }
-        setCategories(unique);
+        const data = await productService.getFilterOptions();
+        setCategories(data.categories);
       } catch (error) {
         console.error("Erro ao buscar categorias:", error);
       }
