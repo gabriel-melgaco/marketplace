@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { CheckCircle2, XCircle } from "lucide-react";
+import { CheckCircle2, XCircle, Loader2 } from "lucide-react";
+import { logisticsService } from "@/services/logisticsService";
 
 const CLOSE_DELAY_MS = 2000;
 
@@ -12,28 +13,101 @@ const ERROR_HINT: Record<string, string> = {
     "O serviço está temporariamente indisponível. Tente novamente em alguns minutos.",
 };
 
+// Derive the initial page scenario from URL params — computed once on mount.
+type PageScenario =
+  | { type: "success"; meEmail: string | null; environment: string | null }
+  | { type: "error"; errorCode: string; errorMessage: string }
+  | { type: "exchange"; code: string; state: string }
+  | { type: "processing" };
+
+function deriveScenario(): PageScenario {
+  const params = new URLSearchParams(window.location.search);
+
+  if (params.has("error")) {
+    const errorCode = params.get("error") ?? "";
+    const errorMessage =
+      ERROR_HINT[errorCode] ?? "Ocorreu um erro durante a autorização. Tente novamente.";
+    return { type: "error", errorCode, errorMessage };
+  }
+
+  if (params.get("status") === "connected") {
+    return {
+      type: "success",
+      meEmail: params.get("me_email"),
+      environment: params.get("environment"),
+    };
+  }
+
+  const code = params.get("code");
+  const state = params.get("state");
+  if (code) {
+    return { type: "exchange", code, state: state ?? "" };
+  }
+
+  return { type: "processing" };
+}
+
+type ViewState =
+  | { kind: "loading" }
+  | { kind: "success"; meEmail: string | null }
+  | { kind: "error"; message: string }
+  | { kind: "processing" };
+
 export function MelhorEnvioCallback() {
-  // Computed once on mount via lazy initializer — stable across RAF ticks.
-  // A window opened via window.open() with a specific name is safer to detect
-  // than checking window.opener alone, which can be truthy in other scenarios.
+  // Computed once on mount via lazy initializer — stable across renders.
   const [isPopup] = useState(
     () => window.opener != null && window.name === "melhorenvio_oauth",
   );
-  const [hasError] = useState(() =>
-    new URLSearchParams(window.location.search).has("error"),
-  );
-  const [errorCode] = useState(
-    () => new URLSearchParams(window.location.search).get("error") ?? "",
-  );
+  const [scenario] = useState<PageScenario>(deriveScenario);
+
+  // ViewState drives what is rendered. Starts resolved for non-exchange scenarios.
+  const [view, setView] = useState<ViewState>(() => {
+    switch (scenario.type) {
+      case "success":
+        return { kind: "success", meEmail: scenario.meEmail };
+      case "error":
+        return { kind: "error", message: scenario.errorMessage };
+      case "exchange":
+        return { kind: "loading" };
+      case "processing":
+        return { kind: "processing" };
+    }
+  });
 
   const [progress, setProgress] = useState(0); // 0–100
 
+  // When redirect_uri points directly at the frontend, exchange the code via API.
   useEffect(() => {
-    if (!isPopup || hasError) return;
+    if (scenario.type !== "exchange") return;
+
+    let cancelled = false;
+    logisticsService
+      .exchangeMelhorEnvioCode(scenario.code, scenario.state)
+      .then((data) => {
+        if (cancelled) return;
+        setView({ kind: "success", meEmail: data.me_email ?? null });
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        const message =
+          err instanceof Error
+            ? err.message
+            : "Ocorreu um erro durante a autorização. Tente novamente.";
+        setView({ kind: "error", message });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [scenario]);
+
+  // Progress bar + auto-close: only runs after a confirmed success in a popup.
+  useEffect(() => {
+    if (!isPopup || view.kind !== "success") return;
 
     const start = Date.now();
-    // Animate the progress bar in small increments, then close.
     const rafId = { current: 0 };
+
     const tick = () => {
       const elapsed = Date.now() - start;
       const pct = Math.min((elapsed / CLOSE_DELAY_MS) * 100, 100);
@@ -44,14 +118,39 @@ export function MelhorEnvioCallback() {
         window.close();
       }
     };
+
     rafId.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId.current);
-  }, [isPopup, hasError]);
+  }, [isPopup, view.kind]);
 
-  const errorMessage =
-    ERROR_HINT[errorCode] ?? "Ocorreu um erro durante a autorização. Tente novamente.";
+  // --- Loading state (exchange in flight) ---
+  if (view.kind === "loading") {
+    return (
+      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-auto overflow-hidden">
+          <div
+            role="status"
+            aria-live="polite"
+            className="bg-linear-to-r from-blue-900 to-gray-900 p-8 text-white text-center"
+          >
+            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
+              <Loader2 size={36} className="text-white animate-spin" aria-hidden="true" />
+            </div>
+            <h2 className="text-xl font-bold mb-1">Processando autorização…</h2>
+            <p className="text-blue-100 text-sm">Aguarde enquanto conectamos sua conta</p>
+          </div>
+          <div className="p-8 text-center">
+            <p className="text-gray-600 text-sm">
+              Estamos verificando sua autorização com o Melhor Envio.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-  if (hasError) {
+  // --- Error state ---
+  if (view.kind === "error") {
     return (
       <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-auto overflow-hidden">
@@ -68,7 +167,7 @@ export function MelhorEnvioCallback() {
             </p>
           </div>
           <div className="p-8 text-center space-y-4">
-            <p className="text-gray-600 text-sm">{errorMessage}</p>
+            <p className="text-gray-600 text-sm">{view.message}</p>
             {isPopup ? (
               <button
                 onClick={() => window.close()}
@@ -90,6 +189,34 @@ export function MelhorEnvioCallback() {
     );
   }
 
+  // --- Processing state (no recognized params) ---
+  if (view.kind === "processing") {
+    return (
+      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-auto overflow-hidden">
+          <div
+            role="status"
+            aria-live="polite"
+            className="bg-linear-to-r from-blue-900 to-gray-900 p-8 text-white text-center"
+          >
+            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
+              <Loader2 size={36} className="text-white animate-spin" aria-hidden="true" />
+            </div>
+            <h2 className="text-xl font-bold mb-1">Processando…</h2>
+            <p className="text-blue-100 text-sm">Verificando autorização</p>
+          </div>
+          <div className="p-8 text-center">
+            <p className="text-gray-600 text-sm">
+              Esta janela será fechada em instantes.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Success state ---
+  const meEmail = view.meEmail;
   return (
     <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-auto overflow-hidden">
@@ -101,7 +228,9 @@ export function MelhorEnvioCallback() {
             <CheckCircle2 size={36} className="text-white" aria-hidden="true" />
           </div>
           <h2 className="text-xl font-bold mb-1">Melhor Envio conectado!</h2>
-          <p className="text-blue-100 text-sm">Conta autorizada com sucesso</p>
+          <p className="text-blue-100 text-sm">
+            {meEmail ? `Conta ${meEmail} conectada!` : "Conta autorizada com sucesso"}
+          </p>
         </div>
         <div className="p-8 text-center space-y-4">
           <p className="text-gray-600 text-sm">

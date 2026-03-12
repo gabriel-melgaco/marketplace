@@ -62,6 +62,12 @@ export interface CreateAddressRequest {
   is_shipping_address?: boolean;
 }
 
+export interface MelhorEnvioCallbackResponse {
+  message: string;
+  me_email: string;
+  environment: string;
+}
+
 export const logisticsService = {
   async getMelhorEnvioStatus(): Promise<SellerMEStatusResponse> {
     const response = await api.get<SellerMEStatusResponse>("/logistics/me/status/");
@@ -70,6 +76,17 @@ export const logisticsService = {
 
   async getMelhorEnvioConnectUrl(): Promise<SellerMEConnectResponse> {
     const response = await api.get<SellerMEConnectResponse>("/logistics/me/connect/");
+    return response.data;
+  },
+
+  async exchangeMelhorEnvioCode(
+    code: string,
+    state: string,
+  ): Promise<MelhorEnvioCallbackResponse> {
+    const response = await api.get<MelhorEnvioCallbackResponse>(
+      "/logistics/me/callback/",
+      { params: { code, state } },
+    );
     return response.data;
   },
 
