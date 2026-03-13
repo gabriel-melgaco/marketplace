@@ -490,6 +490,7 @@ class SellerPayoutDetailView(generics.RetrieveAPIView):
             fields={
                 'stripe_available': serializers.FloatField(allow_null=True),
                 'stripe_pending': serializers.FloatField(allow_null=True),
+                'stripe_in_transit': serializers.FloatField(allow_null=True),
                 'stripe_balance_error': serializers.BooleanField(),
                 'pending_transfers': serializers.DecimalField(max_digits=10, decimal_places=2),
                 'dispatched_transfers': serializers.DecimalField(max_digits=10, decimal_places=2),
@@ -502,13 +503,16 @@ class SellerPayoutDetailView(generics.RetrieveAPIView):
         "Get the seller's balance. "
         "stripe_available: saldo disponível para saque na conta Connect do vendedor (tempo real via Stripe API, em BRL). "
         "stripe_pending: saldo em liquidação na conta Connect (tipicamente 2-7 dias úteis). "
+        "stripe_in_transit: valor de payouts já sacados pelo vendedor que ainda estão a caminho do banco "
+        "(via stripe.Payout.list(status='in_transit')). Corresponde ao 'Em trânsito para o banco' no Stripe Dashboard. "
         "pending_transfers: valor de splits aguardando disparo ao Stripe. "
         "dispatched_transfers: valor já transferido ao vendedor (histórico local). "
         "failed_transfers: valor em splits com falha (requer reconciliação). "
-        "total_dispatched: mesmo que dispatched_transfers (conveniência). "
         "splits_count: total de splits do vendedor. "
-        "Nota: stripe_available/stripe_pending são a fonte de verdade para saldo; "
-        "dispatched_transfers é o histórico de Transfers criados pela plataforma (não reflete saques bancários do vendedor)."
+        "Nota: stripe_available/stripe_pending/stripe_in_transit são a fonte de verdade para saldo; "
+        "dispatched_transfers é o histórico de Transfers criados pela plataforma (não reflete saques bancários do vendedor). "
+        "stripe_available, stripe_pending e stripe_in_transit são None quando stripe_balance_error=True ou quando "
+        "o vendedor não possui stripe_account_id configurado."
     ),
 )
 @api_view(['GET'])
@@ -546,6 +550,7 @@ def seller_balance(request):
     # --- Balance em tempo real do Stripe Connect ---
     stripe_available = None
     stripe_pending = None
+    stripe_in_transit = None
     stripe_balance_error = False
     stripe_account_id = getattr(user, 'stripe_account_id', None)
 
@@ -563,8 +568,16 @@ def seller_balance(request):
             )
             stripe_available = round((brl_available['amount'] / 100), 2) if brl_available else 0
             stripe_pending = round((brl_pending['amount'] / 100), 2) if brl_pending else 0
+
+            # Payouts em trânsito (já sacados, ainda não chegaram no banco)
+            payouts = stripe.Payout.list(status='in_transit', limit=100, stripe_account=stripe_account_id)
+            stripe_in_transit = round(sum(p['amount'] for p in payouts.auto_paging_iter()) / 100, 2)
+
         except stripe.error.StripeError as e:
             stripe_balance_error = True
+            stripe_available = None
+            stripe_pending = None
+            stripe_in_transit = None
             logger.warning(
                 "Could not retrieve Stripe balance for seller",
                 extra={'user_id': user.id, 'stripe_account_id': stripe_account_id, 'error': str(e)},
@@ -576,6 +589,7 @@ def seller_balance(request):
             'user_id': user.id,
             'stripe_available': stripe_available,
             'stripe_pending': stripe_pending,
+            'stripe_in_transit': stripe_in_transit,
             'dispatched': str(dispatched),
             'splits_count': splits_count,
         }
@@ -584,6 +598,7 @@ def seller_balance(request):
     return Response({
         'stripe_available': stripe_available,
         'stripe_pending': stripe_pending,
+        'stripe_in_transit': stripe_in_transit,
         'stripe_balance_error': stripe_balance_error,
         'pending_transfers': pending,
         'dispatched_transfers': dispatched,
