@@ -189,6 +189,52 @@ class BasePayoutTestCase(TestCase):
             return_value=_make_stripe_balance_mock(available_cents, pending_cents)
         )
 
+    def _mock_stripe_payout_list(self, payout_amounts_cents=None):
+        """
+        Context manager that mocks stripe.Payout.list for in_transit payouts.
+        payout_amounts_cents: list of int amounts in cents; defaults to empty list.
+        """
+        amounts = payout_amounts_cents or []
+        mock_list = MagicMock()
+        mock_list.auto_paging_iter.return_value = iter(
+            [{'amount': a} for a in amounts]
+        )
+        return patch('stripe.Payout.list', return_value=mock_list)
+
+    def _mock_stripe_balance_and_payouts(self, available_cents=0, pending_cents=0, in_transit_cents=None):
+        """
+        Stacked context manager that mocks both stripe.Balance.retrieve and
+        stripe.Payout.list simultaneously.
+        in_transit_cents: list of int payout amounts in cents; defaults to empty list (0 in transit).
+        Returns a single context manager via patch.multiple for convenience.
+        """
+        amounts = in_transit_cents or []
+        mock_payout_list = MagicMock()
+        mock_payout_list.auto_paging_iter.return_value = iter(
+            [{'amount': a} for a in amounts]
+        )
+        from unittest.mock import patch as _patch
+        import unittest.mock as _mock
+
+        class _StackedMock:
+            def __init__(self, balance_mock, payout_mock):
+                self._p1 = _patch('stripe.Balance.retrieve', return_value=balance_mock)
+                self._p2 = _patch('stripe.Payout.list', return_value=payout_mock)
+
+            def __enter__(self):
+                self._p1.__enter__()
+                self._p2.__enter__()
+                return self
+
+            def __exit__(self, *args):
+                self._p2.__exit__(*args)
+                self._p1.__exit__(*args)
+
+        return _StackedMock(
+            _make_stripe_balance_mock(available_cents, pending_cents),
+            mock_payout_list,
+        )
+
 
 # ===========================================================================
 # 1. Authentication & Authorization
@@ -511,12 +557,13 @@ class TestSellerBalanceView(BasePayoutTestCase):
 
     def test_balance_returns_correct_structure(self):
         """Balance response has all expected keys."""
-        with self._mock_stripe_balance(available_cents=9000, pending_cents=0):
+        with self._mock_stripe_balance_and_payouts(available_cents=9000, pending_cents=0):
             self._auth_as(self.seller)
             response = self.client.get(reverse('payments:seller-balance'))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        for key in ['stripe_available', 'stripe_pending', 'stripe_balance_error',
+        for key in ['stripe_available', 'stripe_pending', 'stripe_in_transit',
+                    'stripe_balance_error',
                     'pending_transfers', 'dispatched_transfers',
                     'failed_transfers', 'splits_count']:
             self.assertIn(key, data,
@@ -530,7 +577,7 @@ class TestSellerBalanceView(BasePayoutTestCase):
         Any frontend code relying on response['total_available'] will get undefined.
         The correct fields are now 'stripe_available' (live) and 'dispatched_transfers' (local).
         """
-        with self._mock_stripe_balance():
+        with self._mock_stripe_balance_and_payouts():
             self._auth_as(self.seller)
             response = self.client.get(reverse('payments:seller-balance'))
         data = response.json()
@@ -542,7 +589,7 @@ class TestSellerBalanceView(BasePayoutTestCase):
         FINDING-2 fixed: 'total_dispatched' was removed because it duplicated 'dispatched_transfers'.
         Frontend must use 'dispatched_transfers' as the canonical field.
         """
-        with self._mock_stripe_balance():
+        with self._mock_stripe_balance_and_payouts():
             self._auth_as(self.seller)
             response = self.client.get(reverse('payments:seller-balance'))
         data = response.json()
@@ -552,7 +599,7 @@ class TestSellerBalanceView(BasePayoutTestCase):
 
     def test_dispatched_split_appears_in_dispatched_transfers(self):
         """The setUp dispatched split of 90 BRL must appear in dispatched_transfers."""
-        with self._mock_stripe_balance(available_cents=9000):
+        with self._mock_stripe_balance_and_payouts(available_cents=9000):
             self._auth_as(self.seller)
             response = self.client.get(reverse('payments:seller-balance'))
         data = response.json()
@@ -561,7 +608,7 @@ class TestSellerBalanceView(BasePayoutTestCase):
 
     def test_stripe_available_reflects_mock_balance(self):
         """stripe_available is correctly derived from Stripe API response (in BRL)."""
-        with self._mock_stripe_balance(available_cents=150000, pending_cents=30000):
+        with self._mock_stripe_balance_and_payouts(available_cents=150000, pending_cents=30000):
             self._auth_as(self.seller)
             response = self.client.get(reverse('payments:seller-balance'))
         data = response.json()
@@ -570,11 +617,30 @@ class TestSellerBalanceView(BasePayoutTestCase):
         self.assertAlmostEqual(data['stripe_pending'], 300.00, places=2,
                                msg="30000 cents = 300.00 BRL")
 
+    def test_stripe_in_transit_reflects_payout_list(self):
+        """
+        stripe_in_transit is the sum of in_transit payouts from stripe.Payout.list.
+        A single payout of 255160 cents must yield stripe_in_transit = 2551.60.
+        """
+        with self._mock_stripe_balance_and_payouts(
+            available_cents=0,
+            pending_cents=0,
+            in_transit_cents=[255160],
+        ):
+            self._auth_as(self.seller)
+            response = self.client.get(reverse('payments:seller-balance'))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertAlmostEqual(data['stripe_in_transit'], 2551.60, places=2,
+                               msg="255160 cents = 2551.60 BRL in transit")
+        self.assertFalse(data['stripe_balance_error'])
+
     def test_FINDING3_stripe_api_failure_sets_error_flag(self):
         """
         FINDING-3 fixed: When stripe.Balance.retrieve raises a StripeError,
         the endpoint returns stripe_balance_error=True and stripe_available=None,
         allowing the frontend to show a 'balance unavailable' state instead of R$0.
+        stripe_in_transit must also be None in this case.
         """
         with patch('stripe.Balance.retrieve', side_effect=stripe.error.StripeError("API down")):
             self._auth_as(self.seller)
@@ -587,6 +653,8 @@ class TestSellerBalanceView(BasePayoutTestCase):
                           "FINDING-3 fixed: stripe_available must be None (not 0) when unavailable")
         self.assertIsNone(data['stripe_pending'],
                           "FINDING-3 fixed: stripe_pending must be None (not 0) when unavailable")
+        self.assertIsNone(data['stripe_in_transit'],
+                          "stripe_in_transit must be None when Stripe API fails")
 
     def test_seller_without_stripe_account_skips_stripe_call(self):
         """A seller with no stripe_account_id gets stripe_available=None, no API call."""
@@ -595,15 +663,18 @@ class TestSellerBalanceView(BasePayoutTestCase):
             password='pass',
             stripe_account_id='',
         )
-        with patch('stripe.Balance.retrieve') as mock_retrieve:
+        with patch('stripe.Balance.retrieve') as mock_retrieve, \
+             patch('stripe.Payout.list') as mock_payout_list:
             self._auth_as(user_no_stripe)
             response = self.client.get(reverse('payments:seller-balance'))
             mock_retrieve.assert_not_called()
+            mock_payout_list.assert_not_called()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertIsNone(data['stripe_available'])
         self.assertIsNone(data['stripe_pending'])
+        self.assertIsNone(data['stripe_in_transit'])
         self.assertFalse(data['stripe_balance_error'])
 
     def test_balance_aggregates_multiple_splits_correctly(self):
@@ -655,7 +726,7 @@ class TestSellerBalanceView(BasePayoutTestCase):
             error_message='Stripe error',
         )
 
-        with self._mock_stripe_balance():
+        with self._mock_stripe_balance_and_payouts():
             self._auth_as(self.seller)
             response = self.client.get(reverse('payments:seller-balance'))
         data = response.json()
@@ -691,7 +762,7 @@ class TestSellerBalanceView(BasePayoutTestCase):
             transfer_status='dispatched',
         )
 
-        with self._mock_stripe_balance(available_cents=9000):
+        with self._mock_stripe_balance_and_payouts(available_cents=9000):
             self._auth_as(self.seller)
             response = self.client.get(reverse('payments:seller-balance'))
         data = response.json()
@@ -709,8 +780,7 @@ class TestSellerBalanceView(BasePayoutTestCase):
 
     def test_balance_zero_for_seller_with_no_splits(self):
         """A seller with no splits gets zeros for all buckets."""
-        with patch('stripe.Balance.retrieve',
-                   return_value=_make_stripe_balance_mock(0, 0)):
+        with self._mock_stripe_balance_and_payouts(available_cents=0, pending_cents=0):
             self._auth_as(self.other_seller)
             response = self.client.get(reverse('payments:seller-balance'))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -782,7 +852,7 @@ class TestSellerPayoutLegacyModel(BasePayoutTestCase):
             scheduled_for=timezone.now(),
         )
 
-        with self._mock_stripe_balance():
+        with self._mock_stripe_balance_and_payouts():
             self._auth_as(self.seller)
             response = self.client.get(reverse('payments:seller-balance'))
         data = response.json()
