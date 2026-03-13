@@ -281,6 +281,24 @@ class MarketplaceListingCreateSerializer(serializers.ModelSerializer):
             )
 
         data['shipping_address'] = me_token.me_address
+
+        # Validate that at least one ME carrier accepts the package dimensions
+        # when the seller explicitly requires carrier-only delivery.
+        shipping_method = data.get('shipping_method', ShippingMethodChoices.BOTH)
+        if shipping_method == ShippingMethodChoices.MELHOR_ENVIO:
+            packages = data.get('packages', [])
+            if packages:
+                from logistics.services.melhor_envio_service import MelhorEnvioService
+                me_service = MelhorEnvioService()
+                for pkg in packages:
+                    me_service.validate_package_fits_any_carrier(
+                        seller=user,
+                        weight=float(pkg['weight_kg']),
+                        width=float(pkg['width_cm']),
+                        height=float(pkg['height_cm']),
+                        length=float(pkg['length_cm']),
+                    )
+
         return data
 
     def create(self, validated_data):
@@ -349,7 +367,7 @@ class MarketplaceListingUpdateSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, data):
-        """Valida endereço de envio se fornecido"""
+        """Valida endereço de envio se fornecido e verifica compatibilidade com transportadoras ME."""
         shipping_address = data.get('shipping_address')
 
         if shipping_address:
@@ -376,6 +394,41 @@ class MarketplaceListingUpdateSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({
                     'shipping_address': 'Este endereço está inativo.'
                 })
+
+        # Validate carrier compatibility when shipping_method is set to melhor_envio
+        # on update. We check against the packages being set (if any) or the
+        # existing packages on the instance.
+        new_shipping_method = data.get('shipping_method')
+        if new_shipping_method == ShippingMethodChoices.MELHOR_ENVIO:
+            request = self.context.get('request')
+            if request and request.user.is_authenticated:
+                user = request.user
+                packages_data = data.get('packages')
+                if packages_data is None and self.instance is not None:
+                    # No new packages provided: validate existing packages on the listing
+                    existing_packages = list(self.instance.packages.all())
+                    if existing_packages:
+                        from logistics.services.melhor_envio_service import MelhorEnvioService
+                        me_service = MelhorEnvioService()
+                        for pkg in existing_packages:
+                            me_service.validate_package_fits_any_carrier(
+                                seller=user,
+                                weight=float(pkg.weight_kg),
+                                width=float(pkg.width_cm),
+                                height=float(pkg.height_cm),
+                                length=float(pkg.length_cm),
+                            )
+                elif packages_data:
+                    from logistics.services.melhor_envio_service import MelhorEnvioService
+                    me_service = MelhorEnvioService()
+                    for pkg in packages_data:
+                        me_service.validate_package_fits_any_carrier(
+                            seller=user,
+                            weight=float(pkg['weight_kg']),
+                            width=float(pkg['width_cm']),
+                            height=float(pkg['height_cm']),
+                            length=float(pkg['length_cm']),
+                        )
 
         return data
 

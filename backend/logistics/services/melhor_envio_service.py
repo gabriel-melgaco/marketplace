@@ -2437,6 +2437,181 @@ class MelhorEnvioService:
             logger.error(f'Erro de conexao ao buscar servicos ME: {str(e)}')
             raise Exception(f'Erro de conexao ao buscar servicos Melhor Envio: {str(e)}')
 
+    def validate_package_fits_any_carrier(
+        self,
+        seller,
+        weight: float,
+        width: float,
+        height: float,
+        length: float,
+    ) -> bool:
+        """
+        Verifica se um pacote é aceito por pelo menos uma transportadora do Melhor Envio.
+
+        Chama GET /api/v2/me/shipment/services com o token OAuth do vendedor e percorre
+        as restrições do campo ``restrictions.formats.box`` de cada serviço. O pacote é
+        considerado válido se — para pelo menos um serviço — TODAS as condições abaixo
+        forem satisfeitas:
+
+        - ``weight`` dentro de [min, max]
+        - ``width``  dentro de [min, max]
+        - ``height`` dentro de [min, max]
+        - ``length`` dentro de [min, max]
+        - ``width + height + length <= sum`` (quando o campo ``sum`` estiver presente)
+
+        Unidades esperadas: dimensões em **cm**, peso em **kg** — idêntico ao que o
+        modelo ``ListingPackage`` armazena.
+
+        Args:
+            seller: Instância de ``CustomUser`` (vendedor). Usado para obter o token
+                OAuth e chamar a API com as transportadoras habilitadas na conta.
+            weight: Peso do pacote em kg.
+            width:  Largura do pacote em cm.
+            height: Altura do pacote em cm.
+            length: Comprimento do pacote em cm.
+
+        Returns:
+            ``True`` se o pacote for aceito por ao menos uma transportadora.
+
+        Raises:
+            rest_framework.exceptions.ValidationError: Se nenhuma transportadora aceitar
+                o pacote (mensagem em pt-BR descrevendo as restrições) ou se a chamada à
+                API falhar.
+        """
+        from rest_framework.exceptions import ValidationError
+
+        url = f'{self.base_url}/me/shipment/services'
+
+        try:
+            headers = self._get_headers(seller=seller)
+            response = requests.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+            services = response.json()
+        except requests.exceptions.HTTPError as e:
+            status_code = e.response.status_code if e.response is not None else 'N/A'
+            logger.warning(
+                f'[validate_package_fits_any_carrier] Falha HTTP {status_code} ao buscar '
+                f'serviços ME para o vendedor {seller.email}.'
+            )
+            raise ValidationError(
+                'Não foi possível verificar as restrições de envio com o Melhor Envio. '
+                'Tente novamente em alguns instantes.'
+            )
+        except Exception as e:
+            logger.warning(
+                f'[validate_package_fits_any_carrier] Erro ao buscar serviços ME para o '
+                f'vendedor {seller.email}: {e}'
+            )
+            raise ValidationError(
+                'Não foi possível verificar as restrições de envio com o Melhor Envio. '
+                'Tente novamente em alguns instantes.'
+            )
+
+        dimension_sum = width + height + length
+        accepted_by = []
+
+        for svc in services:
+            if not isinstance(svc, dict):
+                continue
+
+            try:
+                box = (
+                    svc.get('restrictions', {})
+                    .get('formats', {})
+                    .get('box')
+                )
+            except AttributeError:
+                continue
+
+            if not box or not isinstance(box, dict):
+                # Serviço sem restrições de caixa — aceita qualquer dimensão
+                accepted_by.append(svc.get('name', str(svc.get('id', '?'))))
+                continue
+
+            def _fits(value: float, limits: dict) -> bool:
+                lo = limits.get('min')
+                hi = limits.get('max')
+                if lo is not None and value < lo:
+                    return False
+                if hi is not None and value > hi:
+                    return False
+                return True
+
+            if not _fits(weight, box.get('weight') or {}):
+                continue
+            if not _fits(width, box.get('width') or {}):
+                continue
+            if not _fits(height, box.get('height') or {}):
+                continue
+            if not _fits(length, box.get('length') or {}):
+                continue
+
+            # Validar soma das dimensões (largura + altura + comprimento)
+            max_sum = box.get('sum')
+            if max_sum is not None and dimension_sum > max_sum:
+                continue
+
+            accepted_by.append(svc.get('name', str(svc.get('id', '?'))))
+
+        if accepted_by:
+            logger.debug(
+                f'[validate_package_fits_any_carrier] Pacote '
+                f'({weight}kg {width}x{height}x{length}cm) aceito por: {accepted_by}'
+            )
+            return True
+
+        # Monta mensagem de erro informativa com as restrições de cada serviço
+        restriction_lines = []
+        for svc in services:
+            if not isinstance(svc, dict):
+                continue
+            try:
+                box = (
+                    svc.get('restrictions', {})
+                    .get('formats', {})
+                    .get('box')
+                )
+            except AttributeError:
+                continue
+            if not box or not isinstance(box, dict):
+                continue
+
+            name = svc.get('name', f"Serviço {svc.get('id', '?')}")
+            parts = []
+            for dim_label, field_key in [
+                ('Peso (kg)', 'weight'),
+                ('Largura (cm)', 'width'),
+                ('Altura (cm)', 'height'),
+                ('Comprimento (cm)', 'length'),
+            ]:
+                limits = box.get(field_key) or {}
+                lo = limits.get('min')
+                hi = limits.get('max')
+                if lo is not None and hi is not None:
+                    parts.append(f'{dim_label}: {lo}–{hi}')
+                elif lo is not None:
+                    parts.append(f'{dim_label}: mín {lo}')
+                elif hi is not None:
+                    parts.append(f'{dim_label}: máx {hi}')
+            max_sum = box.get('sum')
+            if max_sum is not None:
+                parts.append(f'Soma L+A+C: máx {max_sum} cm')
+            if parts:
+                restriction_lines.append(f'{name}: {", ".join(parts)}')
+
+        if restriction_lines:
+            details = '; '.join(restriction_lines)
+            raise ValidationError(
+                f'As dimensões do pacote ({weight} kg, {width}×{height}×{length} cm) não são '
+                f'aceitas por nenhuma transportadora disponível. '
+                f'Limites por transportadora: {details}.'
+            )
+
+        raise ValidationError(
+            f'As dimensões do pacote ({weight} kg, {width}×{height}×{length} cm) não são '
+            f'aceitas por nenhuma transportadora disponível no Melhor Envio.'
+        )
+
     def lookup_zipcode(self, zipcode):
         """
         Busca informações de um CEP via ViaCEP
