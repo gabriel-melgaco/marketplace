@@ -1,4 +1,4 @@
-from rest_framework import generics, status
+from rest_framework import generics, serializers, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -8,14 +8,15 @@ from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpResponse
 from django.utils import timezone
 from django.db import models
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, inline_serializer
 import json
+import stripe
 
-from .models import Payment, PaymentWebhook, SellerPayout
+from .models import Payment, PaymentWebhook, SellerPayout, PaymentSplit
 from .serializers import (
     PaymentSerializer, PaymentIntentCreateSerializer,
     PaymentConfirmSerializer, RefundSerializer,
-    SellerPayoutSerializer
+    SellerPayoutSerializer, PaymentSplitSerializer,
 )
 from .payment_intent_service import PaymentIntentService, SellerNotReadyError
 from .webhook_service import WebhookService
@@ -427,71 +428,167 @@ def stripe_webhook(request):
 
 
 # =================== Seller Payout Views ===================
-@extend_schema(tags=['Payments'], summary='List seller payouts', description='List all payouts for the authenticated seller.')
+@extend_schema(
+    tags=['Payments'],
+    summary='List seller payouts',
+    description=(
+        'List all payment splits (repasses) for the authenticated seller. '
+        'Each record represents a Stripe Transfer dispatched after a successful payment. '
+        'transfer_status: pending = aguardando disparo | dispatched = transferido | failed = falhou.'
+    ),
+    responses={200: PaymentSplitSerializer(many=True)},
+)
 class SellerPayoutListView(generics.ListAPIView):
-    """Listar repasses do vendedor"""
-    serializer_class = SellerPayoutSerializer
+    """
+    Listar repasses do vendedor.
+
+    Usa PaymentSplit — o modelo real de repasses criado pelo TransferDispatchService
+    após confirmação de pagamento via webhook payment_intent.succeeded.
+    SellerPayout é um modelo legado e nunca é preenchido pelo fluxo atual.
+    """
+    serializer_class = PaymentSplitSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return SellerPayout.objects.filter(
-            seller=self.request.user
-        ).order_by('-created_at')
+        return (
+            PaymentSplit.objects
+            .filter(seller=self.request.user)
+            .select_related('payment__order', 'seller')
+            .order_by('-created_at')
+        )
 
 
-@extend_schema(tags=['Payments'], summary='Get payout details', description='Get detailed information about a specific seller payout.')
+@extend_schema(
+    tags=['Payments'],
+    summary='Get payout details',
+    description='Get detailed information about a specific seller payment split (repasse).',
+    responses={200: PaymentSplitSerializer},
+)
 class SellerPayoutDetailView(generics.RetrieveAPIView):
-    """Detalhes de um repasse"""
-    serializer_class = SellerPayoutSerializer
+    """
+    Detalhes de um repasse.
+
+    Usa PaymentSplit — o modelo real de repasses.
+    """
+    serializer_class = PaymentSplitSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return SellerPayout.objects.filter(seller=self.request.user)
+        return (
+            PaymentSplit.objects
+            .filter(seller=self.request.user)
+            .select_related('payment__order', 'seller')
+        )
 
 
 @extend_schema(
     tags=['Payments'],
     summary='Get seller balance',
-    responses={200: {
-        'type': 'object',
-        'properties': {
-            'pending': {'type': 'number'},
-            'processing': {'type': 'number'},
-            'completed': {'type': 'number'},
-            'total_available': {'type': 'number'}
-        }
-    }},
-    description="Get the seller's balance breakdown (pending, processing, completed)."
+    responses={
+        200: inline_serializer(
+            name='SellerBalanceResponse',
+            fields={
+                'stripe_available': serializers.FloatField(allow_null=True),
+                'stripe_pending': serializers.FloatField(allow_null=True),
+                'stripe_balance_error': serializers.BooleanField(),
+                'pending_transfers': serializers.DecimalField(max_digits=10, decimal_places=2),
+                'dispatched_transfers': serializers.DecimalField(max_digits=10, decimal_places=2),
+                'failed_transfers': serializers.DecimalField(max_digits=10, decimal_places=2),
+                'splits_count': serializers.IntegerField(),
+            }
+        )
+    },
+    description=(
+        "Get the seller's balance. "
+        "stripe_available: saldo disponível para saque na conta Connect do vendedor (tempo real via Stripe API, em BRL). "
+        "stripe_pending: saldo em liquidação na conta Connect (tipicamente 2-7 dias úteis). "
+        "pending_transfers: valor de splits aguardando disparo ao Stripe. "
+        "dispatched_transfers: valor já transferido ao vendedor (histórico local). "
+        "failed_transfers: valor em splits com falha (requer reconciliação). "
+        "total_dispatched: mesmo que dispatched_transfers (conveniência). "
+        "splits_count: total de splits do vendedor. "
+        "Nota: stripe_available/stripe_pending são a fonte de verdade para saldo; "
+        "dispatched_transfers é o histórico de Transfers criados pela plataforma (não reflete saques bancários do vendedor)."
+    ),
 )
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def seller_balance(request):
-    """Saldo disponível do vendedor"""
+    """
+    Saldo do vendedor: balance em tempo real do Stripe Connect + histórico local de repasses.
+
+    - stripe_available / stripe_pending: saldo real na conta Connect do vendedor (via Stripe API)
+    - pending_transfers / dispatched_transfers / failed_transfers: histórico local de PaymentSplit
+    - Vendedores sem stripe_account_id recebem stripe_available=0 e stripe_pending=0
+    """
     user = request.user
-    
-    # Total pendente
-    pending = SellerPayout.objects.filter(
-        seller=user,
-        status='pending'
-    ).aggregate(total=models.Sum('net_amount'))['total'] or 0
-    
-    # Total processando
-    processing = SellerPayout.objects.filter(
-        seller=user,
-        status='processing'
-    ).aggregate(total=models.Sum('net_amount'))['total'] or 0
-    
-    # Total pago
-    completed = SellerPayout.objects.filter(
-        seller=user,
-        status='completed'
-    ).aggregate(total=models.Sum('net_amount'))['total'] or 0
-    
+
+    # --- Histórico local de repasses (PaymentSplit) ---
+    base_qs = PaymentSplit.objects.filter(seller=user)
+    aggregated = base_qs.aggregate(
+        pending_total=models.Sum(
+            'net_amount', filter=models.Q(transfer_status='pending')
+        ),
+        dispatched_total=models.Sum(
+            'net_amount', filter=models.Q(transfer_status='dispatched')
+        ),
+        failed_total=models.Sum(
+            'net_amount', filter=models.Q(transfer_status='failed')
+        ),
+        splits_count=models.Count('id'),
+    )
+
+    pending = aggregated['pending_total'] or 0
+    dispatched = aggregated['dispatched_total'] or 0
+    failed = aggregated['failed_total'] or 0
+    splits_count = aggregated['splits_count'] or 0
+
+    # --- Balance em tempo real do Stripe Connect ---
+    stripe_available = None
+    stripe_pending = None
+    stripe_balance_error = False
+    stripe_account_id = getattr(user, 'stripe_account_id', None)
+
+    if stripe_account_id:
+        try:
+            balance = stripe.Balance.retrieve(stripe_account=stripe_account_id)
+            # Filtra por BRL; fallback para primeiro item caso não haja BRL
+            brl_available = next(
+                (b for b in balance.available if b['currency'] == 'brl'),
+                balance.available[0] if balance.available else None,
+            )
+            brl_pending = next(
+                (b for b in balance.pending if b['currency'] == 'brl'),
+                balance.pending[0] if balance.pending else None,
+            )
+            stripe_available = round((brl_available['amount'] / 100), 2) if brl_available else 0
+            stripe_pending = round((brl_pending['amount'] / 100), 2) if brl_pending else 0
+        except stripe.error.StripeError as e:
+            stripe_balance_error = True
+            logger.warning(
+                "Could not retrieve Stripe balance for seller",
+                extra={'user_id': user.id, 'stripe_account_id': stripe_account_id, 'error': str(e)},
+            )
+
+    logger.info(
+        "Seller balance retrieved",
+        extra={
+            'user_id': user.id,
+            'stripe_available': stripe_available,
+            'stripe_pending': stripe_pending,
+            'dispatched': str(dispatched),
+            'splits_count': splits_count,
+        }
+    )
+
     return Response({
-        'pending': float(pending),
-        'processing': float(processing),
-        'completed': float(completed),
-        'total_available': float(pending + processing)
+        'stripe_available': stripe_available,
+        'stripe_pending': stripe_pending,
+        'stripe_balance_error': stripe_balance_error,
+        'pending_transfers': pending,
+        'dispatched_transfers': dispatched,
+        'failed_transfers': failed,
+        'splits_count': splits_count,
     })
 
 

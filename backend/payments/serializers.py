@@ -5,13 +5,15 @@ from .models import Payment, PaymentWebhook, SellerPayout, PaymentSplit, Dispute
 class PaymentSplitSerializer(serializers.ModelSerializer):
     """Serializer de split de pagamento por vendedor"""
     seller_email = serializers.EmailField(source='seller.email', read_only=True)
+    order_number = serializers.CharField(source='payment.order.order_number', read_only=True)
 
     class Meta:
         model = PaymentSplit
         fields = [
-            'id', 'payment', 'seller', 'seller_email',
-            'gross_amount', 'platform_fee_amount', 'net_amount',
-            'stripe_transfer_id', 'transfer_status',
+            'id', 'payment', 'order_number', 'seller', 'seller_email',
+            'gross_amount', 'product_amount', 'shipping_amount',
+            'platform_fee_amount', 'net_amount',
+            'shipping_status', 'stripe_transfer_id', 'transfer_status',
             'error_message', 'created_at', 'updated_at',
         ]
         read_only_fields = fields
@@ -88,7 +90,10 @@ class PaymentWebhookSerializer(serializers.ModelSerializer):
 
 
 class SellerPayoutSerializer(serializers.ModelSerializer):
-    """Serializer de repasse ao vendedor"""
+    """
+    Serializer de repasse ao vendedor (legado — model SellerPayout).
+    Mantido para compatibilidade. Endpoints /payouts/ e /balance/ usam PaymentSplitSerializer.
+    """
     seller_email = serializers.EmailField(source='seller.email', read_only=True)
     order_number = serializers.CharField(source='order.order_number', read_only=True)
 
