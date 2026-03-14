@@ -132,10 +132,6 @@ export function ListingForm() {
   const [stripeCheckError, setStripeCheckError] = useState(false);
   const [stripeOnboardingLoading, setStripeOnboardingLoading] = useState(false);
 
-  // Seller's default Melhor Envio address ID — fetched on mount, used when
-  // creating a listing. Stays null if the seller has no ME addresses.
-  const [meAddressId, setMeAddressId] = useState<number | null>(null);
-
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState<FormData>(INITIAL_FORMDATA);
   const [filterOptions, setFilterOptions] =
@@ -459,24 +455,6 @@ export function ListingForm() {
     }
     loadOptions();
   }, [isEditMode]);
-
-  // Fetch the seller's Melhor Envio default address ID for use during listing
-  // creation. Runs after meConnected is confirmed true by the gate check effect,
-  // avoiding a redundant getMelhorEnvioStatus call on mount.
-  useEffect(() => {
-    if (!meConnected) return;
-    async function fetchMeAddress() {
-      try {
-        const addresses = await logisticsService.getAddresses();
-        if (addresses.length === 0) return;
-        const defaultAddr = addresses.find((a) => a.is_default) ?? addresses[0];
-        setMeAddressId(defaultAddr.id);
-      } catch {
-        // Non-fatal — listing will be created without seller_shipping_address
-      }
-    }
-    fetchMeAddress();
-  }, [meConnected]);
 
   // Fetch marketplace fee once on mount (no auth required)
   useEffect(() => {
@@ -897,10 +875,7 @@ export function ListingForm() {
 
       try {
         const listingData = buildListingData();
-        const createdListing = await productService.createListing({
-          ...listingData,
-          seller_shipping_address: meAddressId,
-        });
+        const createdListing = await productService.createListing(listingData);
         const newListingId = createdListing.id;
 
         if (!newListingId) {
