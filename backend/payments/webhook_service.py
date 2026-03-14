@@ -425,6 +425,33 @@ class WebhookService:
                 }
             )
 
+        # Notify buyer that payment was confirmed.
+        try:
+            from notifications.services import NotificationService
+            from notifications.models import NotificationType
+            NotificationService.notify(
+                recipient=order.buyer,
+                event_type=NotificationType.PAYMENT_CONFIRMED,
+                title=f'Pagamento confirmado — Pedido #{order.order_number}',
+                body=(
+                    f'Seu pagamento de R$ {payment.amount:.2f} foi confirmado. '
+                    f'Seu pedido #{order.order_number} está sendo preparado.'
+                ),
+                metadata={
+                    'order_id': str(order.id),
+                    'order_number': order.order_number,
+                    'payment_id': payment.id,
+                    'amount': str(payment.amount),
+                },
+                idempotency_key=f'payment_confirmed_{payment.id}',
+            )
+        except Exception as _notify_exc:
+            logger.warning(
+                'Falha ao enfileirar notificação payment_confirmed para pedido %s: %s',
+                order.order_number,
+                _notify_exc,
+            )
+
         logger.info(
             "Payment succeeded handler completed",
             extra={
@@ -490,6 +517,33 @@ class WebhookService:
                 exc_info=True
             )
             raise
+
+        # Notify buyer that payment failed.
+        try:
+            from notifications.services import NotificationService
+            from notifications.models import NotificationType
+            NotificationService.notify(
+                recipient=order.buyer,
+                event_type=NotificationType.PAYMENT_FAILED,
+                title=f'Falha no pagamento — Pedido #{order.order_number}',
+                body=(
+                    f'Infelizmente o pagamento do pedido #{order.order_number} não foi processado. '
+                    f'Motivo: {failure_message or "Verifique os dados do cartão e tente novamente."}'
+                ),
+                metadata={
+                    'order_id': str(order.id),
+                    'order_number': order.order_number,
+                    'payment_id': payment.id,
+                    'failure_message': failure_message,
+                },
+                idempotency_key=f'payment_failed_{payment.id}',
+            )
+        except Exception as _notify_exc:
+            logger.warning(
+                'Falha ao enfileirar notificação payment_failed para pedido %s: %s',
+                order.order_number,
+                _notify_exc,
+            )
 
         logger.warning(
             "Payment failed handler completed",
@@ -705,6 +759,36 @@ class WebhookService:
         # Attempt Transfer Reversals to recover funds from sellers
         if not dispute.reversal_attempted:
             WebhookService._attempt_transfer_reversals_for_dispute(dispute, payment)
+
+        # Notify buyer about dispute opening (only on creation).
+        if created:
+            try:
+                from notifications.services import NotificationService
+                from notifications.models import NotificationType
+                order = payment.order
+                NotificationService.notify(
+                    recipient=order.buyer,
+                    event_type=NotificationType.DISPUTE_OPENED,
+                    title=f'Disputa aberta — Pedido #{order.order_number}',
+                    body=(
+                        f'Uma disputa foi aberta para o pedido #{order.order_number}. '
+                        f'Nossa equipe entrará em contato em breve.'
+                    ),
+                    metadata={
+                        'order_id': str(order.id),
+                        'order_number': order.order_number,
+                        'dispute_id': dispute_id,
+                        'charge_id': charge_id,
+                        'reason': dispute_data.reason,
+                    },
+                    idempotency_key=f'dispute_opened_{dispute_id}',
+                )
+            except Exception as _notify_exc:
+                logger.warning(
+                    'Falha ao enfileirar notificação dispute_opened para disputa %s: %s',
+                    dispute_id,
+                    _notify_exc,
+                )
 
         logger.warning(
             "Dispute record created/updated",

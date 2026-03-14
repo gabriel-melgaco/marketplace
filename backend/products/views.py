@@ -1,7 +1,7 @@
 from rest_framework import generics, status, filters
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 from django.shortcuts import get_object_or_404
 from django.db.models import Q, Min, Max, Count
 from django.utils import timezone
@@ -279,7 +279,20 @@ class MarketplaceListingCreateView(generics.CreateAPIView):
                 'Complete o onboarding em POST /api/payments/connect/onboarding-link/ '
                 'e aguarde a ativação.'
             )
-        serializer.save(seller=self.request.user, is_active=True)
+        listing = serializer.save(seller=self.request.user, is_active=True)
+        try:
+            from notifications.services.notification_service import NotificationService
+            from notifications.models import NotificationType
+            NotificationService.notify(
+                recipient=self.request.user,
+                event_type=NotificationType.LISTING_CREATED,
+                title=f'Anúncio publicado: {listing.title}',
+                body=f'Seu anúncio "{listing.title}" foi publicado com sucesso.',
+                metadata={'listing_id': listing.id, 'listing_title': listing.title},
+                idempotency_key=f'listing_created_{listing.id}',
+            )
+        except Exception:
+            pass
 
     def create(self, request, *args, **kwargs):
         response = super().create(request, *args, **kwargs)
@@ -357,6 +370,51 @@ def increment_view_count(request, pk):
     listing.views_count += 1
     listing.save(update_fields=['views_count'])
     return Response({'views_count': listing.views_count})
+
+
+@extend_schema(
+    tags=['Products'],
+    summary='Block a listing (admin)',
+    description='Admin action: deactivates a marketplace listing and notifies the seller.',
+    request=None,
+    responses={
+        200: inline_serializer(
+            name='BlockListingResponse',
+            fields={
+                'is_active': rf_serializers.BooleanField(),
+                'message': rf_serializers.CharField(),
+            }
+        ),
+    }
+)
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def block_listing(request, pk):
+    """Admin blocks a listing and notifies the seller."""
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+    listing = get_object_or_404(MarketplaceListing, pk=pk)
+    if not listing.is_active:
+        return Response({'is_active': False, 'message': 'Listing already inactive'})
+    listing.is_active = False
+    listing.save(update_fields=['is_active'])
+    try:
+        from notifications.services.notification_service import NotificationService
+        from notifications.models import NotificationType
+        NotificationService.notify(
+            recipient=listing.seller,
+            event_type=NotificationType.LISTING_BLOCKED,
+            title=f'Anúncio bloqueado: {listing.title}',
+            body=(
+                f'Seu anúncio "{listing.title}" foi bloqueado por um administrador. '
+                'Entre em contato com o suporte para mais informações.'
+            ),
+            metadata={'listing_id': listing.id, 'listing_title': listing.title},
+            idempotency_key=f'listing_blocked_{listing.id}',
+        )
+    except Exception as _exc:
+        _log.warning('listing_blocked notification failed: %s', _exc)
+    return Response({'is_active': False, 'message': 'Listing blocked successfully.'})
 
 
 @extend_schema(

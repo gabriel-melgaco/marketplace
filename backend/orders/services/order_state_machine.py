@@ -195,6 +195,46 @@ class OrderStateMachine:
             }
         )
 
+        # Notify buyer about status change.
+        # Use default-arg capture for loop-safety and guard against import issues.
+        try:
+            from notifications.services import NotificationService
+            from notifications.models import NotificationType
+
+            status_labels = {
+                cls.PAID: 'Pagamento confirmado',
+                cls.PROCESSING: 'Pedido em processamento',
+                cls.SHIPPED: 'Pedido enviado',
+                cls.DELIVERED: 'Pedido entregue',
+                cls.CANCELED: 'Pedido cancelado',
+                cls.FAILED: 'Falha no pagamento',
+                cls.REFUNDED: 'Pedido reembolsado',
+            }
+            label = status_labels.get(new_status, new_status.replace('_', ' ').title())
+
+            NotificationService.notify(
+                recipient=order.buyer,
+                event_type=NotificationType.ORDER_STATUS_CHANGED,
+                title=f'Pedido #{order.order_number}: {label}',
+                body=(
+                    f'O status do seu pedido #{order.order_number} foi atualizado para: {label}.'
+                ),
+                metadata={
+                    'order_id': str(order.id),
+                    'order_number': order.order_number,
+                    'old_status': old_status,
+                    'new_status': new_status,
+                },
+                idempotency_key=f'order_status_{order.id}_{new_status}',
+            )
+        except Exception as _notify_exc:
+            logger.warning(
+                'Falha ao enfileirar notificação order_status_changed para pedido %s → %s: %s',
+                order.order_number,
+                new_status,
+                _notify_exc,
+            )
+
         return history
 
     @classmethod
