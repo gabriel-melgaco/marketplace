@@ -30,6 +30,9 @@ AUTH_USER_MODEL = 'authentication.CustomUser'
 
 
 INSTALLED_APPS = [
+    # Daphne must be first so it overrides runserver with ASGI support (WebSocket)
+    'daphne',
+
     #ALLOWED ORIGINS
     'corsheaders',
 
@@ -64,6 +67,10 @@ INSTALLED_APPS = [
 
     'logistics',
 
+    'chats',
+
+    'channels',
+
 ]
 
 REST_FRAMEWORK = {
@@ -97,6 +104,7 @@ SPECTACULAR_SETTINGS = {
         {'name': 'Logistics - Deliveries', 'description': 'Order delivery orchestration (dual delivery: shipping + in-person)'},
         {'name': 'Logistics - In-Person', 'description': 'In-person delivery management, meeting scheduling, and confirmation'},
         {'name': 'Logistics - Utilities', 'description': 'CEP/zipcode lookup and other utilities'},
+        {'name': 'Chat', 'description': 'Real-time messaging between buyers, sellers, and support'},
     ],
     'COMPONENT_SPLIT_REQUEST': True,
     'SCHEMA_PATH_PREFIX': '/api/',
@@ -106,6 +114,10 @@ SPECTACULAR_SETTINGS = {
         'DeliveryStatusEnum': 'logistics.models.OrderDelivery.DELIVERY_STATUS_CHOICES',
         'MeetingStatusEnum': 'logistics.models.InPersonDelivery.MEETING_STATUS_CHOICES',
         'PaymentMethodEnum': 'payments.models.Payment.PAYMENT_METHOD_CHOICES',
+        'ConversationTypeEnum': 'chats.models.Conversation.CONVERSATION_TYPE_CHOICES',
+        'ConversationStatusEnum': 'chats.models.Conversation.STATUS_CHOICES',
+        'ParticipantRoleEnum': 'chats.models.ConversationParticipant.ROLE_CHOICES',
+        'MessageTypeEnum': 'chats.models.Message.MESSAGE_TYPE_CHOICES',
     },
 }
 
@@ -142,6 +154,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'api.wsgi.application'
+ASGI_APPLICATION = 'api.asgi.application'
 
 
 # Database
@@ -403,4 +416,66 @@ LOGGING = {
             'propagate': False,
         },
     },
+}
+
+
+#=========================================================================
+#-------------------------REDIS CONFIG------------------------------------
+#========================================================================='
+if ENVIRONMENT == "prd":
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": f"redis://:{os.getenv('REDIS_PASSWORD')}@redis:6379/1",
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            }
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": "redis://localhost:6379/1",
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            }
+        }
+    }
+
+# =========================================================================
+# DJANGO CHANNELS — WebSocket channel layer
+# Uses Redis DB 2 (separate from Django cache on DB 1) to avoid eviction
+# collisions. In production the Redis password is applied via the URL.
+# =========================================================================
+if ENVIRONMENT == 'prd':
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                "hosts": [f"redis://:{os.getenv('REDIS_PASSWORD')}@redis:6379/2"],
+                "capacity": 100,
+                "expiry": 60,
+            },
+        }
+    }
+else:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                # channels_redis 4.x não aceita 'db' como parâmetro direto.
+                # O banco Redis é especificado via URL no campo 'hosts'.
+                "hosts": ["redis://127.0.0.1:6379/2"],
+                "capacity": 100,
+                "expiry": 60,
+            },
+        }
+    }
+
+# Add chats logger
+LOGGING['loggers']['chats'] = {
+    'handlers': ['console'],
+    'level': 'DEBUG',
+    'propagate': False,
 }
