@@ -101,6 +101,7 @@ export interface SellerShippingAddressDetail {
 export interface MarketplaceListing {
   id: number;
   product: ProductSimple;
+  category: CategorySimple | null;
   seller: number;
   seller_name: string;
   title: string;

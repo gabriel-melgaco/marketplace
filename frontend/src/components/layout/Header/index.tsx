@@ -19,8 +19,17 @@ function Header(props: HeaderProps) {
   useEffect(() => {
     async function fetchCategories() {
       try {
-        const data = await productService.getFilterOptions();
-        setCategories(data.categories);
+        const data = await productService.getListings({ page_size: 100 });
+        const seen = new Set<string>();
+        const unique: CategorySimple[] = [];
+        for (const listing of data.results) {
+          const cat = listing.category;
+          if (cat && !seen.has(cat.slug)) {
+            seen.add(cat.slug);
+            unique.push(cat);
+          }
+        }
+        setCategories(unique);
       } catch (error) {
         console.error("Erro ao buscar categorias:", error);
       }
