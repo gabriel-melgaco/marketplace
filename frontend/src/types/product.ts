@@ -143,7 +143,6 @@ export interface CreateListingRequest {
   price: string;
   quantity?: number;
   packages: ListingPackageRequest[];
-  seller_shipping_address?: number | null;
   shipping_method?: ShippingMethod;
 }
 
@@ -157,7 +156,7 @@ export interface UpdateListingRequest {
   quantity?: number;
   is_active?: boolean;
   packages?: ListingPackageRequest[];
-  seller_shipping_address?: number | null;
+  shipping_address?: number | null;
   shipping_method?: ShippingMethod;
 }
 
