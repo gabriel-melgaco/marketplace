@@ -30,6 +30,7 @@ import type {
   MarketplaceListingDetail,
   MarketplaceListing,
   ListingFreightQuoteResponse,
+  ShippingMethod,
 } from "@/types/product";
 import { logisticsService } from "@/services/logisticsService";
 
@@ -162,6 +163,33 @@ function FreightCalculator({ listingId }: { listingId: number }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+const SHIPPING_METHOD_LABELS: Record<
+  NonNullable<ShippingMethod>,
+  { label: string; icon: "truck" | "mappin" | "both" }
+> = {
+  in_person: { label: "Somente retirada presencial", icon: "mappin" },
+  melhor_envio: { label: "Somente envio via transportadora", icon: "truck" },
+  both: { label: "Envio via transportadora ou retirada presencial", icon: "both" },
+};
+
+function ShippingMethodInfo({ method }: { method: ShippingMethod | undefined }) {
+  if (!method) return null;
+  const { label, icon } = SHIPPING_METHOD_LABELS[method];
+  return (
+    <div className="bg-white rounded-xl p-4 shadow-md flex items-center gap-3">
+      {icon === "mappin" ? (
+        <MapPin size={16} className="text-blue-800 shrink-0" />
+      ) : (
+        <Truck size={16} className="text-blue-800 shrink-0" />
+      )}
+      <div>
+        <p className="text-xs text-gray-500">Método de entrega</p>
+        <p className="text-sm font-medium text-gray-800">{label}</p>
+      </div>
     </div>
   );
 }
@@ -497,6 +525,7 @@ export function ProductDetail() {
                 </button>
               </div>
 
+              <ShippingMethodInfo method={listing.shipping_method} />
               {listing.shipping_method !== "in_person" && (
                 <FreightCalculator listingId={listing.id} />
               )}
@@ -728,6 +757,7 @@ export function ProductDetail() {
                 </button>
               </div>
 
+              <ShippingMethodInfo method={listing.shipping_method} />
               {listing.shipping_method !== "in_person" && (
                 <FreightCalculator listingId={listing.id} />
               )}
