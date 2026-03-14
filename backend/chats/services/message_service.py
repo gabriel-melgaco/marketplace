@@ -115,6 +115,39 @@ class MessageService:
         # Touch conversation so ordering by -updated_at reflects this message
         Conversation.objects.filter(pk=conversation.pk).update(updated_at=now)
 
+        # Notify all other participants about the new message.
+        # Import inside function to avoid circular imports.
+        if statuses:
+            try:
+                from django.contrib.auth import get_user_model as _get_user_model
+                from notifications.services import NotificationService
+                from notifications.models import NotificationType
+                _User = _get_user_model()
+                sender_name = sender.get_full_name() or sender.email
+                recipients = _User.objects.filter(pk__in=other_participants)
+                for _recipient in recipients:
+                    NotificationService.notify(
+                        recipient=_recipient,
+                        event_type=NotificationType.NEW_MESSAGE,
+                        title=f'Nova mensagem de {sender_name}',
+                        body=(
+                            content[:120] + '…' if len(content) > 120 else content
+                        ),
+                        metadata={
+                            'conversation_id': str(conversation.pk),
+                            'message_id': str(message.id),
+                            'sender_id': sender.pk,
+                            'sender_name': sender_name,
+                        },
+                        idempotency_key=f'new_message_{message.id}_{_recipient.pk}',
+                    )
+            except Exception as _notify_exc:
+                logger.warning(
+                    "Falha ao enfileirar notificação new_message para conversa %s: %s",
+                    conversation.pk,
+                    _notify_exc,
+                )
+
         logger.info(
             "Message %s sent by user %s in conversation %s",
             message.id, sender.pk, conversation.pk,

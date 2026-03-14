@@ -288,4 +288,30 @@ class ShipmentCreationService:
             f"{len(checkedout_shipments)} envio(s)"
         )
 
+        # Notify buyer about shipment creation.
+        try:
+            from notifications.services import NotificationService
+            from notifications.models import NotificationType
+            NotificationService.notify(
+                recipient=order.buyer,
+                event_type=NotificationType.SHIPMENT_CREATED,
+                title=f'Envio criado — Pedido #{order.order_number}',
+                body=(
+                    f'O envio do seu pedido #{order.order_number} foi criado. '
+                    f'{len(checkedout_shipments)} pacote(s) serão enviados.'
+                ),
+                metadata={
+                    'order_id': str(order.id),
+                    'order_number': order.order_number,
+                    'shipment_count': len(checkedout_shipments),
+                },
+                idempotency_key=f'shipment_created_{order.id}',
+            )
+        except Exception as _notify_exc:
+            logger.warning(
+                'Falha ao enfileirar notificação shipment_created para pedido %s: %s',
+                order.order_number,
+                _notify_exc,
+            )
+
         return checkedout_shipments, checkout_result

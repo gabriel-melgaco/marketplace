@@ -2064,6 +2064,44 @@ def melhor_envio_webhook(request):
 
         shipment.save()
 
+        # Notificar comprador sobre atualização do status do envio
+        try:
+            from notifications.services.notification_service import NotificationService
+            from notifications.models import NotificationType
+            _order = shipment.order
+            if _order and _order.buyer:
+                _status_labels = {
+                    'pending': 'pendente',
+                    'released': 'etiqueta paga',
+                    'generated': 'etiqueta gerada',
+                    'posted': 'postado pelo vendedor',
+                    'in_transit': 'em trânsito',
+                    'out_for_delivery': 'saiu para entrega',
+                    'delivered': 'entregue',
+                    'cancelled': 'cancelado',
+                }
+                _label = _status_labels.get(new_shipment_status, new_shipment_status)
+                NotificationService.notify(
+                    recipient=_order.buyer,
+                    event_type=NotificationType.SHIPMENT_STATUS_UPDATED,
+                    title=f'Envio atualizado: {_label}',
+                    body=(
+                        f'O status do seu envio para o pedido #{_order.order_number} '
+                        f'foi atualizado para "{_label}".'
+                    ),
+                    metadata={
+                        'shipment_id': str(shipment.id),
+                        'order_id': str(_order.id),
+                        'order_number': _order.order_number,
+                        'new_status': new_shipment_status,
+                        'old_status': old_shipment_status,
+                        'tracking_code': shipment.melhorenvio_tracking_code,
+                    },
+                    idempotency_key=f'shipment_status_{shipment.id}_{new_shipment_status}',
+                )
+        except Exception as _exc:
+            logger.warning('shipment_status_updated notification failed: %s', _exc)
+
         logger.info(
             f'Shipment {shipment.id} atualizado: {old_shipment_status} → {new_shipment_status} (evento: {event})'
         )

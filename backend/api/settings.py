@@ -71,6 +71,8 @@ INSTALLED_APPS = [
 
     'channels',
 
+    'notifications',
+
 ]
 
 REST_FRAMEWORK = {
@@ -105,6 +107,7 @@ SPECTACULAR_SETTINGS = {
         {'name': 'Logistics - In-Person', 'description': 'In-person delivery management, meeting scheduling, and confirmation'},
         {'name': 'Logistics - Utilities', 'description': 'CEP/zipcode lookup and other utilities'},
         {'name': 'Chat', 'description': 'Real-time messaging between buyers, sellers, and support'},
+        {'name': 'Notifications', 'description': 'User notifications, read status management, and delivery preferences'},
     ],
     'COMPONENT_SPLIT_REQUEST': True,
     'SCHEMA_PATH_PREFIX': '/api/',
@@ -479,3 +482,33 @@ LOGGING['loggers']['chats'] = {
     'level': 'DEBUG',
     'propagate': False,
 }
+
+# Add notifications logger
+LOGGING['loggers']['notifications'] = {
+    'handlers': ['console'],
+    'level': 'INFO',
+    'propagate': False,
+}
+
+# =========================================================================
+# CELERY CONFIGURATION
+# Broker and result backend both use Redis DB 0 (separate from cache DB 1
+# and channel layer DB 2).
+# =========================================================================
+if ENVIRONMENT == 'prd':
+    _redis_pass = os.getenv('REDIS_PASSWORD', '')
+    _redis_auth = f':{_redis_pass}@' if _redis_pass else ''
+    CELERY_BROKER_URL = f'redis://{_redis_auth}redis:6379/0'
+    CELERY_RESULT_BACKEND = f'redis://{_redis_auth}redis:6379/0'
+else:
+    CELERY_BROKER_URL = 'redis://127.0.0.1:6379/0'
+    CELERY_RESULT_BACKEND = 'redis://127.0.0.1:6379/0'
+
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_TASK_TRACK_STARTED = True
+# Prevent tasks from running indefinitely
+CELERY_TASK_SOFT_TIME_LIMIT = 300   # 5 min soft limit
+CELERY_TASK_TIME_LIMIT = 600        # 10 min hard limit

@@ -210,6 +210,35 @@ class OrderCreationService:
         # Step 10: Clear cart
         cart.items.all().delete()
 
+        # Step 11: Notify buyer about the new order.
+        # Import inside function to avoid circular imports.
+        try:
+            from notifications.services import NotificationService
+            from notifications.models import NotificationType
+            NotificationService.notify(
+                recipient=user,
+                event_type=NotificationType.ORDER_CREATED,
+                title=f'Pedido #{order.order_number} criado',
+                body=(
+                    f'Seu pedido foi criado com sucesso. '
+                    f'Total: R$ {order.total:.2f}. '
+                    f'Aguardando confirmação do pagamento.'
+                ),
+                metadata={
+                    'order_id': str(order.id),
+                    'order_number': order.order_number,
+                    'total': str(order.total),
+                },
+                idempotency_key=f'order_created_{order.id}',
+            )
+        except Exception as _notify_exc:
+            # Notification failure must NOT roll back the order.
+            logger.warning(
+                'Falha ao enfileirar notificação order_created para pedido %s: %s',
+                order.order_number,
+                _notify_exc,
+            )
+
         logger.info(
             f"Order {order.order_number} created successfully",
             extra={

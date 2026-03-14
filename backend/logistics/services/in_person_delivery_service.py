@@ -85,6 +85,29 @@ class InPersonDeliveryService:
             buyer_contact_phone=buyer_contact_phone or '',
         )
 
+        # Notificar ambas as partes se a entrega já foi agendada na criação
+        if initial_status == 'scheduled':
+            try:
+                from notifications.services.notification_service import NotificationService
+                from notifications.models import NotificationType
+                _scheduled = f'{scheduled_date} às {scheduled_time}'
+                for _recipient in [seller, buyer]:
+                    NotificationService.notify(
+                        recipient=_recipient,
+                        event_type=NotificationType.DELIVERY_SCHEDULED,
+                        title='Entrega presencial agendada',
+                        body=f'A entrega presencial foi agendada para {_scheduled} em {meeting_location_name or "local a definir"}.',
+                        metadata={
+                            'in_person_delivery_id': str(in_person_delivery.id),
+                            'location': meeting_location_name,
+                            'scheduled_date': str(scheduled_date),
+                            'scheduled_time': str(scheduled_time),
+                        },
+                        idempotency_key=f'delivery_scheduled_{in_person_delivery.id}_created_{_recipient.pk}',
+                    )
+            except Exception:
+                pass
+
         return in_person_delivery
 
     @staticmethod
@@ -220,6 +243,28 @@ class InPersonDeliveryService:
                         changed_by=user,
                         notes='Ambas as partes confirmaram o encontro'
                     )
+
+                    # Notificar ambas as partes sobre a confirmação da entrega
+                    try:
+                        from notifications.services.notification_service import NotificationService
+                        from notifications.models import NotificationType
+                        for _recipient in [in_person_delivery.seller, in_person_delivery.buyer]:
+                            NotificationService.notify(
+                                recipient=_recipient,
+                                event_type=NotificationType.DELIVERY_CONFIRMED,
+                                title='Entrega presencial confirmada',
+                                body='Ambas as partes confirmaram a entrega presencial. O encontro está confirmado.',
+                                metadata={
+                                    'in_person_delivery_id': str(in_person_delivery.id),
+                                    'order_delivery_id': str(order_delivery.id),
+                                    'location': in_person_delivery.meeting_location_name,
+                                    'scheduled_date': str(in_person_delivery.scheduled_date),
+                                    'scheduled_time': str(in_person_delivery.scheduled_time),
+                                },
+                                idempotency_key=f'delivery_confirmed_{in_person_delivery.id}_{_recipient.pk}',
+                            )
+                    except Exception:
+                        pass
             except OrderDelivery.DoesNotExist:
                 pass
 
@@ -273,6 +318,36 @@ class InPersonDeliveryService:
                     in_person_delivery.meeting_status = 'scheduled'
 
             in_person_delivery.save()
+
+            # Notificar ambas as partes quando encontro for agendado/reagendado
+            if (
+                ('scheduled_date' in kwargs or 'scheduled_time' in kwargs)
+                and in_person_delivery.scheduled_date
+                and in_person_delivery.scheduled_time
+            ):
+                try:
+                    from notifications.services.notification_service import NotificationService
+                    from notifications.models import NotificationType
+                    _scheduled = f'{in_person_delivery.scheduled_date} às {in_person_delivery.scheduled_time}'
+                    for _recipient in [in_person_delivery.seller, in_person_delivery.buyer]:
+                        NotificationService.notify(
+                            recipient=_recipient,
+                            event_type=NotificationType.DELIVERY_SCHEDULED,
+                            title='Entrega presencial agendada',
+                            body=f'A entrega presencial foi agendada para {_scheduled}.',
+                            metadata={
+                                'in_person_delivery_id': str(in_person_delivery.id),
+                                'location': in_person_delivery.meeting_location_name,
+                                'scheduled_date': str(in_person_delivery.scheduled_date),
+                                'scheduled_time': str(in_person_delivery.scheduled_time),
+                            },
+                            idempotency_key=(
+                                f'delivery_scheduled_{in_person_delivery.id}'
+                                f'_{in_person_delivery.scheduled_date}_{_recipient.pk}'
+                            ),
+                        )
+                except Exception:
+                    pass
 
         return in_person_delivery
 

@@ -492,6 +492,19 @@ def stripe_connect_webhook(request):
                         logger.info(
                             f"Connect webhook: seller_verified=True | account_id={account_id} user_id={user.id}"
                         )
+                        try:
+                            from notifications.services.notification_service import NotificationService
+                            from notifications.models import NotificationType
+                            NotificationService.notify(
+                                recipient=user,
+                                event_type=NotificationType.SELLER_VERIFIED,
+                                title='Conta de vendedor verificada',
+                                body='Sua conta Stripe foi verificada com sucesso. Você já pode receber pagamentos.',
+                                metadata={'stripe_account_id': account_id},
+                                idempotency_key=f'seller_verified_{user.id}_{account_id}',
+                            )
+                        except Exception as _exc:
+                            logger.warning('seller_verified notification failed: %s', _exc)
                     elif not charges_enabled and user.seller_verified:
                         user.seller_verified = False
                         user.seller_verified_at = None
@@ -531,6 +544,19 @@ def stripe_connect_webhook(request):
                         logger.info(
                             f"Connect webhook: seller_verified=True via capability | account_id={account_id} user_id={user.id}"
                         )
+                        try:
+                            from notifications.services.notification_service import NotificationService
+                            from notifications.models import NotificationType
+                            NotificationService.notify(
+                                recipient=user,
+                                event_type=NotificationType.SELLER_VERIFIED,
+                                title='Conta de vendedor verificada',
+                                body='Sua conta Stripe foi verificada com sucesso. Você já pode receber pagamentos.',
+                                metadata={'stripe_account_id': account_id},
+                                idempotency_key=f'seller_verified_{user.id}_{account_id}',
+                            )
+                        except Exception as _exc:
+                            logger.warning('seller_verified notification failed: %s', _exc)
                     elif cap_status in ('inactive', 'unrequested') and user.seller_verified:
                         user.seller_verified = False
                         user.seller_verified_at = None

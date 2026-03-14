@@ -38,6 +38,7 @@ urlpatterns = [
     path('listings/<int:pk>/update/', views.MarketplaceListingUpdateView.as_view(), name='listing-update'),
     path('listings/<int:pk>/delete/', views.MarketplaceListingDeleteView.as_view(), name='listing-delete'),
     path('listings/<int:pk>/activate/', views.toggle_listing_active, name='listing-activate'),
+    path('listings/<int:pk>/block/', views.block_listing, name='listing-block'),
     path('listings/<int:pk>/mark-as-sold/', views.mark_as_sold, name='listing-mark-sold'),
     
     # =================== Listing Images ===================
