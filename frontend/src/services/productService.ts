@@ -39,6 +39,7 @@ export const productService = {
     product__category__slug?: string;
     ordering?: string;
     page?: number;
+    page_size?: number;
   }) {
     const response = await api.get<PaginatedResponse<MarketplaceListing>>(
       "/products/listings/",
