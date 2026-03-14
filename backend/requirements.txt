@@ -33,3 +33,11 @@ cryptography==46.0.3
 # =================== Testing ===================
 pytest==9.0.2
 pytest-django==4.11.1
+
+
+#===================== Redis =====================
+redis==7.3.0
+django-redis==6.0.0
+channels==4.3.2
+channels_redis==4.3.0
+msgpack==1.1.2

@@ -16,6 +16,7 @@ urlpatterns = [
     path('api/logistics/', include('logistics.urls')),
     path('api/payments/', include('payments.urls')),
     path('api/orders/', include('orders.urls')),
+    path('api/chats/', include('chats.urls')),
     path('api/config/marketplace/fee/', marketplace_fee, name='marketplace-fee'),
     path('accounts/', include('allauth.urls')),
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
