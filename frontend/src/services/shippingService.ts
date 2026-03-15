@@ -1,4 +1,5 @@
 import api from "@/api/axios";
+import type { SellerShipment } from "@/types/orders";
 
 export interface ShippingQuote {
   id: number;
@@ -33,6 +34,9 @@ export interface Shipment {
   shipping_cost: string;
   status: string;
   label_url?: string;
+  tracking_url?: string;
+  melhorenvio_tracking_code?: string;
+  estimated_delivery_date?: string;
   created_at: string;
   updated_at: string;
 }
@@ -63,7 +67,7 @@ export interface TrackShipmentResponse {
 
 export interface OrderShipmentsResponse {
   order_id: string;
-  shipments: Shipment[];
+  shipments: SellerShipment[];
 }
 
 export const shippingService = {
@@ -104,6 +108,13 @@ export const shippingService = {
 
   async trackShipment(shipmentId: number) {
     const response = await api.post<TrackShipmentResponse>(`/logistics/shipments/${shipmentId}/track/`);
+    return response.data;
+  },
+
+  async markAsShipped(shipmentId: number, trackingCode: string) {
+    const response = await api.post<Shipment>(`/logistics/shipments/${shipmentId}/ship/`, {
+      tracking_code: trackingCode,
+    });
     return response.data;
   },
 };
