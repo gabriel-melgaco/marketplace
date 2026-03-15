@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Payment, PaymentWebhook, SellerPayout, PaymentSplit, Dispute
+from .models import Payment, PaymentWebhook, SellerPayout, PaymentSplit, Dispute, RefundRequest, RefundRequestHistory
 
 
 class PaymentSplitSerializer(serializers.ModelSerializer):
@@ -75,11 +75,112 @@ class PaymentConfirmSerializer(serializers.Serializer):
     payment_method_id = serializers.CharField(required=False)
 
 
-class RefundSerializer(serializers.Serializer):
-    """Serializer para solicitar reembolso"""
+class LegacyRefundSerializer(serializers.Serializer):
+    """
+    Serializer legado para o endpoint POST /api/payments/refund/ (DEPRECATED — retorna 410).
+    Mantido apenas para o @extend_schema do endpoint depreciado.
+    """
     payment_id = serializers.IntegerField()
     amount = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
     reason = serializers.CharField(required=False, allow_blank=True)
+
+
+# Alias para compatibilidade com import no views.py legado
+RefundSerializer = LegacyRefundSerializer
+
+
+class RefundRequestHistorySerializer(serializers.ModelSerializer):
+    """Audit trail de um RefundRequest"""
+    changed_by_email = serializers.EmailField(
+        source='changed_by.email', read_only=True, allow_null=True
+    )
+
+    class Meta:
+        model = RefundRequestHistory
+        fields = [
+            'id', 'refund_request', 'from_status', 'to_status',
+            'changed_by', 'changed_by_email', 'actor_type', 'notes', 'created_at',
+        ]
+        read_only_fields = fields
+
+
+class RefundRequestSerializer(serializers.ModelSerializer):
+    """Serializer completo de RefundRequest"""
+    requested_by_email = serializers.EmailField(
+        source='requested_by.email', read_only=True
+    )
+    decided_by_email = serializers.EmailField(
+        source='decided_by.email', read_only=True, allow_null=True
+    )
+    order_number = serializers.CharField(
+        source='order.order_number', read_only=True
+    )
+    refund_type_display = serializers.CharField(
+        source='get_refund_type_display', read_only=True
+    )
+    status_display = serializers.CharField(
+        source='get_status_display', read_only=True
+    )
+    history = RefundRequestHistorySerializer(many=True, read_only=True)
+
+    class Meta:
+        model = RefundRequest
+        fields = [
+            'id', 'payment', 'order', 'order_number',
+            'requested_by', 'requested_by_email',
+            'status', 'status_display',
+            'refund_type', 'refund_type_display',
+            'amount_requested', 'amount_approved',
+            'reason_buyer', 'reason_seller', 'reason_platform',
+            'evidence_urls', 'seller_evidence_urls',
+            'seller_deadline', 'escalation_deadline',
+            'decided_by', 'decided_by_email',
+            'stripe_refund_id', 'metadata',
+            'created_at', 'updated_at', 'resolved_at',
+            'history',
+        ]
+        read_only_fields = [
+            'id', 'status', 'status_display', 'amount_approved',
+            'reason_seller', 'reason_platform',
+            'seller_evidence_urls', 'seller_deadline', 'escalation_deadline',
+            'decided_by', 'decided_by_email',
+            'stripe_refund_id', 'metadata',
+            'created_at', 'updated_at', 'resolved_at',
+            'history', 'order_number', 'requested_by_email',
+            'refund_type_display',
+        ]
+
+
+class RefundRequestCreateSerializer(serializers.Serializer):
+    """Serializer para abertura de solicitação de reembolso"""
+    payment_id = serializers.IntegerField()
+    refund_type = serializers.ChoiceField(
+        choices=RefundRequest.REFUND_TYPE_CHOICES
+    )
+    amount_requested = serializers.DecimalField(max_digits=10, decimal_places=2)
+    reason_buyer = serializers.CharField(min_length=10, max_length=2000)
+    evidence_urls = serializers.ListField(
+        child=serializers.URLField(), required=False, default=list, max_length=10
+    )
+
+
+class RefundRequestApproveSerializer(serializers.Serializer):
+    """Serializer para aprovação pelo vendedor"""
+    amount_approved = serializers.DecimalField(max_digits=10, decimal_places=2)
+
+
+class RefundRequestRejectSerializer(serializers.Serializer):
+    """Serializer para rejeição pelo vendedor"""
+    reason = serializers.CharField(min_length=10, max_length=2000)
+    evidence_urls = serializers.ListField(
+        child=serializers.URLField(), required=False, default=list, max_length=10
+    )
+
+
+class RefundRequestPlatformDecideSerializer(serializers.Serializer):
+    """Serializer para decisão da plataforma (staff)"""
+    approve = serializers.BooleanField()
+    reason = serializers.CharField(min_length=10, max_length=2000)
 
 
 class PaymentWebhookSerializer(serializers.ModelSerializer):
