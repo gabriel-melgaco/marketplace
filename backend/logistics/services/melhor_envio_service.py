@@ -2236,6 +2236,8 @@ class MelhorEnvioService:
 
                 def _status_rank(s):
                     mapped = self._map_status(s)
+                    if mapped is None:
+                        return -1
                     try:
                         return STATUS_ORDER.index(mapped)
                     except ValueError:
@@ -2279,14 +2281,33 @@ class MelhorEnvioService:
                     shipment.melhorenvio_tracking_code = tracking_codes[0]   # retrocompat
                     shipment.melhorenvio_tracking_codes = tracking_codes     # lista completa
 
-                # Determinar status geral a partir do pacote menos avançado
+                # Determinar status geral a partir do pacote menos avançado.
+                # Proteção contra regressão: só atualiza o status se o novo for
+                # mais avançado (rank maior) que o status atual persistido no DB.
                 if pkg_statuses:
                     least_advanced_raw = min(pkg_statuses, key=_status_rank)
                     overall_status = self._map_status(least_advanced_raw)
-                    shipment.status = overall_status
 
-                    if overall_status == 'delivered' and not shipment.delivered_at:
-                        shipment.delivered_at = timezone.now()
+                    if overall_status is None:
+                        # Status retornado pela ME não reconhecido — preservar status atual
+                        logger.warning(
+                            f'Status desconhecido retornado pela ME para shipment {shipment.id}: '
+                            f'"{least_advanced_raw}" — status atual mantido ({shipment.status})'
+                        )
+                    else:
+                        current_rank = STATUS_ORDER.index(shipment.status) if shipment.status in STATUS_ORDER else -1
+                        new_rank = STATUS_ORDER.index(overall_status) if overall_status in STATUS_ORDER else -1
+
+                        if new_rank >= current_rank:
+                            shipment.status = overall_status
+                            if overall_status == 'delivered' and not shipment.delivered_at:
+                                shipment.delivered_at = timezone.now()
+                        else:
+                            logger.warning(
+                                f'Track shipment {shipment.id}: ME retornou status "{overall_status}" '
+                                f'(rank {new_rank}) que é anterior ao status atual "{shipment.status}" '
+                                f'(rank {current_rank}). Status mantido sem regressão.'
+                            )
 
                 shipment.save()
 
@@ -2313,18 +2334,29 @@ class MelhorEnvioService:
             raise Exception(f'Erro ao rastrear envio: {str(e)}')
     
     def _map_status(self, melhorenvio_status):
-        """Mapeia status do Melhor Envio para o sistema"""
+        """Mapeia status do Melhor Envio para o sistema.
+
+        O fallback retorna None (em vez de 'pending') para que o chamador possa
+        distinguir um status desconhecido de um status 'pending' legítimo e evitar
+        regressões acidentais de status já alcançados.
+        """
         status_map = {
+            # Status iniciais
             'pending': 'pending',
-            'paid': 'paid',
+            'paid': 'released',       # ME "paid" = etiqueta paga → released no nosso modelo
+            'released': 'released',   # alias
+            'generated': 'generated', # etiqueta gerada
+            # Status de trânsito
             'posted': 'posted',
             'in_transit': 'in_transit',
+            'out_for_delivery': 'out_for_delivery',
+            # Status finais
             'delivered': 'delivered',
             'cancelled': 'cancelled',
             'returned': 'returned',
-            'undelivered': 'undelivered'
+            'undelivered': 'returned',  # sem equivalente exato → tratado como devolvido
         }
-        return status_map.get(melhorenvio_status, 'pending')
+        return status_map.get(melhorenvio_status)
     
     def _get_seller_active_service_ids(self, seller) -> set:
         """
