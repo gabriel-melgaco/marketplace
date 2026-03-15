@@ -8,7 +8,10 @@ import { ForgotPassword } from "@/pages/auth/ForgotPassword";
 import ResetPassword from "@/pages/auth/ResetPassword";
 import { Register } from "@/pages/auth/Register";
 import { Checkout } from "@/pages/Checkout/ClientcheCkout";
-import { Payment } from "@/pages/Checkout/ClientPayment";
+import { Payment } from "@/pages/Payment";
+import { PaymentSuccess } from "@/pages/Payment/PaymentSuccess";
+import { PaymentProcessing } from "@/pages/Payment/PaymentProcessing";
+import { PaymentFailed } from "@/pages/Payment/PaymentFailed";
 import { OrderConfirmed } from "@/pages/Checkout/OrderConfirmed";
 import { Dashboard } from "@/pages/Dashboard/ClientDashboard";
 import { ListingForm } from "@/pages/Dashboard/ListingForm";
@@ -68,6 +71,9 @@ const router = createBrowserRouter([
           { path: "myreviews", element: <MyReviews /> },
           { path: "checkout", element: <Checkout /> },
           { path: "payment", element: <Payment /> },
+          { path: "payment/success", element: <PaymentSuccess /> },
+          { path: "payment/processing", element: <PaymentProcessing /> },
+          { path: "payment/failed", element: <PaymentFailed /> },
           { path: "orderconfirmed", element: <OrderConfirmed /> },
           { path: "chat/:listingId?", element: <Chat /> },
           { path: "account", element: <AccountPage /> },

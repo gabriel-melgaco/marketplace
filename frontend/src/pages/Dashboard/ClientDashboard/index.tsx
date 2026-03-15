@@ -23,6 +23,7 @@ import { confirmDelete } from "@/utils/confirmDialog";
 import Swal from "sweetalert2";
 import { orderService } from "@/services/orderService";
 import { reviewService } from "@/services/reviewService";
+import { SaleOrderModal } from "@/components/ui/SaleOrderModal";
 import { toPublicUrl } from "@/services/storageService";
 import { createRoute } from "@/routes/routePaths";
 import type { MarketplaceListing } from "@/types/product";
@@ -440,6 +441,7 @@ function SalesSection() {
   const [sales, setSales] = useState<OrderList[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
 
   const loadSales = useCallback(async () => {
     setLoading(true);
@@ -489,7 +491,8 @@ function SalesSection() {
         {sales.map((sale) => (
           <div
             key={sale.id}
-            className="flex items-center justify-between py-3.5 px-2 -mx-2 hover:bg-gray-50 rounded-xl transition-colors"
+            onClick={() => setSelectedSaleId(sale.id)}
+            className="flex items-center justify-between py-3.5 px-2 -mx-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer"
           >
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-gray-800">
@@ -507,10 +510,19 @@ function SalesSection() {
                 })}
               </p>
               <StatusBadge status={sale.status} />
+              <ChevronRight size={16} className="text-gray-300" />
             </div>
           </div>
         ))}
       </div>
+
+      {selectedSaleId && (
+        <SaleOrderModal
+          orderId={selectedSaleId}
+          onClose={() => setSelectedSaleId(null)}
+          onOrderUpdated={loadSales}
+        />
+      )}
     </div>
   );
 }
