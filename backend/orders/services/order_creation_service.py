@@ -210,11 +210,13 @@ class OrderCreationService:
         # Step 10: Clear cart
         cart.items.all().delete()
 
-        # Step 11: Notify buyer about the new order.
+        # Step 11: Notify buyer and sellers about the new order.
         # Import inside function to avoid circular imports.
         try:
             from notifications.services import NotificationService
             from notifications.models import NotificationType
+
+            # Notify buyer
             NotificationService.notify(
                 recipient=user,
                 event_type=NotificationType.ORDER_CREATED,
@@ -229,8 +231,39 @@ class OrderCreationService:
                     'order_number': order.order_number,
                     'total': str(order.total),
                 },
-                idempotency_key=f'order_created_{order.id}',
+                idempotency_key=f'order_created_buyer_{order.id}',
             )
+
+            # Notify each seller that has items in this order
+            sellers_notified = set()
+            for item in order.items.select_related('seller').all():
+                seller = item.seller
+                if seller.id in sellers_notified:
+                    continue
+                sellers_notified.add(seller.id)
+                # Calculate this seller's subtotal from order items
+                seller_subtotal = sum(
+                    i.subtotal
+                    for i in order.items.filter(seller=seller)
+                )
+                NotificationService.notify(
+                    recipient=seller,
+                    event_type=NotificationType.ORDER_CREATED,
+                    title=f'Nova venda — Pedido #{order.order_number}',
+                    body=(
+                        f'Você recebeu um novo pedido! '
+                        f'Pedido #{order.order_number}. '
+                        f'Total dos seus itens: R$ {seller_subtotal:.2f}. '
+                        f'Aguardando confirmação do pagamento.'
+                    ),
+                    metadata={
+                        'order_id': str(order.id),
+                        'order_number': order.order_number,
+                        'seller_subtotal': str(seller_subtotal),
+                        'buyer_id': user.id,
+                    },
+                    idempotency_key=f'order_created_seller_{order.id}_{seller.id}',
+                )
         except Exception as _notify_exc:
             # Notification failure must NOT roll back the order.
             logger.warning(

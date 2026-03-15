@@ -195,13 +195,13 @@ class OrderStateMachine:
             }
         )
 
-        # Notify buyer about status change.
+        # Notify buyer and sellers about status change.
         # Use default-arg capture for loop-safety and guard against import issues.
         try:
             from notifications.services import NotificationService
             from notifications.models import NotificationType
 
-            status_labels = {
+            buyer_status_labels = {
                 cls.PAID: 'Pagamento confirmado',
                 cls.PROCESSING: 'Pedido em processamento',
                 cls.SHIPPED: 'Pedido enviado',
@@ -210,14 +210,15 @@ class OrderStateMachine:
                 cls.FAILED: 'Falha no pagamento',
                 cls.REFUNDED: 'Pedido reembolsado',
             }
-            label = status_labels.get(new_status, new_status.replace('_', ' ').title())
+            buyer_label = buyer_status_labels.get(new_status, new_status.replace('_', ' ').title())
 
+            # Notify buyer
             NotificationService.notify(
                 recipient=order.buyer,
                 event_type=NotificationType.ORDER_STATUS_CHANGED,
-                title=f'Pedido #{order.order_number}: {label}',
+                title=f'Pedido #{order.order_number}: {buyer_label}',
                 body=(
-                    f'O status do seu pedido #{order.order_number} foi atualizado para: {label}.'
+                    f'O status do seu pedido #{order.order_number} foi atualizado para: {buyer_label}.'
                 ),
                 metadata={
                     'order_id': str(order.id),
@@ -225,8 +226,40 @@ class OrderStateMachine:
                     'old_status': old_status,
                     'new_status': new_status,
                 },
-                idempotency_key=f'order_status_{order.id}_{new_status}',
+                idempotency_key=f'order_status_buyer_{order.id}_{new_status}',
             )
+
+            # Notify sellers for status changes that are relevant to them:
+            # PAID → they should start preparing the order
+            # CANCELED / REFUNDED → the sale is reversed
+            seller_relevant_statuses = {
+                cls.PAID: 'Pagamento confirmado — prepare o pedido',
+                cls.CANCELED: 'Pedido cancelado',
+                cls.REFUNDED: 'Pedido reembolsado',
+            }
+            seller_label = seller_relevant_statuses.get(new_status)
+            if seller_label:
+                seen_sellers = set()
+                for item in order.items.select_related('seller').all():
+                    seller = item.seller
+                    if seller.id in seen_sellers:
+                        continue
+                    seen_sellers.add(seller.id)
+                    NotificationService.notify(
+                        recipient=seller,
+                        event_type=NotificationType.ORDER_STATUS_CHANGED,
+                        title=f'Pedido #{order.order_number}: {seller_label}',
+                        body=(
+                            f'O pedido #{order.order_number} teve seu status atualizado para: {seller_label}.'
+                        ),
+                        metadata={
+                            'order_id': str(order.id),
+                            'order_number': order.order_number,
+                            'old_status': old_status,
+                            'new_status': new_status,
+                        },
+                        idempotency_key=f'order_status_seller_{order.id}_{new_status}_{seller.id}',
+                    )
         except Exception as _notify_exc:
             logger.warning(
                 'Falha ao enfileirar notificação order_status_changed para pedido %s → %s: %s',
