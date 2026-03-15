@@ -26,7 +26,7 @@ from django.utils import timezone
 from django.db import transaction
 from decimal import Decimal
 
-from .models import Payment, PaymentWebhook, PaymentSplit, Dispute
+from .models import Payment, PaymentWebhook, PaymentSplit, Dispute, RefundRequest
 
 logger = logging.getLogger(__name__)
 
@@ -929,7 +929,15 @@ class WebhookService:
     def _handle_charge_refunded(event, webhook):
         """
         Handle charge.refunded event.
-        Updates Payment status to 'refunded' and records refund metadata.
+
+        Se existe um RefundRequest em stripe_refund_pending associado ao charge,
+        delega para RefundRequestService.confirm_refunded() que cuida de:
+          - atualizar Payment e Order
+          - criar Transfer Reversals
+          - notificar comprador e vendedores
+          - transicionar RefundRequest para 'refunded'
+
+        Caso contrário (reembolso legado / manual), atualiza Payment diretamente.
         """
         charge = event.data.object
         charge_id = charge.id
@@ -950,6 +958,71 @@ class WebhookService:
             )
             return
 
+        webhook.payment = payment
+        webhook.save(update_fields=['payment'])
+
+        # Extrair o refund_id do evento para localizar o RefundRequest
+        # O evento charge.refunded inclui charge.refunds.data[0].id
+        stripe_refund_id = None
+        try:
+            refunds_data = getattr(charge, 'refunds', None)
+            if refunds_data and getattr(refunds_data, 'data', None):
+                stripe_refund_id = refunds_data.data[0].id
+        except Exception:
+            pass
+
+        # Tentar localizar RefundRequest via stripe_refund_id ou via status pending
+        refund_request = None
+
+        if stripe_refund_id:
+            refund_request = RefundRequest.objects.filter(
+                payment=payment,
+                stripe_refund_id=stripe_refund_id,
+                status='stripe_refund_pending',
+            ).first()
+
+        # Fallback: buscar por status pending se não localizou por ID
+        if refund_request is None:
+            refund_request = RefundRequest.objects.filter(
+                payment=payment,
+                status='stripe_refund_pending',
+            ).order_by('-created_at').first()
+
+        if refund_request is not None:
+            # Fluxo não-unilateral: delegar ao RefundRequestService
+            logger.info(
+                "charge.refunded — delegating to RefundRequestService",
+                extra={
+                    'charge_id': charge_id,
+                    'refund_request_id': str(refund_request.id),
+                    'stripe_refund_id': stripe_refund_id,
+                },
+            )
+            try:
+                from .refund_request_service import RefundRequestService
+                RefundRequestService.confirm_refunded(
+                    refund_request=refund_request,
+                    stripe_refund_id=stripe_refund_id or '',
+                )
+            except Exception as e:
+                logger.error(
+                    "Failed to confirm_refunded via RefundRequestService: %s",
+                    e,
+                    extra={
+                        'charge_id': charge_id,
+                        'refund_request_id': str(refund_request.id),
+                    },
+                    exc_info=True,
+                )
+                raise
+            return
+
+        # Fluxo legado: sem RefundRequest — atualizar Payment diretamente
+        logger.info(
+            "charge.refunded — legacy path (no RefundRequest found)",
+            extra={'charge_id': charge_id, 'payment_id': payment.id},
+        )
+
         payment.status = 'refunded'
         payment.refunded_at = timezone.now()
 
@@ -962,11 +1035,8 @@ class WebhookService:
         payment.metadata['charge_refunded_at'] = timezone.now().isoformat()
         payment.save()
 
-        webhook.payment = payment
-        webhook.save(update_fields=['payment'])
-
         logger.info(
-            "Payment marked as refunded via charge.refunded",
+            "Payment marked as refunded via charge.refunded (legacy)",
             extra={
                 'payment_id': payment.id,
                 'charge_id': charge_id,

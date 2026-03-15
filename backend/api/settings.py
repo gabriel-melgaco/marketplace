@@ -108,6 +108,7 @@ SPECTACULAR_SETTINGS = {
         {'name': 'Logistics - Utilities', 'description': 'CEP/zipcode lookup and other utilities'},
         {'name': 'Chat', 'description': 'Real-time messaging between buyers, sellers, and support'},
         {'name': 'Notifications', 'description': 'User notifications, read status management, and delivery preferences'},
+        {'name': 'Refund Requests', 'description': 'Non-unilateral refund request workflow: buyer → seller review → platform escalation'},
     ],
     'COMPONENT_SPLIT_REQUEST': True,
     'SCHEMA_PATH_PREFIX': '/api/',
@@ -121,6 +122,10 @@ SPECTACULAR_SETTINGS = {
         'ConversationStatusEnum': 'chats.models.Conversation.STATUS_CHOICES',
         'ParticipantRoleEnum': 'chats.models.ConversationParticipant.ROLE_CHOICES',
         'MessageTypeEnum': 'chats.models.Message.MESSAGE_TYPE_CHOICES',
+        'RefundRequestStatusEnum': 'payments.models.RefundRequest.STATUS_CHOICES',
+        'RefundTypeEnum': 'payments.models.RefundRequest.REFUND_TYPE_CHOICES',
+        # Resolve colisão de payment_method entre Payment (com choices) e Order (CharField sem choices)
+        'PaymentMethodEnum': ['credit_card', 'debit_card', 'pix', 'boleto'],
     },
 }
 
@@ -512,3 +517,26 @@ CELERY_TASK_TRACK_STARTED = True
 # Prevent tasks from running indefinitely
 CELERY_TASK_SOFT_TIME_LIMIT = 300   # 5 min soft limit
 CELERY_TASK_TIME_LIMIT = 600        # 10 min hard limit
+
+# ----------------------
+# Celery Beat Schedule
+# ----------------------
+from celery.schedules import crontab
+
+CELERY_BEAT_SCHEDULE = {
+    # Escala RefundRequests cujo prazo do vendedor expirou (hourly)
+    'expire-seller-review-hourly': {
+        'task': 'payments.tasks.expire_seller_review_task',
+        'schedule': crontab(minute=0),
+    },
+    # Fecha RefundRequests cuja janela de escalada do comprador expirou (hourly)
+    'expire-buyer-escalation-hourly': {
+        'task': 'payments.tasks.expire_buyer_escalation_window_task',
+        'schedule': crontab(minute=15),
+    },
+    # Lembra vendedores cujo prazo vence em menos de 24h (daily 9h)
+    'notify-seller-deadline-reminder-daily': {
+        'task': 'payments.tasks.notify_seller_deadline_reminder_task',
+        'schedule': crontab(hour=9, minute=0),
+    },
+}

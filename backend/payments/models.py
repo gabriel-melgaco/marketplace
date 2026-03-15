@@ -1,3 +1,4 @@
+import uuid
 from django.db import models
 from django.conf import settings
 from orders.models import Order
@@ -241,6 +242,149 @@ class PaymentWebhook(models.Model):
 
     def __str__(self):
         return f'{self.event_type} - {self.stripe_event_id}'
+
+
+class RefundRequest(models.Model):
+    """
+    Solicitação de reembolso não-unilateral.
+
+    Fluxo padrão:
+        requested → seller_reviewing → approved/rejected → stripe_refund_pending → refunded
+    Fluxo auto-aprovado:
+        requested → auto_approved → stripe_refund_pending → refunded
+    Fluxo com escalada:
+        seller_reviewing → escalated → platform_approved/platform_rejected
+    """
+
+    STATUS_CHOICES = [
+        ('requested', 'Solicitado'),
+        ('seller_reviewing', 'Em Análise pelo Vendedor'),
+        ('auto_approved', 'Aprovado Automaticamente'),
+        ('approved', 'Aprovado pelo Vendedor'),
+        ('rejected', 'Rejeitado pelo Vendedor'),
+        ('escalated', 'Escalado para Plataforma'),
+        ('platform_approved', 'Aprovado pela Plataforma'),
+        ('platform_rejected', 'Rejeitado pela Plataforma'),
+        ('stripe_refund_pending', 'Reembolso Stripe Pendente'),
+        ('refunded', 'Reembolsado'),
+        ('withdrawn', 'Retirado pelo Comprador'),
+        ('closed', 'Encerrado'),
+    ]
+
+    REFUND_TYPE_CHOICES = [
+        ('remorse', 'Arrependimento'),
+        ('defective', 'Produto com Defeito / Diferente'),
+        ('not_received', 'Produto Não Recebido'),
+        ('duplicate_charge', 'Cobrança Duplicada'),
+        ('platform_decision', 'Decisão da Plataforma'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    payment = models.ForeignKey(
+        Payment,
+        on_delete=models.PROTECT,
+        related_name='refund_requests',
+    )
+    order = models.ForeignKey(
+        Order,
+        on_delete=models.PROTECT,
+        related_name='refund_requests',
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='refund_requests_made',
+    )
+
+    status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='requested')
+    refund_type = models.CharField(max_length=30, choices=REFUND_TYPE_CHOICES)
+
+    amount_requested = models.DecimalField(max_digits=10, decimal_places=2)
+    amount_approved = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True
+    )
+
+    reason_buyer = models.TextField()
+    reason_seller = models.TextField(blank=True)
+    reason_platform = models.TextField(blank=True)
+
+    evidence_urls = models.JSONField(default=list)
+    seller_evidence_urls = models.JSONField(default=list)
+
+    # Prazos
+    seller_deadline = models.DateTimeField(null=True, blank=True)
+    escalation_deadline = models.DateTimeField(null=True, blank=True)
+
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='refund_requests_decided',
+    )
+
+    stripe_refund_id = models.CharField(max_length=100, blank=True)
+    metadata = models.JSONField(default=dict)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = 'Solicitação de Reembolso'
+        verbose_name_plural = 'Solicitações de Reembolso'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['status', 'seller_deadline']),
+            models.Index(fields=['status', 'escalation_deadline']),
+            models.Index(fields=['payment', 'status']),
+        ]
+
+    def __str__(self):
+        return f'RefundRequest {self.id} — {self.status} — {self.order}'
+
+
+class RefundRequestHistory(models.Model):
+    """
+    Audit trail de todas as transições de estado de um RefundRequest.
+    Imutável: nunca editar ou apagar registros aqui.
+    """
+
+    ACTOR_TYPE_CHOICES = [
+        ('buyer', 'Comprador'),
+        ('seller', 'Vendedor'),
+        ('system', 'Sistema'),
+        ('platform', 'Plataforma'),
+    ]
+
+    refund_request = models.ForeignKey(
+        RefundRequest,
+        on_delete=models.CASCADE,
+        related_name='history',
+    )
+    from_status = models.CharField(max_length=30, blank=True)
+    to_status = models.CharField(max_length=30)
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+    )
+    actor_type = models.CharField(max_length=20, choices=ACTOR_TYPE_CHOICES)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Histórico de Solicitação de Reembolso'
+        verbose_name_plural = 'Históricos de Solicitações de Reembolso'
+        ordering = ['created_at']
+
+    def __str__(self):
+        return (
+            f'RefundRequest {self.refund_request_id}: '
+            f'{self.from_status} → {self.to_status}'
+        )
 
 
 class SellerPayout(models.Model):

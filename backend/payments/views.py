@@ -1,7 +1,7 @@
 from rest_framework import generics, serializers, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
@@ -12,15 +12,19 @@ from drf_spectacular.utils import extend_schema, inline_serializer
 import json
 import stripe
 
-from .models import Payment, PaymentWebhook, SellerPayout, PaymentSplit
+from .models import Payment, PaymentWebhook, SellerPayout, PaymentSplit, RefundRequest
 from .serializers import (
     PaymentSerializer, PaymentIntentCreateSerializer,
     PaymentConfirmSerializer, RefundSerializer,
     SellerPayoutSerializer, PaymentSplitSerializer,
+    RefundRequestSerializer, RefundRequestCreateSerializer,
+    RefundRequestApproveSerializer, RefundRequestRejectSerializer,
+    RefundRequestPlatformDecideSerializer,
 )
 from .payment_intent_service import PaymentIntentService, SellerNotReadyError
 from .webhook_service import WebhookService
 from .refund_service import RefundService, RefundError
+from .refund_request_service import RefundRequestService, RefundRequestError
 from .services import StripeService  # Legacy support
 from orders.models import Order
 from orders.services.product_validation_service import (
@@ -319,73 +323,343 @@ def check_payment_status(request, payment_intent_id):
 
 @extend_schema(
     tags=['Payments'],
-    summary='Request refund',
+    summary='Request refund (DEPRECATED)',
     request=RefundSerializer,
-    responses={200: PaymentSerializer},
-    description="Request a full or partial refund for a succeeded payment."
+    responses={
+        410: inline_serializer(
+            name='DeprecatedRefundResponse',
+            fields={'detail': serializers.CharField()},
+        )
+    },
+    description=(
+        "DEPRECATED — Este endpoint foi descontinuado. "
+        "Use POST /api/payments/refund-requests/ para solicitar reembolso "
+        "via fluxo de revisão não-unilateral."
+    ),
 )
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def request_refund(request):
-    """Solicitar reembolso"""
-    serializer = RefundSerializer(data=request.data)
-    
+    """
+    DEPRECADO: Endpoint de reembolso unilateral removido.
+    Direciona para o novo fluxo de reembolso não-unilateral.
+    """
+    return Response(
+        {
+            'detail': (
+                'Este endpoint foi descontinuado. '
+                'Use POST /api/payments/refund-requests/ para solicitar reembolso.'
+            )
+        },
+        status=status.HTTP_410_GONE,
+    )
+
+
+# =================== RefundRequest Views ===================
+
+@extend_schema(
+    tags=['Refund Requests'],
+    summary='List refund requests',
+    responses={200: RefundRequestSerializer(many=True)},
+    description=(
+        'Lista solicitações de reembolso do usuário autenticado. '
+        'Compradores veem suas próprias solicitações. '
+        'Vendedores veem solicitações relacionadas a pedidos com seus itens. '
+        'Staff vê todas.'
+    ),
+)
+class RefundRequestListView(generics.ListAPIView):
+    """Lista RefundRequests filtradas por perfil do usuário."""
+    serializer_class = RefundRequestSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_staff:
+            return (
+                RefundRequest.objects
+                .select_related('payment', 'order', 'requested_by', 'decided_by')
+                .prefetch_related('history')
+                .order_by('-created_at')
+            )
+        if getattr(user, 'is_seller', False):
+            # Vendedor vê solicitações de pedidos que contêm seus itens
+            from orders.models import OrderItem
+            order_ids = (
+                OrderItem.objects.filter(seller=user)
+                .values_list('order_id', flat=True)
+                .distinct()
+            )
+            return (
+                RefundRequest.objects
+                .filter(order_id__in=order_ids)
+                .select_related('payment', 'order', 'requested_by', 'decided_by')
+                .prefetch_related('history')
+                .order_by('-created_at')
+            )
+        # Comprador vê apenas as próprias solicitações
+        return (
+            RefundRequest.objects
+            .filter(requested_by=user)
+            .select_related('payment', 'order', 'requested_by', 'decided_by')
+            .prefetch_related('history')
+            .order_by('-created_at')
+        )
+
+
+@extend_schema(
+    tags=['Refund Requests'],
+    summary='Get refund request details',
+    responses={200: RefundRequestSerializer},
+    description='Retorna detalhes completos de uma solicitação de reembolso incluindo audit trail.',
+)
+class RefundRequestDetailView(generics.RetrieveAPIView):
+    """Detalhe de um RefundRequest."""
+    serializer_class = RefundRequestSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_staff:
+            return RefundRequest.objects.all()
+        if getattr(user, 'is_seller', False):
+            from orders.models import OrderItem
+            order_ids = (
+                OrderItem.objects.filter(seller=user)
+                .values_list('order_id', flat=True)
+                .distinct()
+            )
+            return RefundRequest.objects.filter(
+                models.Q(requested_by=user) | models.Q(order_id__in=order_ids)
+            )
+        return RefundRequest.objects.filter(requested_by=user)
+
+
+@extend_schema(
+    tags=['Refund Requests'],
+    summary='Create refund request',
+    request=RefundRequestCreateSerializer,
+    responses={201: RefundRequestSerializer},
+    description=(
+        'Abre uma solicitação de reembolso não-unilateral. '
+        'O sistema avalia auto-aprovação (not_received/duplicate_charge) '
+        'ou encaminha para revisão do vendedor. '
+        'Tipos: remorse (até 30 dias), defective, not_received, duplicate_charge.'
+    ),
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_refund_request(request):
+    """Abre uma nova solicitação de reembolso."""
+    serializer = RefundRequestCreateSerializer(data=request.data)
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    payment_id = serializer.validated_data['payment_id']
-    amount = serializer.validated_data.get('amount')
-    reason = serializer.validated_data.get('reason', '')
-    
-    # Verificar se pagamento existe e pertence ao usuário
-    payment = get_object_or_404(Payment, id=payment_id, user=request.user)
-    
-    # Verificar se pagamento foi bem-sucedido
-    if payment.status != 'succeeded':
-        return Response(
-            {'error': 'Apenas pagamentos confirmados podem ser reembolsados'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    
-    # Verificar se já foi reembolsado
-    if payment.status == 'refunded':
-        return Response(
-            {'error': 'Pagamento já foi reembolsado'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    
+
+    data = serializer.validated_data
+    payment = get_object_or_404(Payment, id=data['payment_id'], user=request.user)
+
     try:
-        # Criar reembolso usando novo serviço
-        refunded_payment = RefundService.create_refund(
+        refund_request = RefundRequestService.create_request(
+            buyer=request.user,
             payment=payment,
-            amount=amount,
-            reason=reason
+            refund_type=data['refund_type'],
+            amount=data['amount_requested'],
+            reason=data['reason_buyer'],
+            evidence_urls=data.get('evidence_urls', []),
         )
-
         logger.info(
-            f"Refund created for payment {payment.id}",
+            'RefundRequest created via API',
             extra={
-                'payment_id': payment.id,
+                'refund_request_id': str(refund_request.id),
                 'user_id': request.user.id,
-                'refund_amount': float(amount) if amount else float(payment.amount)
-            }
+                'payment_id': payment.id,
+            },
         )
-
-        payment_serializer = PaymentSerializer(refunded_payment)
-        return Response(payment_serializer.data)
-
-    except ValueError as e:
-        logger.warning(f"Validation error creating refund: {str(e)}")
         return Response(
-            {'error': str(e)},
-            status=status.HTTP_400_BAD_REQUEST
+            RefundRequestSerializer(refund_request).data,
+            status=status.HTTP_201_CREATED,
         )
-
+    except RefundRequestError as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
     except Exception as e:
-        logger.error(f"Error creating refund: {str(e)}", exc_info=True)
+        logger.error('Error creating RefundRequest: %s', e, exc_info=True)
         return Response(
-            {'error': 'Erro ao criar reembolso. Tente novamente.'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            {'error': 'Erro ao criar solicitação. Tente novamente.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@extend_schema(
+    tags=['Refund Requests'],
+    summary='Seller approves refund request',
+    request=RefundRequestApproveSerializer,
+    responses={200: RefundRequestSerializer},
+    description=(
+        'Vendedor aprova a solicitação de reembolso, podendo definir '
+        'um valor parcial (amount_approved <= amount_requested).'
+    ),
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def seller_approve_refund_request(request, pk):
+    """Vendedor aprova a solicitação."""
+    refund_request = get_object_or_404(RefundRequest, id=pk)
+
+    serializer = RefundRequestApproveSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        updated = RefundRequestService.seller_approve(
+            refund_request=refund_request,
+            seller=request.user,
+            amount_approved=serializer.validated_data['amount_approved'],
+        )
+        return Response(RefundRequestSerializer(updated).data)
+    except RefundRequestError as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        logger.error('Error approving RefundRequest %s: %s', pk, e, exc_info=True)
+        return Response(
+            {'error': 'Erro ao aprovar solicitação.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@extend_schema(
+    tags=['Refund Requests'],
+    summary='Seller rejects refund request',
+    request=RefundRequestRejectSerializer,
+    responses={200: RefundRequestSerializer},
+    description=(
+        'Vendedor rejeita a solicitação com justificativa obrigatória. '
+        'O comprador terá 7 dias para escalar para a plataforma.'
+    ),
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def seller_reject_refund_request(request, pk):
+    """Vendedor rejeita a solicitação."""
+    refund_request = get_object_or_404(RefundRequest, id=pk)
+
+    serializer = RefundRequestRejectSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        updated = RefundRequestService.seller_reject(
+            refund_request=refund_request,
+            seller=request.user,
+            reason=serializer.validated_data['reason'],
+            evidence_urls=serializer.validated_data.get('evidence_urls', []),
+        )
+        return Response(RefundRequestSerializer(updated).data)
+    except RefundRequestError as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        logger.error('Error rejecting RefundRequest %s: %s', pk, e, exc_info=True)
+        return Response(
+            {'error': 'Erro ao rejeitar solicitação.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@extend_schema(
+    tags=['Refund Requests'],
+    summary='Buyer escalates refund request',
+    request=None,
+    responses={200: RefundRequestSerializer},
+    description=(
+        'Comprador discorda da rejeição do vendedor e escala para a plataforma. '
+        'Só permitido dentro de 7 dias após a rejeição.'
+    ),
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def buyer_escalate_refund_request(request, pk):
+    """Comprador escala a solicitação para a plataforma."""
+    refund_request = get_object_or_404(RefundRequest, id=pk)
+
+    try:
+        updated = RefundRequestService.buyer_escalate(
+            refund_request=refund_request,
+            buyer=request.user,
+        )
+        return Response(RefundRequestSerializer(updated).data)
+    except RefundRequestError as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        logger.error('Error escalating RefundRequest %s: %s', pk, e, exc_info=True)
+        return Response(
+            {'error': 'Erro ao escalar solicitação.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@extend_schema(
+    tags=['Refund Requests'],
+    summary='Buyer withdraws refund request',
+    request=None,
+    responses={200: RefundRequestSerializer},
+    description='Comprador retira a solicitação de reembolso antes do processamento Stripe.',
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def buyer_withdraw_refund_request(request, pk):
+    """Comprador retira a solicitação."""
+    refund_request = get_object_or_404(RefundRequest, id=pk)
+
+    try:
+        updated = RefundRequestService.buyer_withdraw(
+            refund_request=refund_request,
+            buyer=request.user,
+        )
+        return Response(RefundRequestSerializer(updated).data)
+    except RefundRequestError as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        logger.error('Error withdrawing RefundRequest %s: %s', pk, e, exc_info=True)
+        return Response(
+            {'error': 'Erro ao retirar solicitação.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@extend_schema(
+    tags=['Refund Requests'],
+    summary='Platform decides on escalated refund request',
+    request=RefundRequestPlatformDecideSerializer,
+    responses={200: RefundRequestSerializer},
+    description=(
+        'Staff da plataforma decide sobre uma solicitação escalada. '
+        'approve=true aprova o reembolso; approve=false rejeita definitivamente.'
+    ),
+)
+@api_view(['POST'])
+@permission_classes([IsAdminUser])
+def platform_decide_refund_request(request, pk):
+    """Staff decide sobre solicitação escalada."""
+    refund_request = get_object_or_404(RefundRequest, id=pk)
+
+    serializer = RefundRequestPlatformDecideSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        updated = RefundRequestService.platform_decide(
+            refund_request=refund_request,
+            staff_user=request.user,
+            approve=serializer.validated_data['approve'],
+            reason=serializer.validated_data['reason'],
+        )
+        return Response(RefundRequestSerializer(updated).data)
+    except RefundRequestError as e:
+        return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        logger.error('Error deciding RefundRequest %s: %s', pk, e, exc_info=True)
+        return Response(
+            {'error': 'Erro ao decidir solicitação.'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
 

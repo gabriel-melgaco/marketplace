@@ -3,7 +3,10 @@ from django.utils.html import format_html
 from django.urls import reverse
 from django.conf import settings
 from authentication.models import CustomUser
-from .models import Payment, PaymentSplit, PaymentWebhook, Dispute, SellerPayout
+from .models import (
+    Payment, PaymentSplit, PaymentWebhook, Dispute, SellerPayout,
+    RefundRequest, RefundRequestHistory,
+)
 
 
 # =================== Helpers ===================
@@ -538,4 +541,114 @@ class SellerPayoutAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         if obj and obj.status == 'pending':
             return True
+        return False
+
+
+# =================== RefundRequest Admin ===================
+
+class RefundRequestHistoryInline(admin.TabularInline):
+    model = RefundRequestHistory
+    extra = 0
+    readonly_fields = [
+        'from_status', 'to_status', 'changed_by', 'actor_type', 'notes', 'created_at'
+    ]
+    fields = [
+        'from_status', 'to_status', 'changed_by', 'actor_type', 'notes', 'created_at'
+    ]
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(RefundRequest)
+class RefundRequestAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', 'order_link', 'buyer_link', 'refund_type',
+        'amount_requested', 'amount_approved',
+        'status_badge', 'seller_deadline', 'created_at',
+    ]
+    list_filter = ['status', 'refund_type', 'created_at']
+    search_fields = [
+        'id', 'order__order_number', 'requested_by__email',
+        'payment__stripe_payment_intent_id',
+    ]
+    readonly_fields = [
+        'id', 'payment', 'order', 'requested_by', 'status',
+        'refund_type', 'amount_requested',
+        'reason_buyer', 'reason_seller', 'reason_platform',
+        'evidence_urls', 'seller_evidence_urls',
+        'seller_deadline', 'escalation_deadline',
+        'decided_by', 'stripe_refund_id', 'metadata',
+        'created_at', 'updated_at', 'resolved_at',
+    ]
+    # amount_approved editável pelo staff para correções manuais
+    fieldsets = (
+        ('Identificação', {
+            'fields': ('id', 'payment', 'order', 'requested_by')
+        }),
+        ('Tipo e Valor', {
+            'fields': ('refund_type', 'amount_requested', 'amount_approved')
+        }),
+        ('Status e Prazos', {
+            'fields': ('status', 'seller_deadline', 'escalation_deadline', 'resolved_at')
+        }),
+        ('Motivos', {
+            'fields': ('reason_buyer', 'reason_seller', 'reason_platform')
+        }),
+        ('Evidências', {
+            'fields': ('evidence_urls', 'seller_evidence_urls'),
+            'classes': ('collapse',)
+        }),
+        ('Decisão', {
+            'fields': ('decided_by', 'stripe_refund_id')
+        }),
+        ('Metadados', {
+            'fields': ('metadata',),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    inlines = [RefundRequestHistoryInline]
+
+    def order_link(self, obj):
+        url = reverse('admin:orders_order_change', args=[obj.order.id])
+        return format_html('<a href="{}">{}</a>', url, obj.order.order_number)
+    order_link.short_description = 'Pedido'
+
+    def buyer_link(self, obj):
+        url = reverse('admin:authentication_customuser_change', args=[obj.requested_by.id])
+        return format_html('<a href="{}">{}</a>', url, obj.requested_by.email)
+    buyer_link.short_description = 'Comprador'
+
+    def status_badge(self, obj):
+        colors = {
+            'requested': '#17a2b8',
+            'seller_reviewing': '#ffc107',
+            'auto_approved': '#28a745',
+            'approved': '#28a745',
+            'rejected': '#dc3545',
+            'escalated': '#fd7e14',
+            'platform_approved': '#28a745',
+            'platform_rejected': '#dc3545',
+            'stripe_refund_pending': '#6f42c1',
+            'refunded': '#6c757d',
+            'withdrawn': '#adb5bd',
+            'closed': '#343a40',
+        }
+        return _status_badge(obj.status, obj.get_status_display(), colors)
+    status_badge.short_description = 'Status'
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
         return False

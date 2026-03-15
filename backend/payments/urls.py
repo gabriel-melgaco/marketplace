@@ -9,16 +9,28 @@ urlpatterns = [
     # =================== Payments ===================
     path('', views.PaymentListView.as_view(), name='payment-list'),
     path('<int:pk>/', views.PaymentDetailView.as_view(), name='payment-detail'),
-    
+
     # =================== Payment Processing ===================
     path('create-intent/', views.create_payment_intent, name='create-intent'),
     path('confirm/', views.confirm_payment, name='confirm-payment'),
     path('status/<str:payment_intent_id>/', views.check_payment_status, name='check-status'),
+
+    # DEPRECATED: mantido apenas para retornar 410 Gone
     path('refund/', views.request_refund, name='request-refund'),
-    
+
+    # =================== Refund Requests (non-unilateral) ===================
+    path('refund-requests/', views.RefundRequestListView.as_view(), name='refund-request-list'),
+    path('refund-requests/create/', views.create_refund_request, name='refund-request-create'),
+    path('refund-requests/<uuid:pk>/', views.RefundRequestDetailView.as_view(), name='refund-request-detail'),
+    path('refund-requests/<uuid:pk>/approve/', views.seller_approve_refund_request, name='refund-request-approve'),
+    path('refund-requests/<uuid:pk>/reject/', views.seller_reject_refund_request, name='refund-request-reject'),
+    path('refund-requests/<uuid:pk>/escalate/', views.buyer_escalate_refund_request, name='refund-request-escalate'),
+    path('refund-requests/<uuid:pk>/withdraw/', views.buyer_withdraw_refund_request, name='refund-request-withdraw'),
+    path('refund-requests/<uuid:pk>/decide/', views.platform_decide_refund_request, name='refund-request-decide'),
+
     # =================== Webhooks ===================
     path('webhook/', views.stripe_webhook, name='stripe-webhook'),
-    
+
     # =================== Seller Payouts ===================
     path('payouts/', views.SellerPayoutListView.as_view(), name='payout-list'),
     path('payouts/<int:pk>/', views.SellerPayoutDetailView.as_view(), name='payout-detail'),
@@ -36,5 +48,4 @@ urlpatterns = [
     # Callbacks de onboarding (browser redirects do Stripe — sem JWT)
     path('connect/onboarding/return/', stripe_connect_views.onboarding_return, name='connect-onboarding-return'),
     path('connect/onboarding/refresh/', stripe_connect_views.onboarding_refresh, name='connect-onboarding-refresh'),
-    
 ]
