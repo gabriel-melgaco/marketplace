@@ -425,10 +425,12 @@ class WebhookService:
                 }
             )
 
-        # Notify buyer that payment was confirmed.
+        # Notify buyer and sellers that payment was confirmed.
         try:
             from notifications.services import NotificationService
             from notifications.models import NotificationType
+
+            # Notify buyer
             NotificationService.notify(
                 recipient=order.buyer,
                 event_type=NotificationType.PAYMENT_CONFIRMED,
@@ -443,8 +445,37 @@ class WebhookService:
                     'payment_id': payment.id,
                     'amount': str(payment.amount),
                 },
-                idempotency_key=f'payment_confirmed_{payment.id}',
+                idempotency_key=f'payment_confirmed_buyer_{payment.id}',
             )
+
+            # Notify each seller that their sale payment was confirmed
+            seen_sellers = set()
+            for item in order.items.select_related('seller').all():
+                seller = item.seller
+                if seller.id in seen_sellers:
+                    continue
+                seen_sellers.add(seller.id)
+                seller_subtotal = sum(
+                    i.subtotal
+                    for i in order.items.filter(seller=seller)
+                )
+                NotificationService.notify(
+                    recipient=seller,
+                    event_type=NotificationType.PAYMENT_CONFIRMED,
+                    title=f'Pagamento recebido — Pedido #{order.order_number}',
+                    body=(
+                        f'O pagamento do pedido #{order.order_number} foi confirmado. '
+                        f'Valor dos seus itens: R$ {seller_subtotal:.2f}. '
+                        f'Prepare o pedido para envio.'
+                    ),
+                    metadata={
+                        'order_id': str(order.id),
+                        'order_number': order.order_number,
+                        'payment_id': payment.id,
+                        'seller_subtotal': str(seller_subtotal),
+                    },
+                    idempotency_key=f'payment_confirmed_seller_{payment.id}_{seller.id}',
+                )
         except Exception as _notify_exc:
             logger.warning(
                 'Falha ao enfileirar notificação payment_confirmed para pedido %s: %s',

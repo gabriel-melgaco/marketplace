@@ -2064,7 +2064,7 @@ def melhor_envio_webhook(request):
 
         shipment.save()
 
-        # Notificar comprador sobre atualização do status do envio
+        # Notificar comprador e vendedor sobre atualização do status do envio
         try:
             from notifications.services.notification_service import NotificationService
             from notifications.models import NotificationType
@@ -2081,6 +2081,8 @@ def melhor_envio_webhook(request):
                     'cancelled': 'cancelado',
                 }
                 _label = _status_labels.get(new_shipment_status, new_shipment_status)
+
+                # Notify buyer
                 NotificationService.notify(
                     recipient=_order.buyer,
                     event_type=NotificationType.SHIPMENT_STATUS_UPDATED,
@@ -2097,8 +2099,38 @@ def melhor_envio_webhook(request):
                         'old_status': old_shipment_status,
                         'tracking_code': shipment.melhorenvio_tracking_code,
                     },
-                    idempotency_key=f'shipment_status_{shipment.id}_{new_shipment_status}',
+                    idempotency_key=f'shipment_status_buyer_{shipment.id}_{new_shipment_status}',
                 )
+
+                # Notify seller for statuses relevant to them:
+                # delivered → confirms the buyer received the item
+                # cancelled → the shipment was cancelled
+                _seller_relevant = {'delivered', 'cancelled', 'in_transit'}
+                if new_shipment_status in _seller_relevant and shipment.seller:
+                    _seller_label_map = {
+                        'in_transit': 'em trânsito',
+                        'delivered': 'entregue ao comprador',
+                        'cancelled': 'cancelado',
+                    }
+                    _seller_label = _seller_label_map.get(new_shipment_status, _label)
+                    NotificationService.notify(
+                        recipient=shipment.seller,
+                        event_type=NotificationType.SHIPMENT_STATUS_UPDATED,
+                        title=f'Envio atualizado: {_seller_label}',
+                        body=(
+                            f'O envio do pedido #{_order.order_number} '
+                            f'foi atualizado para "{_seller_label}".'
+                        ),
+                        metadata={
+                            'shipment_id': str(shipment.id),
+                            'order_id': str(_order.id),
+                            'order_number': _order.order_number,
+                            'new_status': new_shipment_status,
+                            'old_status': old_shipment_status,
+                            'tracking_code': shipment.melhorenvio_tracking_code,
+                        },
+                        idempotency_key=f'shipment_status_seller_{shipment.id}_{new_shipment_status}',
+                    )
         except Exception as _exc:
             logger.warning('shipment_status_updated notification failed: %s', _exc)
 
