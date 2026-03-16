@@ -41,7 +41,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
         aria-haspopup="true"
         aria-expanded={isOpen}
         onClick={() => setIsOpen((prev) => !prev)}
-        className="relative text-text-primary focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-1 focus:ring-offset-transparent rounded-lg"
+        className="relative text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-transparent rounded-lg"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -82,7 +82,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
           role="dialog"
           aria-modal="true"
           aria-label="Painel de notificações"
-          className="absolute right-0 top-full mt-2 w-96 max-h-[80vh] bg-white rounded-xl shadow-xl border border-gray-200 z-50 flex flex-col overflow-hidden"
+          className="absolute left-auto right-0 top-full mt-2 w-[calc(100vw-32px)] sm:w-96 max-h-[min(480px,80vh)] bg-white rounded-xl shadow-xl border border-gray-200 z-50 flex flex-col overflow-hidden"
         >
           <NotificationList onClose={() => setIsOpen(false)} />
         </div>

@@ -60,7 +60,7 @@ function Header(props: HeaderProps) {
             <Link
               to="/conversations"
               aria-label={`Mensagens${totalUnread > 0 ? ` — ${totalUnread} não lidas` : ''}`}
-              className="relative text-text-primary focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-1 focus:ring-offset-transparent rounded-lg"
+              className="relative text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-transparent rounded-lg"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
