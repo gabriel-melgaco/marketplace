@@ -316,7 +316,7 @@ export function ConversationDetail() {
      * shrinks/expands the viewport.
      */
     <div
-      className="flex flex-col bg-gray-50"
+      className="flex flex-col bg-gray-50 pb-[68px]"
       style={{ height: '100dvh', minHeight: '100vh' }}
     >
       {/* ── Header ── */}
@@ -441,8 +441,8 @@ export function ConversationDetail() {
       </div>
 
       {/* ── Input area ── */}
-      <div className="bg-white border-t border-gray-200 px-3 sm:px-4 pt-3 pb-safe-area-inset-bottom flex-shrink-0">
-        <div className="flex items-end gap-2 pb-3">
+      <div className="bg-white border-t border-gray-200 px-3 sm:px-4 py-2 flex-shrink-0">
+        <div className="flex items-end gap-2">
           <textarea
             ref={textareaRef}
             value={input}
@@ -453,7 +453,7 @@ export function ConversationDetail() {
             placeholder={connected ? 'Digite sua mensagem...' : 'Aguardando conexão...'}
             aria-label="Digite sua mensagem"
             className={[
-              'flex-1 resize-none rounded-2xl border px-4 py-2.5 text-sm text-gray-900',
+              'flex-1 resize-none rounded-2xl border px-3.5 py-2 text-sm text-gray-900',
               'placeholder-gray-400 leading-relaxed overflow-hidden',
               'transition-all duration-150',
               'focus:outline-none focus:ring-2',
@@ -461,7 +461,7 @@ export function ConversationDetail() {
                 ? 'bg-gray-50 border-gray-200 focus:border-blue-700 focus:bg-white focus:ring-blue-700/20'
                 : 'bg-gray-100 border-gray-200 opacity-60 cursor-not-allowed',
             ].join(' ')}
-            style={{ minHeight: '42px', maxHeight: '120px' }}
+            style={{ minHeight: '38px', maxHeight: '100px' }}
           />
           <button
             type="button"
@@ -469,23 +469,16 @@ export function ConversationDetail() {
             disabled={!canSend}
             aria-label="Enviar mensagem"
             className={[
-              'flex-shrink-0 w-10 h-10 rounded-2xl flex items-center justify-center transition-all duration-150',
+              'flex-shrink-0 w-9 h-9 rounded-2xl flex items-center justify-center transition-all duration-150',
               'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2',
               canSend
                 ? 'bg-blue-800 text-white hover:bg-blue-700 active:bg-blue-900 active:scale-95 shadow-sm'
                 : 'bg-gray-100 text-gray-400 cursor-not-allowed',
             ].join(' ')}
           >
-            <Send size={16} aria-hidden="true" className={canSend ? '' : 'opacity-60'} />
+            <Send size={15} aria-hidden="true" className={canSend ? '' : 'opacity-60'} />
           </button>
         </div>
-
-        {/* Keyboard hint — only shown when connected and input is focused-capable */}
-        {connected && (
-          <p className="text-[11px] text-gray-400 pb-1 text-center" aria-hidden="true">
-            Enter para enviar &middot; Shift+Enter para nova linha
-          </p>
-        )}
       </div>
     </div>
   );
