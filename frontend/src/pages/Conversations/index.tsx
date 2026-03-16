@@ -62,7 +62,11 @@ function ConversationItem({
   const name = getOtherParticipantName(conversation, currentUserId);
   const picture = getOtherParticipantPicture(conversation, currentUserId);
   const hasUnread = conversation.unread_count > 0;
-  const lastMsg = conversation.last_message?.content ?? '';
+  const lastMsg = conversation.last_message
+    ? conversation.last_message.content
+    : conversation.unread_count > 0
+      ? 'Nova mensagem'
+      : '';
   const time = formatNotificationDate(conversation.updated_at);
 
   return (
