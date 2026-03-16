@@ -1,11 +1,11 @@
-import type { NotificationType } from "../types/notifications";
+import type { NotificationMetadata, NotificationType } from "../types/notifications";
 
 export interface NotificationMeta {
   label: string;
   icon: string;
   colorClass: string;
   bgClass: string;
-  route?: (metadata: Record<string, unknown>) => string;
+  route?: (metadata: NotificationMetadata) => string;
 }
 
 const NOTIFICATION_META: Record<NotificationType, NotificationMeta> = {
@@ -28,14 +28,14 @@ const NOTIFICATION_META: Record<NotificationType, NotificationMeta> = {
     icon: "CheckCircleIcon",
     colorClass: "text-green-600",
     bgClass: "bg-green-50",
-    route: () => "/mypurchase",
+    route: () => "/payment/success",
   },
   payment_failed: {
     label: "Falha no Pagamento",
     icon: "XCircleIcon",
     colorClass: "text-red-600",
     bgClass: "bg-red-50",
-    route: () => "/mypurchase",
+    route: () => "/payment/failed",
   },
   dispute_opened: {
     label: "Disputa Aberta",
@@ -77,28 +77,29 @@ const NOTIFICATION_META: Record<NotificationType, NotificationMeta> = {
     icon: "ChatBubbleLeftIcon",
     colorClass: "text-purple-600",
     bgClass: "bg-purple-50",
-    route: (meta) => `/chats/${meta.chat_id}`,
+    route: (meta) =>
+      meta.chat_id ? `/conversations/${meta.chat_id}` : "/conversations",
   },
   seller_verified: {
     label: "Vendedor Verificado",
     icon: "BadgeCheckIcon",
     colorClass: "text-emerald-600",
     bgClass: "bg-emerald-50",
-    route: () => "/seller/dashboard",
+    route: () => "/dashboard",
   },
   listing_blocked: {
     label: "Anúncio Bloqueado",
     icon: "NoSymbolIcon",
     colorClass: "text-red-600",
     bgClass: "bg-red-50",
-    route: (meta) => `/products/${meta.listing_id}`,
+    route: () => "/dashboard",
   },
   listing_created: {
     label: "Anúncio Publicado",
     icon: "TagIcon",
     colorClass: "text-blue-600",
     bgClass: "bg-blue-50",
-    route: (meta) => `/products/${meta.listing_id}`,
+    route: () => "/dashboard",
   },
 };
 

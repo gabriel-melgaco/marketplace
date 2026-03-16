@@ -13,12 +13,17 @@ export type NotificationType =
   | 'listing_blocked'
   | 'listing_created';
 
+export interface NotificationMetadata {
+  chat_id?: string;
+  [key: string]: unknown;
+}
+
 export interface Notification {
   id: string;
   notification_type: NotificationType;
   title: string;
   body: string;
-  metadata: Record<string, unknown>;
+  metadata: NotificationMetadata;
   is_read: boolean;
   created_at: string;
   read_at: string | null;

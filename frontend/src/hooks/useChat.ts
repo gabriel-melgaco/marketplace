@@ -54,7 +54,9 @@ export function useChat(conversationId: string | null): UseChatReturn {
           limit: PAGE_SIZE,
         });
         if (!cancelled && isMountedRef.current) {
-          setMessages(history);
+          // The REST API returns messages newest-first; reverse to chronological
+          // order so the oldest message is at index 0 and the newest at the end.
+          setMessages([...history].reverse());
           setHasMoreHistory(history.length >= PAGE_SIZE);
         }
       } catch {
@@ -146,9 +148,13 @@ export function useChat(conversationId: string | null): UseChatReturn {
         return;
       }
 
+      // The REST API returns messages newest-first; reverse so older messages
+      // are prepended in chronological order (oldest at the beginning).
+      const olderChronological = [...older].reverse();
+
       setMessages((prev) => {
         const existingIds = new Set(prev.map((m) => m.id));
-        const deduped = older.filter((m) => !existingIds.has(m.id));
+        const deduped = olderChronological.filter((m) => !existingIds.has(m.id));
         return [...deduped, ...prev];
       });
       setHasMoreHistory(older.length >= PAGE_SIZE);
