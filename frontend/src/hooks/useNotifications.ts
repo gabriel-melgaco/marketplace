@@ -201,7 +201,12 @@ export function useNotifications(options: UseNotificationsOptions): UseNotificat
       reconnectTimerRef.current = null;
     }
     if (wsRef.current) {
-      wsRef.current.close(1000, 'Componente desmontado');
+      if (
+        wsRef.current.readyState === WebSocket.OPEN ||
+        wsRef.current.readyState === WebSocket.CONNECTING
+      ) {
+        wsRef.current.close(1000, 'Componente desmontado');
+      }
       wsRef.current = null;
     }
   }, []);

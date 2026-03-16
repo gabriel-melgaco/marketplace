@@ -27,6 +27,7 @@ export function useChat(conversationId: string | null): UseChatReturn {
   const socketRef = useRef<ChatSocket | null>(null);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMountedRef = useRef(true);
+  const prevConversationIdRef = useRef<string | null>(null);
 
   // Track mounted state so async operations do not update state after unmount.
   useEffect(() => {
@@ -39,6 +40,11 @@ export function useChat(conversationId: string | null): UseChatReturn {
   // Load initial message history and open the WebSocket whenever conversationId changes.
   useEffect(() => {
     if (!conversationId) return;
+
+    // Guard against double-mount or rapid re-renders that fire the effect
+    // with the same conversationId that is already connected.
+    if (prevConversationIdRef.current === conversationId) return;
+    prevConversationIdRef.current = conversationId;
 
     let cancelled = false;
 
@@ -111,6 +117,7 @@ export function useChat(conversationId: string | null): UseChatReturn {
 
     return () => {
       cancelled = true;
+      prevConversationIdRef.current = null;
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
       socketRef.current?.disconnect();
       socketRef.current = null;
