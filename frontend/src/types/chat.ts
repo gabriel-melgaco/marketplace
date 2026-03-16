@@ -1,10 +1,20 @@
 export type ConversationType = 'buyer_seller' | 'buyer_support' | 'seller_support';
 export type ConversationStatus = 'active' | 'closed' | 'archived';
 
-export interface ChatParticipant {
+export interface ChatParticipantUser {
   id: number;
-  name: string;
-  picture: string | null;
+  email: string;
+  full_name: string;
+  picture?: string | null;
+}
+
+export interface ChatParticipant {
+  id: number;        // participant record ID
+  user: ChatParticipantUser;
+  role: string;
+  last_read_at: string | null;
+  joined_at: string;
+  is_active: boolean;
 }
 
 export interface ChatMessage {
