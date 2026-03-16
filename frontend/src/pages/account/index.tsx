@@ -40,6 +40,7 @@ import { startGoogleOAuth } from "@/hooks/useGoogleAuth";
 import Swal from "sweetalert2";
 import type { User } from "@/types/auth";
 import { storageService, toPublicUrl } from "@/services/storageService";
+import { NotificationPreferences } from "@/components/notifications/NotificationPreferences";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -61,13 +62,6 @@ const SECTIONS: {
 
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
-// Notification defaults (UI only — no backend yet; toggles are purely decorative)
-const NOTIFICATION_DEFAULTS = {
-  newListings: false,
-  messages: false,
-  orders: true,
-  promotions: false,
-} as const;
 
 function isoToDisplay(iso: string | undefined): string {
   if (!iso || !iso.includes("-")) return iso ?? "";
@@ -1319,42 +1313,7 @@ export function AccountPage() {
   const renderNotifications = () => (
     <div className="bg-white rounded-2xl shadow p-6">
       <h2 className="text-lg font-bold text-gray-900 mb-5">Notificações</h2>
-      <div className="divide-y divide-gray-100">
-        {(
-          [
-            { key: "newListings", label: "Novos anúncios na sua busca" },
-            { key: "messages", label: "Mensagens recebidas" },
-            { key: "orders", label: "Atualizações de pedidos" },
-            { key: "promotions", label: "Promoções e novidades" },
-          ] as const
-        ).map(({ key, label }) => (
-          <div
-            key={key}
-            className="flex items-center justify-between py-4 opacity-60"
-          >
-            <div>
-              <p className="text-sm font-medium text-gray-800">{label}</p>
-              <p className="text-xs text-gray-500 mt-0.5">Em breve</p>
-            </div>
-            {/* Visual-only toggle — notifications backend not yet available */}
-            <div
-              aria-hidden="true"
-              className={`relative w-11 h-6 rounded-full shrink-0 ${
-                NOTIFICATION_DEFAULTS[key] ? "bg-blue-900" : "bg-gray-300"
-              }`}
-            >
-              <span
-                className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 ${
-                  NOTIFICATION_DEFAULTS[key] ? "translate-x-5" : "translate-x-0"
-                }`}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-      <p className="mt-4 text-xs text-gray-500 text-center">
-        As configurações de notificação serão ativadas em breve.
-      </p>
+      <NotificationPreferences />
     </div>
   );
 
