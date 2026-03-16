@@ -8,6 +8,11 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     allowedHosts: ["marketplace.megdev.com.br"],
+    hmr: {
+      host: "marketplace.megdev.com.br",
+      clientPort: 443,
+      protocol: "wss",
+    },
   },
   resolve: {
     alias: {
