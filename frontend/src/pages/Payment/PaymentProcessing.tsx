@@ -55,11 +55,11 @@ export function PaymentProcessing() {
         <div className="space-y-3">
           {orderId && (
             <button
-              onClick={() => navigate(`/orders/${orderId}`)}
+              onClick={() => navigate("/mypurchase")}
               className="w-full flex items-center justify-center gap-2 px-4 py-3.5 bg-blue-900 text-white font-semibold rounded-xl hover:bg-blue-800 active:bg-blue-950 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
             >
               <Package size={16} aria-hidden="true" />
-              Acompanhar pedido
+              Ver meus pedidos
             </button>
           )}
           <button
