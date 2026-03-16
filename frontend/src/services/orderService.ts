@@ -41,11 +41,17 @@ export interface OrderUpdateStatusRequest {
   status: string;
 }
 
+type PaginatedOrMaybeNot<T> = T[] | { results: T[] };
+
+function toArray<T>(data: PaginatedOrMaybeNot<T>): T[] {
+  return Array.isArray(data) ? data : (data.results ?? []);
+}
+
 export const orderService = {
   // Buyer endpoints
   async listOrders() {
-    const response = await api.get<OrderList[]>("/orders/");
-    return response.data;
+    const response = await api.get<PaginatedOrMaybeNot<OrderList>>("/orders/");
+    return toArray(response.data);
   },
 
   async getOrder(id: string) {
@@ -65,8 +71,8 @@ export const orderService = {
 
   // Seller endpoints
   async listSales() {
-    const response = await api.get<OrderList[]>("/orders/sales/");
-    return response.data;
+    const response = await api.get<PaginatedOrMaybeNot<OrderList>>("/orders/sales/");
+    return toArray(response.data);
   },
 
   async getSale(id: string) {
