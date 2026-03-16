@@ -196,8 +196,8 @@ export function ConversationDetail() {
         const conv = conversations.find((c) => c.id === id);
         if (conv) {
           setConversationType(conv.conversation_type);
-          const other = conv.participants.find((p) => String(p.id) !== String(user?.id));
-          setParticipantName(other?.name ?? conv.participants[0]?.name ?? 'Participante');
+          const other = conv.participants.find((p) => p.user.id !== user?.id);
+          setParticipantName(other?.user.full_name ?? conv.participants[0]?.user.full_name ?? 'Participante');
         }
       } catch {
         // Non-critical

@@ -9,16 +9,16 @@ import type { Conversation } from '@/types/chat';
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function getOtherParticipantName(conversation: Conversation, currentUserId: number): string {
-  const other = conversation.participants.find((p) => String(p.id) !== String(currentUserId));
-  return other?.name ?? conversation.participants[0]?.name ?? 'Participante';
+  const other = conversation.participants.find((p) => p.user.id !== currentUserId);
+  return other?.user.full_name ?? conversation.participants[0]?.user.full_name ?? 'Participante';
 }
 
 function getOtherParticipantPicture(
   conversation: Conversation,
   currentUserId: number,
 ): string | null {
-  const other = conversation.participants.find((p) => String(p.id) !== String(currentUserId));
-  return other?.picture ?? null;
+  const other = conversation.participants.find((p) => p.user.id !== currentUserId);
+  return other?.user.picture ?? null;
 }
 
 function getInitial(name: string): string {
@@ -264,12 +264,7 @@ export function ConversationsPage() {
             role="list"
             aria-label="Lista de conversas"
           >
-            {conversations.map((conv) => {
-              console.log('=== CONVERSA ===')
-              console.log('user.id:', user?.id, '| tipo:', typeof user?.id)
-              console.log('participants:', JSON.stringify(conv.participants, null, 2))
-              console.log('find result:', conv.participants.find(p => String(p.id) !== String(user?.id)))
-              return (
+            {conversations.map((conv) => (
               <div key={conv.id} role="listitem">
                 <ConversationItem
                   conversation={conv}
@@ -278,8 +273,7 @@ export function ConversationsPage() {
                   onClick={() => navigate(`/conversations/${conv.id}`)}
                 />
               </div>
-              )
-            })}
+            ))}
           </div>
         )}
 
