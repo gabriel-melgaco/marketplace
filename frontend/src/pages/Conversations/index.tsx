@@ -264,7 +264,12 @@ export function ConversationsPage() {
             role="list"
             aria-label="Lista de conversas"
           >
-            {conversations.map((conv) => (
+            {conversations.map((conv) => {
+              console.log('=== CONVERSA ===')
+              console.log('user.id:', user?.id, '| tipo:', typeof user?.id)
+              console.log('participants:', JSON.stringify(conv.participants, null, 2))
+              console.log('find result:', conv.participants.find(p => String(p.id) !== String(user?.id)))
+              return (
               <div key={conv.id} role="listitem">
                 <ConversationItem
                   conversation={conv}
@@ -273,7 +278,8 @@ export function ConversationsPage() {
                   onClick={() => navigate(`/conversations/${conv.id}`)}
                 />
               </div>
-            ))}
+              )
+            })}
           </div>
         )}
 
