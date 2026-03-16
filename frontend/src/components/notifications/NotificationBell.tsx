@@ -78,13 +78,20 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
       </button>
 
       {isOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Painel de notificações"
-          className="fixed left-1/2 -translate-x-1/2 top-16 z-50 bg-white rounded-xl shadow-xl border border-gray-200 flex flex-col overflow-hidden w-[80vw] max-h-[70vh]"
-        >
-          <NotificationList onClose={() => setIsOpen(false)} />
+        <div className="absolute right-0 top-full mt-3 z-50 w-[min(80vw,500px)]">
+          {/* Seta apontando para o sininho */}
+          <div
+            aria-hidden="true"
+            className="absolute -top-[9px] right-2 w-4 h-4 bg-white border-l border-t border-gray-200 rotate-45 z-10"
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Painel de notificações"
+            className="relative bg-white rounded-xl shadow-xl border border-gray-200 flex flex-col overflow-hidden max-h-[70vh]"
+          >
+            <NotificationList onClose={() => setIsOpen(false)} />
+          </div>
         </div>
       )}
     </div>
