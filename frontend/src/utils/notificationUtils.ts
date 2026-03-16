@@ -77,8 +77,10 @@ const NOTIFICATION_META: Record<NotificationType, NotificationMeta> = {
     icon: "ChatBubbleLeftIcon",
     colorClass: "text-purple-600",
     bgClass: "bg-purple-50",
-    route: (meta) =>
-      meta.chat_id ? `/conversations/${meta.chat_id}` : "/conversations",
+    route: (meta) => {
+      const id = meta.chat_id ?? meta.conversation_id;
+      return id ? `/conversations/${id}` : "/conversations";
+    },
   },
   seller_verified: {
     label: "Vendedor Verificado",

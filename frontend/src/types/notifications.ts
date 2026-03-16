@@ -15,6 +15,7 @@ export type NotificationType =
 
 export interface NotificationMetadata {
   chat_id?: string;
+  conversation_id?: string;
   [key: string]: unknown;
 }
 

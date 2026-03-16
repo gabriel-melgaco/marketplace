@@ -227,17 +227,13 @@ export function CartDrawer() {
 
             {items.length > 0 && (
               <div className="border-t px-4 py-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-600">
-                    Total
-                  </span>
-                  <span className="text-lg font-bold text-blue-800">
-                    R${" "}
-                    {totalPrice.toLocaleString("pt-BR", {
-                      minimumFractionDigits: 2,
-                    })}
-                  </span>
+                <div className="flex justify-between font-semibold">
+                  <span>Subtotal</span>
+                  <span>R$ {formatPrice(String(totalPrice))}</span>
                 </div>
+                <p className="text-sm text-gray-500 mt-1">
+                  Frete calculado no checkout
+                </p>
                 <Link
                   to="/checkout"
                   onClick={() => setIsOpen(false)}
