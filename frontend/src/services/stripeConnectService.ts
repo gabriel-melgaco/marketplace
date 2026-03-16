@@ -14,17 +14,7 @@ export interface AccountStatusResponse {
   has_account: boolean;
   ready_to_receive_payments: boolean;
   onboarding_complete: boolean;
-  requirements_status?: string;
-}
-
-export interface CreateCheckoutRequest {
-  order_id: string;
-}
-
-export interface CreateCheckoutResponse {
-  checkout_url: string;
-  session_id: string;
-  platform_fee: number;
+  requirements_status: "currently_due" | "past_due" | null;
 }
 
 export interface SyncAccountStatusResponse {
@@ -39,7 +29,7 @@ export interface SyncAccountStatusResponse {
 export interface DisconnectAccountResponse {
   message: string;
   stripe_deleted: boolean;
-  stripe_error?: string;
+  stripe_error: string | null;
 }
 
 export const stripeConnectService = {
@@ -55,11 +45,6 @@ export const stripeConnectService = {
 
   async getAccountStatus() {
     const response = await api.get<AccountStatusResponse>("/payments/connect/status/");
-    return response.data;
-  },
-
-  async createCheckoutWithConnect(data: CreateCheckoutRequest) {
-    const response = await api.post<CreateCheckoutResponse>("/payments/connect/checkout/", data);
     return response.data;
   },
 
