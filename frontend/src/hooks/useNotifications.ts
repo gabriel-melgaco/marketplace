@@ -44,6 +44,12 @@ export function useNotifications(options: UseNotificationsOptions): UseNotificat
   const currentPageRef = useRef(1);
   const isMountedRef = useRef(true);
   const isReconnectingRef = useRef(false);
+  // Ref that always holds the latest connect function — prevents stale closures
+  // inside scheduleReconnect's setTimeout callback.
+  const connectRef = useRef<() => void>(() => {});
+  // Ref guard for loadMore — avoids stale closure issues with the isLoading state
+  // captured inside the IntersectionObserver callback.
+  const isLoadingRef = useRef(false);
 
   const getWsUrl = useCallback((): string | null => {
     const token = getAccessToken();
@@ -51,11 +57,16 @@ export function useNotifications(options: UseNotificationsOptions): UseNotificat
     const base =
       wsBaseUrl ??
       window.location.origin.replace(/^https/, 'wss').replace(/^http/, 'ws');
+    // NOTE: The JWT is in the URL query string because the backend WebSocket
+    // consumer authenticates via ?token=. This is a known limitation — the
+    // token will appear in server access logs and browser network history.
+    // Prefer first-frame auth if the backend is ever updated to support it.
     return `${base}/ws/notifications/?token=${token}`;
   }, [getAccessToken, wsBaseUrl]);
 
   const loadInitialNotifications = useCallback(async () => {
     if (!isMountedRef.current) return;
+    isLoadingRef.current = true;
     setIsLoading(true);
     setError(null);
     try {
@@ -69,6 +80,7 @@ export function useNotifications(options: UseNotificationsOptions): UseNotificat
       setError('Não foi possível carregar as notificações.');
       console.error('[useNotifications] loadInitialNotifications error:', err);
     } finally {
+      isLoadingRef.current = false;
       if (isMountedRef.current) setIsLoading(false);
     }
   }, []);
@@ -105,9 +117,9 @@ export function useNotifications(options: UseNotificationsOptions): UseNotificat
     reconnectTimerRef.current = setTimeout(() => {
       reconnectAttemptRef.current += 1;
       isReconnectingRef.current = false;
-      connect();
+      connectRef.current(); // always calls the latest version via ref
     }, delay);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const connect = useCallback(() => {
     if (
@@ -164,6 +176,8 @@ export function useNotifications(options: UseNotificationsOptions): UseNotificat
       if (event.code === WS_CLOSE_UNAUTHENTICATED && onTokenExpired) {
         console.info('[useNotifications] Token expirado. Tentando renovar...');
         const newToken = await onTokenExpired();
+        // Guard: component may have unmounted while we awaited the refresh
+        if (!isMountedRef.current) return;
         if (newToken) {
           scheduleReconnect();
         } else {
@@ -177,6 +191,9 @@ export function useNotifications(options: UseNotificationsOptions): UseNotificat
       scheduleReconnect();
     };
   }, [getWsUrl, onTokenExpired, handleIncomingMessage, scheduleReconnect]);
+
+  // Keep the ref in sync with the latest connect function on every render
+  connectRef.current = connect;
 
   const disconnect = useCallback(() => {
     if (reconnectTimerRef.current) {
@@ -224,7 +241,8 @@ export function useNotifications(options: UseNotificationsOptions): UseNotificat
   }, [loadInitialNotifications]);
 
   const loadMore = useCallback(async () => {
-    if (isLoading || !hasMore) return;
+    if (isLoadingRef.current || !hasMore) return;
+    isLoadingRef.current = true;
     setIsLoading(true);
     try {
       const nextPage = currentPageRef.current + 1;
@@ -240,9 +258,10 @@ export function useNotifications(options: UseNotificationsOptions): UseNotificat
     } catch (err) {
       console.error('[useNotifications] loadMore error:', err);
     } finally {
+      isLoadingRef.current = false;
       if (isMountedRef.current) setIsLoading(false);
     }
-  }, [isLoading, hasMore]);
+  }, [hasMore]);
 
   const refresh = useCallback(async () => {
     currentPageRef.current = 1;
@@ -252,8 +271,12 @@ export function useNotifications(options: UseNotificationsOptions): UseNotificat
 
   useEffect(() => {
     isMountedRef.current = true;
-    loadInitialNotifications();
-    connect();
+    // Only load and connect when an access token is available — avoids
+    // firing unauthenticated REST requests for logged-out users.
+    if (getAccessToken()) {
+      loadInitialNotifications();
+      connect();
+    }
     return () => {
       isMountedRef.current = false;
       disconnect();

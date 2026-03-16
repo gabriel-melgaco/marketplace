@@ -14,63 +14,63 @@ const NOTIFICATION_META: Record<NotificationType, NotificationMeta> = {
     icon: 'ShoppingBagIcon',
     colorClass: 'text-blue-600',
     bgClass: 'bg-blue-50',
-    route: (_meta) => `/mypurchase`,
+    route: () => '/mypurchase',
   },
   order_status_changed: {
     label: 'Status do Pedido',
     icon: 'ArrowPathIcon',
     colorClass: 'text-indigo-600',
     bgClass: 'bg-indigo-50',
-    route: (_meta) => `/mypurchase`,
+    route: () => '/mypurchase',
   },
   payment_confirmed: {
     label: 'Pagamento Confirmado',
     icon: 'CheckCircleIcon',
     colorClass: 'text-green-600',
     bgClass: 'bg-green-50',
-    route: (_meta) => `/mypurchase`,
+    route: () => '/mypurchase',
   },
   payment_failed: {
     label: 'Falha no Pagamento',
     icon: 'XCircleIcon',
     colorClass: 'text-red-600',
     bgClass: 'bg-red-50',
-    route: (_meta) => `/mypurchase`,
+    route: () => '/mypurchase',
   },
   dispute_opened: {
     label: 'Disputa Aberta',
     icon: 'ExclamationTriangleIcon',
     colorClass: 'text-orange-600',
     bgClass: 'bg-orange-50',
-    route: (_meta) => `/mypurchase`,
+    route: () => '/mypurchase',
   },
   shipment_created: {
     label: 'Envio Criado',
     icon: 'TruckIcon',
     colorClass: 'text-cyan-600',
     bgClass: 'bg-cyan-50',
-    route: (_meta) => `/mypurchase`,
+    route: () => '/mypurchase',
   },
   shipment_status_updated: {
     label: 'Envio Atualizado',
     icon: 'MapPinIcon',
     colorClass: 'text-cyan-600',
     bgClass: 'bg-cyan-50',
-    route: (_meta) => `/mypurchase`,
+    route: () => '/mypurchase',
   },
   delivery_scheduled: {
     label: 'Entrega Agendada',
     icon: 'CalendarIcon',
     colorClass: 'text-teal-600',
     bgClass: 'bg-teal-50',
-    route: (_meta) => `/mypurchase`,
+    route: () => '/mypurchase',
   },
   delivery_confirmed: {
     label: 'Entrega Confirmada',
     icon: 'HomeIcon',
     colorClass: 'text-green-700',
     bgClass: 'bg-green-50',
-    route: (_meta) => `/mypurchase`,
+    route: () => '/mypurchase',
   },
   new_message: {
     label: 'Nova Mensagem',
@@ -102,9 +102,14 @@ const NOTIFICATION_META: Record<NotificationType, NotificationMeta> = {
   },
 };
 
-export function getNotificationMeta(type: NotificationType): NotificationMeta {
+/**
+ * Returns visual metadata for a notification type.
+ * Accepts a plain string so runtime-unknown types from WebSocket messages
+ * are handled safely — unknown types return the fallback object.
+ */
+export function getNotificationMeta(type: string): NotificationMeta {
   return (
-    NOTIFICATION_META[type] ?? {
+    (NOTIFICATION_META as Record<string, NotificationMeta>)[type] ?? {
       label: 'Notificação',
       icon: 'BellIcon',
       colorClass: 'text-gray-600',
@@ -113,9 +118,14 @@ export function getNotificationMeta(type: NotificationType): NotificationMeta {
   );
 }
 
-export function formatNotificationDate(isoString: string): string {
+/**
+ * Formats a creation timestamp as a human-readable relative string.
+ * Accepts an optional `now` parameter so callers can pass a stable
+ * Date instance (e.g., from a 1-minute interval) to keep the list
+ * up-to-date without re-mounting items.
+ */
+export function formatNotificationDate(isoString: string, now = new Date()): string {
   const date = new Date(isoString);
-  const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMin = Math.floor(diffMs / 60_000);
   const diffHours = Math.floor(diffMs / 3_600_000);

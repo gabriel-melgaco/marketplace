@@ -8,12 +8,14 @@ import { CartDrawer } from "@/components/layout/CartDrawer";
 import { useAuth } from "@/contexts/AuthContext";
 import type { CategorySimple } from "@/types/product";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { useChatContext } from "@/contexts/ChatContext";
 
 interface HeaderProps extends HTMLAttributes<HTMLDivElement> {}
 
 function Header(props: HeaderProps) {
   const [categories, setCategories] = useState<CategorySimple[]>([]);
   const { isAuthenticated } = useAuth();
+  const { totalUnread } = useChatContext();
   const location = useLocation();
 
   useEffect(() => {
@@ -54,6 +56,36 @@ function Header(props: HeaderProps) {
         {isAuthenticated ? (
           <div className="flex items-center gap-3 md:gap-5">
             <NotificationBell />
+            {/* Chat messages link */}
+            <Link
+              to="/conversations"
+              aria-label={`Mensagens${totalUnread > 0 ? ` — ${totalUnread} não lidas` : ''}`}
+              className="relative text-text-primary focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-1 focus:ring-offset-transparent rounded-lg"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="w-6 h-6 md:w-7 md:h-7"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.5}
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 011.037-.443 48.282 48.282 0 005.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z"
+                />
+              </svg>
+              {totalUnread > 0 && (
+                <span
+                  aria-hidden="true"
+                  className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold leading-none"
+                >
+                  {totalUnread > 99 ? '99+' : totalUnread}
+                </span>
+              )}
+            </Link>
             <CartDrawer />
             <Sidebar />
           </div>

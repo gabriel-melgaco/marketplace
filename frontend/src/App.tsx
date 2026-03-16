@@ -30,6 +30,8 @@ import { StripeOnboardingComplete } from "@/pages/seller/onboarding/complete";
 import { CategoryProductList } from "@/pages/public/CategoryProductList";
 import { NotFound } from "@/pages/public/NotFound";
 import { ROUTES } from "@/routes/routePaths";
+import { ConversationsPage } from "@/pages/Conversations";
+import { ConversationDetail } from "@/pages/Conversations/ConversationDetail";
 
 const router = createBrowserRouter([
   // PUBLIC — with shared layout
@@ -76,6 +78,8 @@ const router = createBrowserRouter([
           { path: "payment/failed", element: <PaymentFailed /> },
           { path: "orderconfirmed", element: <OrderConfirmed /> },
           { path: "chat/:listingId?", element: <Chat /> },
+          { path: "conversations", element: <ConversationsPage /> },
+          { path: "conversations/:id", element: <ConversationDetail /> },
           { path: "account", element: <AccountPage /> },
         ],
       },

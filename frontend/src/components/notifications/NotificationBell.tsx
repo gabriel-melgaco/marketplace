@@ -11,26 +11,26 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Merged effect: handles both click-outside and Escape key
   useEffect(() => {
+    if (!isOpen) return;
+
     function handleClickOutside(e: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setIsOpen(false);
       }
     }
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isOpen]);
 
-  useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') setIsOpen(false);
     }
-    if (isOpen) {
-      document.addEventListener('keydown', handleKeyDown);
-    }
-    return () => document.removeEventListener('keydown', handleKeyDown);
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
   }, [isOpen]);
 
   return (
@@ -80,6 +80,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
       {isOpen && (
         <div
           role="dialog"
+          aria-modal="true"
           aria-label="Painel de notificações"
           className="absolute right-0 top-full mt-2 w-96 max-h-[80vh] bg-white rounded-xl shadow-xl border border-gray-200 z-50 flex flex-col overflow-hidden"
         >

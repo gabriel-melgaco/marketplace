@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import api from '@/api/axios';
+import { notificationsApi } from '@/services/notificationsApi';
 import { NotificationPreference } from '@/types/notifications';
 
 interface UseNotificationPreferencesReturn {
@@ -21,7 +21,7 @@ export function useNotificationPreferences(): UseNotificationPreferencesReturn {
     setIsLoading(true);
     setError(null);
     try {
-      const { data } = await api.get<NotificationPreference>('/notifications/preferences/');
+      const data = await notificationsApi.getPreferences();
       setPreferences(data);
     } catch (err) {
       setError('Não foi possível carregar as preferências.');
@@ -43,7 +43,7 @@ export function useNotificationPreferences(): UseNotificationPreferencesReturn {
       setIsSaving(true);
       setError(null);
       try {
-        const { data } = await api.patch<NotificationPreference>('/notifications/preferences/', partial);
+        const data = await notificationsApi.updatePreferences(partial);
         setPreferences(data);
       } catch (err) {
         setPreferences(previous);
