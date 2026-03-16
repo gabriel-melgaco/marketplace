@@ -101,7 +101,14 @@ export class ChatSocket {
 
   disconnect(): void {
     this.shouldReconnect = false;
-    this.ws?.close();
+    if (
+      this.ws &&
+      (this.ws.readyState === WebSocket.OPEN ||
+        this.ws.readyState === WebSocket.CONNECTING)
+    ) {
+      this.ws.close(1000, 'Desconectado pelo usuário');
+    }
+    this.ws = null;
   }
 
   sendMessage(content: string): void {
