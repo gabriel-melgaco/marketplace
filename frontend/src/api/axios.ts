@@ -109,4 +109,47 @@ api.interceptors.response.use(
   },
 );
 
+/**
+ * Centralized token refresh shared between the axios interceptor and the
+ * WebSocket reconnect path. Using a single function prevents the race
+ * condition where both paths try to refresh the token simultaneously and
+ * one of them caches stale data.
+ */
+export async function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = tokenStorage.getRefreshToken();
+  if (!refreshToken) return null;
+
+  // If a refresh is already in flight, wait for it to complete
+  if (isRefreshing) {
+    return new Promise((resolve) => {
+      failedQueue.push({
+        resolve: (token) => resolve(token),
+        reject: () => resolve(null),
+      });
+    });
+  }
+
+  isRefreshing = true;
+  try {
+    const response = await axios.post(`${API_BASE_URL}/auth/token/refresh/`, {
+      refresh: refreshToken,
+    });
+    const newAccessToken = response.data.access;
+    tokenStorage.saveTokens({
+      access: newAccessToken,
+      refresh: response.data.refresh || refreshToken,
+      access_expiration: response.data.access_expiration || "",
+      refresh_expiration: response.data.refresh_expiration || "",
+    });
+    processQueue(null, newAccessToken);
+    return newAccessToken;
+  } catch (err) {
+    tokenStorage.clearTokens();
+    processQueue(err, null);
+    return null;
+  } finally {
+    isRefreshing = false;
+  }
+}
+
 export default api;

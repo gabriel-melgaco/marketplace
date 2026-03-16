@@ -1,6 +1,7 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useNotificationContext } from '@/contexts/NotificationContext';
-import { Notification, NotificationType } from '@/types/notifications';
+import { Notification } from '@/types/notifications';
 import { formatNotificationDate, getNotificationMeta } from '@/utils/notificationUtils';
 
 interface NotificationListProps {
@@ -16,6 +17,25 @@ export function NotificationList({ onClose }: NotificationListProps) {
     markAllAsRead,
     loadMore,
   } = useNotificationContext();
+
+  // Tick every minute so relative timestamps stay up-to-date
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Prevent double-click on "mark all" during in-flight request
+  const [isMarkingAll, setIsMarkingAll] = useState(false);
+  const handleMarkAllAsRead = async () => {
+    if (isMarkingAll) return;
+    setIsMarkingAll(true);
+    try {
+      await markAllAsRead();
+    } finally {
+      setIsMarkingAll(false);
+    }
+  };
 
   const observerRef = useRef<IntersectionObserver | null>(null);
   const sentinelRef = useCallback(
@@ -52,8 +72,10 @@ export function NotificationList({ onClose }: NotificationListProps) {
           {unreadNotifications.length > 0 && (
             <button
               type="button"
-              onClick={markAllAsRead}
-              className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+              onClick={handleMarkAllAsRead}
+              disabled={isMarkingAll}
+              aria-label="Marcar todas as notificações como lidas"
+              className="text-xs text-blue-600 hover:text-blue-800 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Marcar todas como lidas
             </button>
@@ -87,7 +109,9 @@ export function NotificationList({ onClose }: NotificationListProps) {
           <NotificationItem
             key={notification.id}
             notification={notification}
+            now={now}
             onMarkRead={() => markAsRead(notification.id)}
+            onClose={onClose}
           />
         ))}
 
@@ -109,19 +133,31 @@ export function NotificationList({ onClose }: NotificationListProps) {
 
 interface NotificationItemProps {
   notification: Notification;
+  now: Date;
   onMarkRead: () => void;
+  onClose?: () => void;
 }
 
-function NotificationItem({ notification, onMarkRead }: NotificationItemProps) {
-  const meta = getNotificationMeta(notification.notification_type as NotificationType);
+function NotificationItem({ notification, now, onMarkRead, onClose }: NotificationItemProps) {
+  const navigate = useNavigate();
+  const meta = getNotificationMeta(notification.notification_type);
+  const route = meta.route?.(notification.metadata);
+
+  const handleClick = () => {
+    if (!notification.is_read) onMarkRead();
+    if (route) {
+      onClose?.();
+      navigate(route);
+    }
+  };
 
   return (
-    <div
-      className={`flex gap-3 px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer border-b border-gray-50 ${
+    <button
+      type="button"
+      onClick={handleClick}
+      className={`w-full text-left flex gap-3 px-4 py-3 hover:bg-gray-50 transition-colors border-b border-gray-50 ${
         !notification.is_read ? 'bg-blue-50/40' : ''
       }`}
-      onClick={!notification.is_read ? onMarkRead : undefined}
-      role="article"
       aria-label={`${notification.title}${notification.is_read ? ' (lida)' : ' (não lida)'}`}
     >
       <div
@@ -143,8 +179,8 @@ function NotificationItem({ notification, onMarkRead }: NotificationItemProps) {
           )}
         </div>
         <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{notification.body}</p>
-        <p className="text-xs text-gray-400 mt-1">{formatNotificationDate(notification.created_at)}</p>
+        <p className="text-xs text-gray-400 mt-1">{formatNotificationDate(notification.created_at, now)}</p>
       </div>
-    </div>
+    </button>
   );
 }
