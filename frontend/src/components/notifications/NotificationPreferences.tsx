@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNotificationPreferences } from '@/hooks/useNotificationPreferences';
-import { NotificationPreference, NotificationType } from '@/types/notifications';
+import type { NotificationPreference, NotificationType } from '@/types/notifications';
 import { getNotificationMeta, NOTIFICATION_TYPE_GROUPS } from '@/utils/notificationUtils';
 
 export function NotificationPreferences() {
