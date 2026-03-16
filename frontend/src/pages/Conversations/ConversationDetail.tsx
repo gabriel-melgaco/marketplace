@@ -9,6 +9,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Send, Loader2, WifiOff, MessageSquare } from 'lucide-react';
 import Swal from 'sweetalert2';
 import { useAuth } from '@/contexts/AuthContext';
+import { useChatContext } from '@/contexts/ChatContext';
 import { useChat } from '@/hooks/useChat';
 import { chatService } from '@/services/chatService';
 import { formatNotificationDate } from '@/utils/notificationUtils';
@@ -161,6 +162,7 @@ export function ConversationDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { refreshUnread } = useChatContext();
 
   const {
     messages,
@@ -194,7 +196,7 @@ export function ConversationDetail() {
         const conv = conversations.find((c) => c.id === id);
         if (conv) {
           setConversationType(conv.conversation_type);
-          const other = conv.participants.find((p) => p.id !== user?.id);
+          const other = conv.participants.find((p) => String(p.id) !== String(user?.id));
           setParticipantName(other?.name ?? conv.participants[0]?.name ?? 'Participante');
         }
       } catch {
@@ -203,6 +205,13 @@ export function ConversationDetail() {
     }
     fetchMeta();
   }, [id, user?.id]);
+
+  // Atualiza o badge de mensagens não lidas ao sair da conversa.
+  useEffect(() => {
+    return () => {
+      refreshUnread();
+    };
+  }, [refreshUnread]);
 
   // Auto-scroll to bottom when new messages arrive (only if user is near bottom).
   useLayoutEffect(() => {

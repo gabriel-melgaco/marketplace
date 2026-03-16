@@ -110,7 +110,7 @@ export function NotificationList({ onClose }: NotificationListProps) {
         </div>
       </div>
 
-      <div className="overflow-y-auto flex-1">
+      <div className="overflow-y-auto flex-1 min-h-0">
         {notifications.length === 0 && !isLoading && (
           <div className="flex flex-col items-center justify-center py-12 text-gray-400">
             <svg
@@ -162,7 +162,7 @@ export function NotificationList({ onClose }: NotificationListProps) {
 interface NotificationItemProps {
   notification: Notification;
   now: Date;
-  onMarkRead: () => void;
+  onMarkRead: () => Promise<void>;
   onClose?: () => void;
 }
 
@@ -176,11 +176,13 @@ function NotificationItem({
   const meta = getNotificationMeta(notification.notification_type);
   const route = meta.route?.(notification.metadata);
 
-  const handleClick = () => {
-    if (!notification.is_read) onMarkRead();
+  const handleClick = async () => {
+    if (!notification.is_read) {
+      await onMarkRead();
+    }
     if (route) {
-      onClose?.();
       navigate(route);
+      onClose?.();
     }
   };
 

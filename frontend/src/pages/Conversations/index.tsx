@@ -9,7 +9,7 @@ import type { Conversation } from '@/types/chat';
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function getOtherParticipantName(conversation: Conversation, currentUserId: number): string {
-  const other = conversation.participants.find((p) => p.id !== currentUserId);
+  const other = conversation.participants.find((p) => String(p.id) !== String(currentUserId));
   return other?.name ?? conversation.participants[0]?.name ?? 'Participante';
 }
 
@@ -17,7 +17,7 @@ function getOtherParticipantPicture(
   conversation: Conversation,
   currentUserId: number,
 ): string | null {
-  const other = conversation.participants.find((p) => p.id !== currentUserId);
+  const other = conversation.participants.find((p) => String(p.id) !== String(currentUserId));
   return other?.picture ?? null;
 }
 

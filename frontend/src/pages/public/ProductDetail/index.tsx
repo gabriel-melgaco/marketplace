@@ -393,7 +393,8 @@ export function ProductDetail() {
       navigate("/login");
       return;
     }
-    // TODO: implement direct checkout flow
+    if (!listing || listing.quantity <= 0) return;
+    addToCart(listing);
     navigate("/checkout");
   };
 

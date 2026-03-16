@@ -51,10 +51,21 @@ export interface CEPLookupResponse {
   state: string;
 }
 
+interface PaginatedAddressResponse {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: Address[];
+}
+
 export const addressService = {
-  async listAddresses() {
-    const response = await api.get<Address[]>("/logistics/addresses/");
-    return response.data;
+  async listAddresses(): Promise<Address[]> {
+    const response = await api.get<PaginatedAddressResponse | Address[]>("/logistics/addresses/");
+    const data = response.data;
+    if (data && !Array.isArray(data) && "results" in data) {
+      return data.results ?? [];
+    }
+    return (data as Address[]) ?? [];
   },
 
   async getAddress(id: number) {
