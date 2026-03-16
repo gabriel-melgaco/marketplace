@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { notificationsApi } from '@/services/notificationsApi';
-import { Notification, WsIncomingMessage } from '@/types/notifications';
+import type { Notification, WsIncomingMessage } from '@/types/notifications';
 
 const RECONNECT_BASE_DELAY_MS = 1_000;
 const RECONNECT_MAX_DELAY_MS = 30_000;

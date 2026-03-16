@@ -1,5 +1,5 @@
 import api from "@/api/axios";
-import {
+import type {
   Notification,
   PaginatedResponse,
   NotificationPreference,

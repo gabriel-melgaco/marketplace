@@ -1,6 +1,6 @@
 import React, { createContext, useContext, ReactNode } from 'react';
 import { useNotifications } from '@/hooks/useNotifications';
-import { Notification } from '@/types/notifications';
+import type { Notification } from '@/types/notifications';
 import { tokenStorage } from '@/utils/tokenStorage';
 import { refreshAccessToken } from '@/api/axios';
 
