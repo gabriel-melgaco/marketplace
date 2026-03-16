@@ -40,7 +40,7 @@ function Header(props: HeaderProps) {
   }, []);
 
   return (
-    <header className="sticky top-0 left-0 w-full z-50 bg-header shadow-lg">
+    <header className="flex-shrink-0 sticky top-0 left-0 w-full z-50 bg-header shadow-lg">
       <nav
         {...props}
         className={`max-w-7xl mx-auto h-14 md:h-16 flex items-center justify-between px-4 sm:px-6 ${props.className ?? ""}`}
