@@ -1,16 +1,9 @@
 import { tokenStorage } from '@/utils/tokenStorage';
 import { refreshAccessToken } from '@/api/axios';
+import type { ChatMessage } from '@/types/chat';
 
-const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL ?? 'wss://api.megdev.com.br/ws';
+const WS_BASE_URL = (import.meta.env.VITE_WS_URL as string | undefined) ?? 'wss://api.megdev.com.br';
 const MAX_RECONNECT_DELAY = 30_000;
-
-export interface ChatMessage {
-  id: string;
-  sender_id: number;
-  sender_name: string;
-  content: string;
-  created_at: string;
-}
 
 export interface ReadReceipt {
   conversation_id: string;
@@ -60,7 +53,7 @@ export class ChatSocket {
   }
 
   connect(): void {
-    const url = `${WS_BASE_URL}/chats/${this.conversationId}/?token=${this.token}`;
+    const url = `${WS_BASE_URL}/ws/chats/${this.conversationId}/?token=${this.token}`;
     this.ws = new WebSocket(url);
 
     this.ws.onopen = () => {
@@ -150,4 +143,6 @@ export class ChatSocket {
   }
 }
 
+// Re-export tokenStorage so existing test files that import it from here
+// continue to work without modification.
 export { tokenStorage };

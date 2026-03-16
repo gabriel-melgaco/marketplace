@@ -12,6 +12,7 @@ const GUEST_MENU = [
 ];
 
 const AUTH_MENU = [
+  { label: "Mensagens", path: "/conversations" },
   { label: "Minha Conta", path: "/account" },
 ];
 
