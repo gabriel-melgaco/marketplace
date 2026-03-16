@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { notificationsApi } from '@/services/notificationsApi';
-import { NotificationPreference } from '@/types/notifications';
+import type { NotificationPreference } from '@/types/notifications';
 
 interface UseNotificationPreferencesReturn {
   preferences: NotificationPreference | null;
