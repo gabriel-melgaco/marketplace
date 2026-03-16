@@ -24,6 +24,7 @@ import Swal from "sweetalert2";
 import { orderService } from "@/services/orderService";
 import { reviewService } from "@/services/reviewService";
 import { SaleOrderModal } from "@/components/ui/SaleOrderModal";
+import { BuyerOrderModal } from "@/components/ui/BuyerOrderModal";
 import { toPublicUrl } from "@/services/storageService";
 import { createRoute } from "@/routes/routePaths";
 import type { MarketplaceListing } from "@/types/product";
@@ -46,21 +47,27 @@ interface DashboardStats {
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const ORDER_STATUS_LABELS: Record<string, string> = {
+  pending_payment: "Aguardando Pagamento",
+  paid: "Pago",
   pending: "Pendente",
-  processing: "Em processamento",
+  processing: "Em Processamento",
   shipped: "Enviado",
   delivered: "Entregue",
-  cancelled: "Cancelado",
   completed: "Concluído",
+  cancelled: "Cancelado",
+  failed: "Falhou",
 };
 
 const ORDER_STATUS_COLORS: Record<string, string> = {
+  pending_payment: "bg-yellow-100 text-yellow-800",
+  paid: "bg-blue-100 text-blue-800",
   pending: "bg-yellow-100 text-yellow-800",
   processing: "bg-blue-100 text-blue-800",
   shipped: "bg-purple-100 text-purple-800",
   delivered: "bg-green-100 text-green-800",
   completed: "bg-green-100 text-green-800",
   cancelled: "bg-red-100 text-red-800",
+  failed: "bg-red-100 text-red-800",
 };
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -533,6 +540,7 @@ function PurchasesSection() {
   const [orders, setOrders] = useState<OrderList[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
 
   const loadOrders = useCallback(async () => {
     setLoading(true);
@@ -591,7 +599,8 @@ function PurchasesSection() {
         {orders.map((order) => (
           <div
             key={order.id}
-            className="flex items-center justify-between py-3.5 px-2 -mx-2 hover:bg-gray-50 rounded-xl transition-colors"
+            onClick={() => setSelectedOrderId(order.id)}
+            className="flex items-center justify-between py-3.5 px-2 -mx-2 hover:bg-gray-50 rounded-xl transition-colors cursor-pointer"
           >
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-gray-800">
@@ -609,10 +618,19 @@ function PurchasesSection() {
                 })}
               </p>
               <StatusBadge status={order.status} />
+              <ChevronRight size={16} className="text-gray-300" />
             </div>
           </div>
         ))}
       </div>
+
+      {selectedOrderId && (
+        <BuyerOrderModal
+          orderId={selectedOrderId}
+          onClose={() => setSelectedOrderId(null)}
+          onOrderCancelled={loadOrders}
+        />
+      )}
     </div>
   );
 }
