@@ -82,7 +82,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
           role="dialog"
           aria-modal="true"
           aria-label="Painel de notificações"
-          className="absolute top-full mt-2 z-50 bg-white rounded-xl shadow-xl border border-gray-200 flex flex-col overflow-hidden w-[calc(100vw-2rem)] right-0 max-h-[70vh] sm:w-96 sm:max-h-[480px]"
+          className="fixed left-1/2 -translate-x-1/2 top-16 z-50 bg-white rounded-xl shadow-xl border border-gray-200 flex flex-col overflow-hidden w-[80vw] max-h-[70vh]"
         >
           <NotificationList onClose={() => setIsOpen(false)} />
         </div>
