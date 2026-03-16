@@ -310,15 +310,7 @@ export function ConversationDetail() {
   const canSend = connected && !!input.trim();
 
   return (
-    /*
-     * Use dvh (dynamic viewport height) with a fallback to 100vh so the layout
-     * fills the screen correctly on mobile browsers where the address bar
-     * shrinks/expands the viewport.
-     */
-    <div
-      className="flex flex-col bg-gray-50 pb-[68px]"
-      style={{ height: '100dvh', minHeight: '100vh' }}
-    >
+    <div className="flex flex-col h-full overflow-hidden bg-gray-50">
       {/* ── Header ── */}
       <header className="bg-white border-b border-gray-200 px-3 sm:px-4 py-3 flex items-center gap-2 sm:gap-3 flex-shrink-0 shadow-sm z-10">
         {/* Back button — 44x44 touch target */}

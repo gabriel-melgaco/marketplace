@@ -6,8 +6,8 @@ import { NavMenu } from "./NavMenu";
 
 export function BottomNav() {
   return (
-    <div>
-      <nav className="fixed bottom-0 left-0 right-0 bg-black border-t shadow-lg">
+    <div className="flex-shrink-0">
+      <nav className="bg-black border-t shadow-lg z-40">
         <div className="max-w-7xl mx-auto flex justify-around items-center py-3">
           <NavHome />
           <NavSearch />

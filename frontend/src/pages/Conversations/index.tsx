@@ -169,7 +169,7 @@ export function ConversationsPage() {
   const activeId = activeMatch?.[1] ?? null;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="h-full overflow-y-auto bg-gray-50">
       <div className="max-w-2xl mx-auto">
 
         {/* Header */}

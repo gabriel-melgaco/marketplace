@@ -32,6 +32,7 @@ import { NotFound } from "@/pages/public/NotFound";
 import { ROUTES } from "@/routes/routePaths";
 import { ConversationsPage } from "@/pages/Conversations";
 import { ConversationDetail } from "@/pages/Conversations/ConversationDetail";
+import ChatLayout from "@/layout/chatlayout";
 
 const router = createBrowserRouter([
   // PUBLIC — with shared layout
@@ -62,6 +63,7 @@ const router = createBrowserRouter([
   {
     element: <PrivateRoutes />,
     children: [
+      // Pages that use the standard scrollable layout
       {
         element: <HomeLayout />,
         children: [
@@ -78,9 +80,15 @@ const router = createBrowserRouter([
           { path: "payment/failed", element: <PaymentFailed /> },
           { path: "orderconfirmed", element: <OrderConfirmed /> },
           { path: "chat/:listingId?", element: <Chat /> },
+          { path: "account", element: <AccountPage /> },
+        ],
+      },
+      // Chat routes — use ChatLayout so the message area scrolls internally
+      {
+        element: <ChatLayout />,
+        children: [
           { path: "conversations", element: <ConversationsPage /> },
           { path: "conversations/:id", element: <ConversationDetail /> },
-          { path: "account", element: <AccountPage /> },
         ],
       },
     ],
