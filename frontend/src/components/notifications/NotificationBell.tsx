@@ -1,43 +1,57 @@
-import React, { useRef, useState, useEffect } from 'react';
-import { useNotificationContext } from '@/contexts/NotificationContext';
-import { NotificationList } from './NotificationList';
+import React, { useRef, useState, useEffect } from "react";
+import { useNotificationContext } from "@/contexts/NotificationContext";
+import { NotificationList } from "./NotificationList";
 
 interface NotificationBellProps {
   className?: string;
 }
 
-export function NotificationBell({ className = '' }: NotificationBellProps) {
+export function NotificationBell({ className = "" }: NotificationBellProps) {
   const { unreadCount, isConnected } = useNotificationContext();
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const bellButtonRef = useRef<HTMLButtonElement>(null);
+  const [mobileTop, setMobileTop] = useState("70px");
 
-  // Merged effect: handles both click-outside and Escape key
+  // Calcula posição do painel mobile dinamicamente
+  useEffect(() => {
+    if (isOpen && bellButtonRef.current) {
+      const rect = bellButtonRef.current.getBoundingClientRect();
+      setMobileTop(`${rect.bottom + 12}px`);
+    }
+  }, [isOpen]);
+
+  // Click fora + ESC
   useEffect(() => {
     if (!isOpen) return;
 
     function handleClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
         setIsOpen(false);
       }
     }
 
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setIsOpen(false);
+      if (e.key === "Escape") setIsOpen(false);
     }
 
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
     };
   }, [isOpen]);
 
   return (
     <div ref={containerRef} className={`relative ${className}`}>
       <button
+        ref={bellButtonRef}
         type="button"
-        aria-label={`Notificações${unreadCount > 0 ? ` — ${unreadCount} não lidas` : ''}`}
+        aria-label={`Notificações${unreadCount > 0 ? ` — ${unreadCount} não lidas` : ""}`}
         aria-haspopup="true"
         aria-expanded={isOpen}
         onClick={() => setIsOpen((prev) => !prev)}
@@ -64,35 +78,56 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
             aria-hidden="true"
             className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold leading-none"
           >
-            {unreadCount > 99 ? '99+' : unreadCount}
+            {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         )}
 
         <span
           aria-hidden="true"
-          title={isConnected ? 'Conectado' : 'Desconectado'}
+          title={isConnected ? "Conectado" : "Desconectado"}
           className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-white ${
-            isConnected ? 'bg-green-400' : 'bg-gray-400'
+            isConnected ? "bg-green-400" : "bg-gray-400"
           }`}
         />
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-3 z-50 w-[min(80vw,500px)]">
-          {/* Seta apontando para o sininho */}
+        <>
+          {/* ── MOBILE: fixed, centralizado na tela ── */}
           <div
-            aria-hidden="true"
-            className="absolute -top-[9px] right-2 w-4 h-4 bg-white border-l border-t border-gray-200 rotate-45 z-10"
-          />
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Painel de notificações"
-            className="relative bg-white rounded-xl shadow-xl border border-gray-200 flex flex-col overflow-hidden max-h-[70vh]"
+            className="sm:hidden fixed left-4 right-4 z-50"
+            style={{ top: mobileTop }}
           >
-            <NotificationList onClose={() => setIsOpen(false)} />
+            <div
+              aria-hidden="true"
+              className="absolute right-4 -top-2.25 w-4 h-4 bg-white border-l border-t border-gray-200 rotate-45 z-10"
+            />
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Painel de notificações"
+              className="relative bg-white rounded-xl shadow-xl border border-gray-200 flex flex-col overflow-hidden max-h-[75vh]"
+            >
+              <NotificationList onClose={() => setIsOpen(false)} />
+            </div>
           </div>
-        </div>
+
+          {/* ── DESKTOP: absolute à direita do sino, largura generosa ── */}
+          <div className="hidden sm:block absolute right-0 top-full mt-3 z-50 w-105">
+            <div
+              aria-hidden="true"
+              className="absolute right-3 -top-2.25 w-4 h-4 bg-white border-l border-t border-gray-200 rotate-45 z-10"
+            />
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Painel de notificações"
+              className="relative bg-white rounded-xl shadow-xl border border-gray-200 flex flex-col overflow-hidden max-h-[70vh]"
+            >
+              <NotificationList onClose={() => setIsOpen(false)} />
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
