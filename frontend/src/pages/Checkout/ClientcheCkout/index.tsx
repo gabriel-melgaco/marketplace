@@ -43,15 +43,19 @@ interface SellerQuote {
 
 /**
  * Represents the raw shape returned by the API per seller inside
- * `quotes_by_seller`. The API contract is intentionally loose, so both
- * `quotes` and `options` are accepted as the array field name.
+ * `quotes_by_seller` (SellerQuoteEntry schema).
+ * The canonical field is `services`; `quotes`/`options` are kept as
+ * fallbacks for backward compatibility with older API responses.
  */
 interface RawSellerQuote {
   seller_name?: string;
   in_person_only?: boolean;
   in_person_items?: unknown[];
+  melhor_envio_items?: unknown[];
+  services?: RawShippingOption[];
   quotes?: RawShippingOption[];
   options?: RawShippingOption[];
+  error?: string;
 }
 
 interface RawShippingOption {
@@ -384,7 +388,9 @@ export function Checkout() {
 
           if (inPersonOnly) newInPerson.push(sellerId);
 
-          const rawOptions = rawData.quotes ?? rawData.options ?? [];
+          // `services` is the canonical field per SellerQuoteEntry schema;
+          // `quotes`/`options` kept as fallbacks for older API responses.
+          const rawOptions = rawData.services ?? rawData.quotes ?? rawData.options ?? [];
           const quotes = rawOptions.map(parseRawShippingOption);
 
           newQuotes[sellerId] = {
