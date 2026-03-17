@@ -329,6 +329,19 @@ export function Payment() {
     const controller = new AbortController();
     const { shippingAddressId, selectedServices, inPersonSellers } = checkoutState;
 
+    // Guard: every melhor_envio item must have a service_id selected.
+    // If any is missing, the checkout state is stale — send the user back.
+    const missingService = items.some((item) => {
+      const sid = String(item.listing.seller);
+      return !inPersonSellers.includes(sid) && selectedServices[sid] === undefined;
+    });
+    if (missingService) {
+      navigate("/checkout", {
+        state: { error: "Selecione uma opção de frete para todos os vendedores antes de continuar." },
+      });
+      return;
+    }
+
     const itemsDelivery: ItemDelivery[] = items.map((item) => {
       const sid = String(item.listing.seller);
       if (inPersonSellers.includes(sid)) {
