@@ -280,7 +280,6 @@ class TestMarkAsRead:
         MessageService.mark_as_read(
             user=seller,
             conversation_id=str(buyer_seller_conversation.id),
-            last_message_id=str(msg.id),
         )
         after = timezone.now()
 
@@ -289,7 +288,7 @@ class TestMarkAsRead:
         assert before <= status.read_at <= after
 
     def test_updates_participant_last_read_at(self, buyer_seller_conversation, buyer, seller):
-        msg = MessageService.send_message(
+        MessageService.send_message(
             conversation=buyer_seller_conversation,
             sender=buyer,
             content="Atualize last_read_at",
@@ -298,7 +297,6 @@ class TestMarkAsRead:
         MessageService.mark_as_read(
             user=seller,
             conversation_id=str(buyer_seller_conversation.id),
-            last_message_id=str(msg.id),
         )
         after = timezone.now()
 
@@ -331,7 +329,6 @@ class TestMarkAsRead:
         count = MessageService.mark_as_read(
             user=seller,
             conversation_id=str(buyer_seller_conversation.id),
-            last_message_id=str(msg3.id),
         )
 
         # Todas as 3 mensagens devem ser marcadas como lidas
@@ -356,12 +353,11 @@ class TestMarkAsRead:
         count = MessageService.mark_as_read(
             user=seller,
             conversation_id=str(buyer_seller_conversation.id),
-            last_message_id=str(msg2.id),
         )
         assert count == 2
 
     def test_raises_for_non_participant(self, buyer_seller_conversation, buyer, outsider):
-        msg = MessageService.send_message(
+        MessageService.send_message(
             conversation=buyer_seller_conversation,
             sender=buyer,
             content="Não pode ler",
@@ -370,16 +366,6 @@ class TestMarkAsRead:
             MessageService.mark_as_read(
                 user=outsider,
                 conversation_id=str(buyer_seller_conversation.id),
-                last_message_id=str(msg.id),
-            )
-
-    def test_raises_for_nonexistent_message(self, buyer_seller_conversation, seller):
-        fake_id = str(uuid.uuid4())
-        with pytest.raises(MessageServiceError, match="não encontrada"):
-            MessageService.mark_as_read(
-                user=seller,
-                conversation_id=str(buyer_seller_conversation.id),
-                last_message_id=fake_id,
             )
 
     def test_idempotent_second_mark_as_read(
@@ -394,13 +380,11 @@ class TestMarkAsRead:
         MessageService.mark_as_read(
             user=seller,
             conversation_id=str(buyer_seller_conversation.id),
-            last_message_id=str(msg.id),
         )
         # Segunda chamada deve ser zero updates (já marcado como lido)
         count2 = MessageService.mark_as_read(
             user=seller,
             conversation_id=str(buyer_seller_conversation.id),
-            last_message_id=str(msg.id),
         )
         assert count2 == 0
 
@@ -417,7 +401,6 @@ class TestMarkAsRead:
         count = MessageService.mark_as_read(
             user=buyer,
             conversation_id=str(buyer_seller_conversation.id),
-            last_message_id=str(msg.id),
         )
         assert count == 0
 
@@ -448,7 +431,6 @@ class TestGetUnreadCount:
         MessageService.mark_as_read(
             user=seller,
             conversation_id=str(buyer_seller_conversation.id),
-            last_message_id=str(msg.id),
         )
         count = MessageService.get_unread_count(seller, str(buyer_seller_conversation.id))
         assert count == 0

@@ -222,61 +222,45 @@ class MessageService:
     def mark_as_read(
         user: User,
         conversation_id: str,
-        last_message_id: str,
     ) -> int:
         """
-        Mark all messages up to and including `last_message_id` as read
-        for the given user.
+        Mark all unread messages in the conversation as read for the given user.
 
         Updates both:
-        - MessageStatus.read_at for each affected row
+        - MessageStatus.read_at for each unread row
         - ConversationParticipant.last_read_at
 
         Args:
             user: The user marking messages as read.
             conversation_id: UUID string of the conversation.
-            last_message_id: UUID of the last message the user has seen.
 
         Returns:
             Number of MessageStatus rows updated.
 
         Raises:
-            MessageServiceError: If the user is not a participant or the
-                reference message does not exist.
+            MessageServiceError: If the user is not a participant.
         """
         if not ConversationService.is_participant(user, conversation_id):
             raise MessageServiceError(
                 "Você não é participante desta conversa."
             )
 
-        try:
-            pivot = Message.objects.only('created_at').get(
-                pk=last_message_id, conversation_id=conversation_id
-            )
-        except Message.DoesNotExist:
-            raise MessageServiceError(
-                f"Mensagem {last_message_id} não encontrada nesta conversa."
-            )
-
         now = timezone.now()
 
-        # Bulk-update all unread statuses up to the pivot message
         updated = MessageStatus.objects.filter(
             recipient=user,
             read_at__isnull=True,
             message__conversation_id=conversation_id,
-            message__created_at__lte=pivot.created_at,
         ).update(read_at=now)
 
-        # Also update the participant's last_read_at watermark
         ConversationParticipant.objects.filter(
             conversation_id=conversation_id,
             user=user,
         ).update(last_read_at=now)
 
         logger.info(
-            "User %s marked %d messages as read in conversation %s (up to %s)",
-            user.pk, updated, conversation_id, last_message_id,
+            "User %s marked %d messages as read in conversation %s",
+            user.pk, updated, conversation_id,
         )
         return updated
 

@@ -426,58 +426,28 @@ class TestMarkAsReadView:
     def test_marks_messages_as_read(
         self, seller_client, buyer_seller_conversation, buyer, seller
     ):
-        msg = MessageService.send_message(
+        MessageService.send_message(
             conversation=buyer_seller_conversation,
             sender=buyer,
             content="Leia",
         )
         url = mark_read_url(buyer_seller_conversation.id)
-        response = seller_client.post(url, {
-            'last_message_id': str(msg.id)
-        }, format='json')
+        response = seller_client.post(url, format='json')
         assert response.status_code == 200
         assert 'updated' in response.data
         assert response.data['updated'] == 1
 
-    def test_missing_last_message_id_returns_400(
-        self, seller_client, buyer_seller_conversation
-    ):
-        url = mark_read_url(buyer_seller_conversation.id)
-        response = seller_client.post(url, {}, format='json')
-        assert response.status_code == 400
-
-    def test_invalid_uuid_returns_400(
-        self, seller_client, buyer_seller_conversation
-    ):
-        url = mark_read_url(buyer_seller_conversation.id)
-        response = seller_client.post(url, {
-            'last_message_id': 'not-a-uuid'
-        }, format='json')
-        assert response.status_code == 400
-
-    def test_nonexistent_message_returns_400(
-        self, seller_client, buyer_seller_conversation
-    ):
-        url = mark_read_url(buyer_seller_conversation.id)
-        response = seller_client.post(url, {
-            'last_message_id': str(uuid.uuid4())
-        }, format='json')
-        assert response.status_code == 400
-
-    def test_non_participant_gets_400(
+    def test_non_participant_gets_403(
         self, outsider_client, buyer_seller_conversation, buyer
     ):
-        msg = MessageService.send_message(
+        MessageService.send_message(
             conversation=buyer_seller_conversation,
             sender=buyer,
             content="Não pode ler",
         )
         url = mark_read_url(buyer_seller_conversation.id)
-        response = outsider_client.post(url, {
-            'last_message_id': str(msg.id)
-        }, format='json')
-        # outsider não é participante → MessageServiceError → 400
-        assert response.status_code == 400
+        response = outsider_client.post(url, format='json')
+        assert response.status_code == 403
 
     def test_read_status_persisted_in_database(
         self, seller_client, buyer_seller_conversation, buyer, seller
@@ -488,7 +458,7 @@ class TestMarkAsReadView:
             content="Leia e verifique no banco",
         )
         url = mark_read_url(buyer_seller_conversation.id)
-        seller_client.post(url, {'last_message_id': str(msg.id)}, format='json')
+        seller_client.post(url, format='json')
 
         status = MessageStatus.objects.get(message=msg, recipient=seller)
         assert status.read_at is not None
