@@ -327,49 +327,61 @@ export function Checkout() {
     return () => controller.abort();
   }, []);
 
-  // ── Auto-calculate shipping when address changes ──
+  // ── Sync cart then calculate shipping when address is selected ──
+  // Dependency is ONLY selectedAddressId. Cart items are captured once from
+  // the closure — they are already populated when the component mounts and
+  // must not change during checkout. Including items/sellerGroups would cause
+  // the effect to re-run mid-flow, restarting the sync before it finishes.
   useEffect(() => {
-    if (!selectedAddressId) return;
+    if (!selectedAddressId || items.length === 0) return;
 
-    const controller = new AbortController();
+    let cancelled = false;
+
+    // Capture stable snapshots so we read consistent values throughout the
+    // async flow without adding them to the dependency array.
     const addressId = selectedAddressId;
+    const cartItems = items;
+    const groups = sellerGroups;
 
-    async function calculate() {
+    async function syncAndCalculate() {
       try {
-        setShippingLoading(true);
+        // ── Step 1: sync backend cart (must complete before shipping call) ──
         setSyncingCart(true);
+        setShippingLoading(true);
         setShippingError("");
 
-        // Sincronizar carrinho do backend
-        await api.delete("/orders/cart/clear/", { signal: controller.signal });
-        for (const item of items) {
-          if (controller.signal.aborted) return;
+        await api.delete("/orders/cart/clear/");
+        for (const item of cartItems) {
+          if (cancelled) return;
           await api.post("/orders/cart/add/", {
             listing: item.listing.id,
             quantity: item.quantity,
-          }, { signal: controller.signal });
+          });
         }
+
+        if (cancelled) return;
         setSyncingCart(false);
 
+        // ── Step 2: calculate shipping (cart is guaranteed populated) ──────
         const response = await shippingService.calculateShipping({ shipping_address_id: addressId });
-        if (controller.signal.aborted) return;
+        if (cancelled) return;
 
         const newQuotes: Record<string, SellerQuote> = {};
         const newInPerson: string[] = [];
 
         for (const [sellerId, raw] of Object.entries(response.quotes_by_seller)) {
-          const data = raw as RawSellerQuote;
-          const inPersonOnly = data.in_person_only === true;
+          const rawData = raw as RawSellerQuote;
+          const inPersonOnly = rawData.in_person_only === true;
 
           if (inPersonOnly) newInPerson.push(sellerId);
 
-          const rawOptions = data.quotes ?? data.options ?? [];
+          const rawOptions = rawData.quotes ?? rawData.options ?? [];
           const quotes = rawOptions.map(parseRawShippingOption);
 
           newQuotes[sellerId] = {
-            seller_name: data.seller_name ?? sellerGroups.get(sellerId)?.seller_name ?? sellerId,
+            seller_name: rawData.seller_name ?? groups.get(sellerId)?.seller_name ?? sellerId,
             in_person_only: inPersonOnly,
-            has_in_person: (data.in_person_items ?? []).length > 0,
+            has_in_person: (rawData.in_person_items ?? []).length > 0,
             quotes,
           };
         }
@@ -378,31 +390,32 @@ export function Checkout() {
         setInPersonSellers(newInPerson);
         setSelectedServices({});
       } catch (err: unknown) {
-        if (controller.signal.aborted) return;
-        setSyncingCart(false);
+        if (cancelled) return;
 
         if (axios.isAxiosError(err) && err.response?.status === 422) {
-          const data = err.response.data as { error?: string };
-          if (data.error === "insufficient_me_balance") {
+          const errData = err.response.data as { error?: string };
+          if (errData.error === "insufficient_me_balance") {
             await Swal.fire({
               icon: "error",
               title: "Envio indisponível",
               text: "Este vendedor não pode processar o envio no momento. Tente novamente mais tarde ou contate o vendedor diretamente.",
             });
-            setShippingLoading(false);
             return;
           }
         }
 
         setShippingError(getAxiosErrorMessage(err, "Erro ao calcular o frete."));
       } finally {
-        if (!controller.signal.aborted) setShippingLoading(false);
+        if (!cancelled) {
+          setSyncingCart(false);
+          setShippingLoading(false);
+        }
       }
     }
 
-    calculate();
-    return () => controller.abort();
-  }, [selectedAddressId, sellerGroups, items]);
+    syncAndCalculate();
+    return () => { cancelled = true; };
+  }, [selectedAddressId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── CEP lookup ──
   const handleCepBlur = useCallback(async () => {
@@ -1008,7 +1021,7 @@ export function Checkout() {
                   )}
 
                   {shippingLoading ? (
-                    <LoadingRow label={syncingCart ? "Sincronizando carrinho..." : "Calculando frete..."} />
+                    <LoadingRow label={syncingCart ? "Preparando seu carrinho..." : "Calculando opções de frete..."} />
                   ) : (
                     <div className="space-y-6">
                       {Array.from(sellerGroups.keys()).map((sellerId) => {
