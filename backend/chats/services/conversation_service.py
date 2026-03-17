@@ -47,18 +47,28 @@ class ConversationService:
         recipient_id: int,
         order_id: Optional[str] = None,
         listing_id: Optional[int] = None,
-    ) -> Conversation:
+    ) -> tuple['Conversation', bool]:
         """
-        Create a new conversation between `initiator` and `recipient`.
+        Get or create a conversation between `initiator` and `recipient`.
+
+        Returns a tuple ``(conversation, created)`` where ``created`` is
+        ``True`` if a new conversation was inserted, ``False`` if an existing
+        active conversation was reused.
 
         Rules:
-        - A buyer_seller conversation linked to the same listing between the
-          same pair cannot be duplicated while it is still active.
-        - Support conversations are always created fresh.
-        - `initiator` role is derived from conversation_type:
-            buyer_seller  → initiator = buyer, recipient = seller
-            buyer_support → initiator = buyer,  recipient = support (staff)
-            seller_support→ initiator = seller, recipient = support (staff)
+        - A ``buyer_seller`` conversation is unique per (listing, buyer, seller)
+          while the conversation is still active.  Any attempt to open a second
+          conversation for the exact same triple reuses the existing one.
+        - The check runs inside a ``SELECT … FOR UPDATE`` lock on the matching
+          rows so that concurrent requests cannot create duplicates even under
+          high load.
+        - Support conversations (``buyer_support`` / ``seller_support``) are
+          always created fresh — they are not deduplicated.
+        - The ``initiator`` role is derived automatically from
+          ``conversation_type``:
+            buyer_seller   → initiator = buyer,  recipient = seller
+            buyer_support  → initiator = buyer,  recipient = support (staff)
+            seller_support → initiator = seller, recipient = support (staff)
 
         Args:
             initiator: The user opening the conversation.
@@ -68,7 +78,8 @@ class ConversationService:
             listing_id: Optional PK of a related MarketplaceListing.
 
         Returns:
-            The created (or existing active) Conversation.
+            Tuple of (Conversation, bool) — the conversation and whether it
+            was freshly created.
 
         Raises:
             ConversationServiceError: On invalid input or business rule violation.
@@ -103,26 +114,43 @@ class ConversationService:
             initiator_role = ConversationParticipant.ROLE_SELLER
             recipient_role = ConversationParticipant.ROLE_SUPPORT
 
-        # Uniqueness guard: reuse existing active buyer_seller conversation
-        # for the same listing/pair to avoid duplicate threads.
+        # ------------------------------------------------------------------
+        # Uniqueness guard for buyer_seller conversations scoped to a listing.
+        #
+        # We use select_for_update() to lock the matching rows inside the
+        # atomic transaction, serialising concurrent creation attempts for
+        # the same (type, listing, buyer, seller) triple.  Without the lock
+        # two simultaneous POST requests could both pass the .exists() check
+        # and both proceed to INSERT, producing duplicates.
+        # ------------------------------------------------------------------
         if conversation_type == Conversation.TYPE_BUYER_SELLER and listing_id:
             existing = (
                 Conversation.objects
+                .select_for_update()
                 .filter(
                     conversation_type=conversation_type,
                     listing_id=listing_id,
                     status=Conversation.STATUS_ACTIVE,
                     participants__user=initiator,
+                    participants__role=initiator_role,
                 )
-                .filter(participants__user=recipient)
+                .filter(
+                    participants__user=recipient,
+                    participants__role=recipient_role,
+                )
                 .first()
             )
             if existing:
                 logger.info(
-                    "Reusing existing conversation %s for listing %s pair (%s, %s)",
-                    existing.id, listing_id, initiator.pk, recipient.pk,
+                    "Reusing existing conversation %s for listing %s pair (%s=%s, %s=%s)",
+                    existing.id,
+                    listing_id,
+                    initiator_role,
+                    initiator.pk,
+                    recipient_role,
+                    recipient.pk,
                 )
-                return existing
+                return existing, False
 
         conversation = Conversation.objects.create(
             conversation_type=conversation_type,
@@ -149,7 +177,7 @@ class ConversationService:
             "Conversation %s created (type=%s) by user %s",
             conversation.id, conversation_type, initiator.pk,
         )
-        return conversation
+        return conversation, True
 
     # ------------------------------------------------------------------
     # Retrieval

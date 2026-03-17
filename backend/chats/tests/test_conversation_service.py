@@ -37,17 +37,18 @@ def use_local_cache():
 
 class TestCreateConversation:
     def test_creates_buyer_seller_conversation(self, buyer, seller):
-        conv = ConversationService.create_conversation(
+        conv, created = ConversationService.create_conversation(
             initiator=buyer,
             conversation_type='buyer_seller',
             recipient_id=seller.pk,
         )
+        assert created is True
         assert conv.conversation_type == 'buyer_seller'
         assert conv.status == Conversation.STATUS_ACTIVE
         assert conv.created_by == buyer
 
     def test_participants_created_with_correct_roles(self, buyer, seller):
-        conv = ConversationService.create_conversation(
+        conv, _ = ConversationService.create_conversation(
             initiator=buyer,
             conversation_type='buyer_seller',
             recipient_id=seller.pk,
@@ -60,22 +61,24 @@ class TestCreateConversation:
         assert participants[seller.pk] == ConversationParticipant.ROLE_SELLER
 
     def test_creates_buyer_support_conversation(self, buyer, support_staff):
-        conv = ConversationService.create_conversation(
+        conv, created = ConversationService.create_conversation(
             initiator=buyer,
             conversation_type='buyer_support',
             recipient_id=support_staff.pk,
         )
+        assert created is True
         assert conv.conversation_type == 'buyer_support'
         participants = {p.user_id: p.role for p in conv.participants.all()}
         assert participants[buyer.pk] == ConversationParticipant.ROLE_BUYER
         assert participants[support_staff.pk] == ConversationParticipant.ROLE_SUPPORT
 
     def test_creates_seller_support_conversation(self, seller, support_staff):
-        conv = ConversationService.create_conversation(
+        conv, created = ConversationService.create_conversation(
             initiator=seller,
             conversation_type='seller_support',
             recipient_id=support_staff.pk,
         )
+        assert created is True
         assert conv.conversation_type == 'seller_support'
         participants = {p.user_id: p.role for p in conv.participants.all()}
         assert participants[seller.pk] == ConversationParticipant.ROLE_SELLER
@@ -109,18 +112,20 @@ class TestCreateConversation:
         self, buyer, seller, listing
     ):
         """Segundo create_conversation com mesmo listing/par retorna o existente."""
-        conv1 = ConversationService.create_conversation(
+        conv1, created1 = ConversationService.create_conversation(
             initiator=buyer,
             conversation_type='buyer_seller',
             recipient_id=seller.pk,
             listing_id=listing.pk,
         )
-        conv2 = ConversationService.create_conversation(
+        conv2, created2 = ConversationService.create_conversation(
             initiator=buyer,
             conversation_type='buyer_seller',
             recipient_id=seller.pk,
             listing_id=listing.pk,
         )
+        assert created1 is True
+        assert created2 is False
         assert conv1.id == conv2.id
         # Confirma que apenas uma conversa foi criada
         total_convs = Conversation.objects.filter(
@@ -131,12 +136,12 @@ class TestCreateConversation:
 
     def test_no_deduplication_without_listing_id(self, buyer, seller):
         """Sem listing_id, cada create gera nova conversa."""
-        conv1 = ConversationService.create_conversation(
+        conv1, _ = ConversationService.create_conversation(
             initiator=buyer,
             conversation_type='buyer_seller',
             recipient_id=seller.pk,
         )
-        conv2 = ConversationService.create_conversation(
+        conv2, _ = ConversationService.create_conversation(
             initiator=buyer,
             conversation_type='buyer_seller',
             recipient_id=seller.pk,
@@ -145,7 +150,7 @@ class TestCreateConversation:
 
     def test_no_deduplication_for_closed_conversation(self, buyer, seller, listing):
         """Conversa fechada não é reutilizada — nova conversa é criada."""
-        conv1 = ConversationService.create_conversation(
+        conv1, _ = ConversationService.create_conversation(
             initiator=buyer,
             conversation_type='buyer_seller',
             recipient_id=seller.pk,
@@ -154,22 +159,23 @@ class TestCreateConversation:
         conv1.status = Conversation.STATUS_CLOSED
         conv1.save()
 
-        conv2 = ConversationService.create_conversation(
+        conv2, created2 = ConversationService.create_conversation(
             initiator=buyer,
             conversation_type='buyer_seller',
             recipient_id=seller.pk,
             listing_id=listing.pk,
         )
+        assert created2 is True
         assert conv1.id != conv2.id
 
     def test_support_conversations_never_deduplicated(self, buyer, support_staff):
         """Conversas de suporte são sempre criadas frescas."""
-        conv1 = ConversationService.create_conversation(
+        conv1, _ = ConversationService.create_conversation(
             initiator=buyer,
             conversation_type='buyer_support',
             recipient_id=support_staff.pk,
         )
-        conv2 = ConversationService.create_conversation(
+        conv2, _ = ConversationService.create_conversation(
             initiator=buyer,
             conversation_type='buyer_support',
             recipient_id=support_staff.pk,
@@ -247,7 +253,7 @@ class TestIsParticipant:
 
 class TestListConversations:
     def test_returns_only_user_conversations(self, buyer, seller, outsider):
-        conv = ConversationService.create_conversation(
+        conv, _ = ConversationService.create_conversation(
             initiator=buyer,
             conversation_type='buyer_seller',
             recipient_id=seller.pk,
@@ -260,7 +266,7 @@ class TestListConversations:
         assert conv not in outsider_convs
 
     def test_filters_by_status(self, buyer, seller):
-        active_conv = ConversationService.create_conversation(
+        active_conv, _ = ConversationService.create_conversation(
             initiator=buyer,
             conversation_type='buyer_seller',
             recipient_id=seller.pk,
@@ -276,7 +282,7 @@ class TestListConversations:
         assert active_conv in closed_list
 
     def test_excludes_inactive_participant_conversations(self, buyer, seller):
-        conv = ConversationService.create_conversation(
+        conv, _ = ConversationService.create_conversation(
             initiator=buyer,
             conversation_type='buyer_seller',
             recipient_id=seller.pk,
@@ -292,14 +298,14 @@ class TestListConversations:
         from django.utils import timezone
         import time
 
-        conv1 = ConversationService.create_conversation(
+        conv1, _ = ConversationService.create_conversation(
             initiator=buyer,
             conversation_type='buyer_seller',
             recipient_id=seller.pk,
         )
         # Pequena pausa para garantir diferença de timestamp
         time.sleep(0.01)
-        conv2 = ConversationService.create_conversation(
+        conv2, _ = ConversationService.create_conversation(
             initiator=buyer,
             conversation_type='buyer_support',
             recipient_id=support_staff.pk,
