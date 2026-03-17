@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import {
   MapPin,
   Plus,
@@ -19,6 +19,9 @@ import { shippingService } from "@/services/shippingService";
 import { formatCurrency } from "@/utils/formatters";
 import { BRAZILIAN_STATES } from "@/constants/brazilianStates";
 import { toPublicUrl } from "@/services/storageService";
+import api from "@/api/axios";
+import axios from "axios";
+import Swal from "sweetalert2";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -265,6 +268,7 @@ function LoadingRow({ label }: { label: string }) {
 export function Checkout() {
   const { items } = useCart();
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Redirect if cart is empty
   useEffect(() => {
@@ -293,6 +297,7 @@ export function Checkout() {
   const [shippingError, setShippingError] = useState("");
   const [selectedServices, setSelectedServices] = useState<Record<string, number>>({});
   const [inPersonSellers, setInPersonSellers] = useState<string[]>([]);
+  const [syncingCart, setSyncingCart] = useState(false);
 
   // ── Load addresses ──
   useEffect(() => {
@@ -332,7 +337,20 @@ export function Checkout() {
     async function calculate() {
       try {
         setShippingLoading(true);
+        setSyncingCart(true);
         setShippingError("");
+
+        // Sincronizar carrinho do backend
+        await api.delete("/orders/cart/clear/", { signal: controller.signal });
+        for (const item of items) {
+          if (controller.signal.aborted) return;
+          await api.post("/orders/cart/add/", {
+            listing: item.listing.id,
+            quantity: item.quantity,
+          }, { signal: controller.signal });
+        }
+        setSyncingCart(false);
+
         const response = await shippingService.calculateShipping({ shipping_address_id: addressId });
         if (controller.signal.aborted) return;
 
@@ -361,6 +379,21 @@ export function Checkout() {
         setSelectedServices({});
       } catch (err: unknown) {
         if (controller.signal.aborted) return;
+        setSyncingCart(false);
+
+        if (axios.isAxiosError(err) && err.response?.status === 422) {
+          const data = err.response.data as { error?: string };
+          if (data.error === "insufficient_me_balance") {
+            await Swal.fire({
+              icon: "error",
+              title: "Envio indisponível",
+              text: "Este vendedor não pode processar o envio no momento. Tente novamente mais tarde ou contate o vendedor diretamente.",
+            });
+            setShippingLoading(false);
+            return;
+          }
+        }
+
         setShippingError(getAxiosErrorMessage(err, "Erro ao calcular o frete."));
       } finally {
         if (!controller.signal.aborted) setShippingLoading(false);
@@ -369,7 +402,7 @@ export function Checkout() {
 
     calculate();
     return () => controller.abort();
-  }, [selectedAddressId, sellerGroups]);
+  }, [selectedAddressId, sellerGroups, items]);
 
   // ── CEP lookup ──
   const handleCepBlur = useCallback(async () => {
@@ -487,6 +520,12 @@ export function Checkout() {
             Revise seus itens, escolha o endereço e selecione o frete para continuar.
           </p>
         </div>
+
+        {location.state?.error && (
+          <div className="mb-5">
+            <AlertBanner variant="warning">{location.state.error as string}</AlertBanner>
+          </div>
+        )}
 
         <div className="flex flex-col lg:flex-row gap-5 lg:gap-8 items-start">
 
@@ -969,7 +1008,7 @@ export function Checkout() {
                   )}
 
                   {shippingLoading ? (
-                    <LoadingRow label="Calculando frete..." />
+                    <LoadingRow label={syncingCart ? "Sincronizando carrinho..." : "Calculando frete..."} />
                   ) : (
                     <div className="space-y-6">
                       {Array.from(sellerGroups.keys()).map((sellerId) => {

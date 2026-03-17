@@ -62,8 +62,15 @@ export function useChat(conversationId: string | null): UseChatReturn {
         if (!cancelled && isMountedRef.current) {
           // The REST API returns messages newest-first; reverse to chronological
           // order so the oldest message is at index 0 and the newest at the end.
-          setMessages([...history].reverse());
+          const chronological = [...history].reverse();
+          setMessages(chronological);
           setHasMoreHistory(history.length >= PAGE_SIZE);
+
+          // Mark all loaded messages as read (best-effort — non-blocking).
+          if (chronological.length > 0) {
+            const lastMsg = chronological[chronological.length - 1];
+            chatService.markAsRead(conversationId, lastMsg.id).catch(() => {});
+          }
         }
       } catch {
         // History loading is best-effort; WS messages will still work.
@@ -96,6 +103,8 @@ export function useChat(conversationId: string | null): UseChatReturn {
         });
         // Auto-mark as read via the socket protocol.
         socketRef.current?.markAsRead(message.id);
+        // Also mark via REST so the server-side unread count is updated.
+        chatService.markAsRead(conversationId, message.id).catch(() => {});
       },
 
       onReadReceipt: () => {
