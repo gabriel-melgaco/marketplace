@@ -350,7 +350,16 @@ export function Checkout() {
         setShippingLoading(true);
         setShippingError("");
 
-        await api.delete("/orders/cart/clear/");
+        // 404 means the cart doesn't exist yet (first purchase or new session)
+        // — treat it as already empty and continue adding items normally.
+        try {
+          await api.delete("/orders/cart/clear/");
+        } catch (clearErr: unknown) {
+          if (!axios.isAxiosError(clearErr) || clearErr.response?.status !== 404) {
+            throw clearErr;
+          }
+        }
+
         for (const item of cartItems) {
           if (cancelled) return;
           await api.post("/orders/cart/add/", {
