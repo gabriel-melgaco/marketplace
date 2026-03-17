@@ -83,7 +83,7 @@ class ConversationListCreateView(APIView):
         data = in_serializer.validated_data
 
         try:
-            conversation = ConversationService.create_conversation(
+            conversation, created = ConversationService.create_conversation(
                 initiator=request.user,
                 conversation_type=data['conversation_type'],
                 recipient_id=data['recipient_id'],
@@ -96,8 +96,9 @@ class ConversationListCreateView(APIView):
         out_serializer = ConversationSerializer(
             conversation, context={'request': request}
         )
-        # Return 200 if the existing conversation was reused, 201 if newly created
-        http_status = status.HTTP_201_CREATED
+        # 201 Created  — new conversation was inserted.
+        # 200 OK       — existing active conversation was reused (idempotent).
+        http_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
         return Response(out_serializer.data, status=http_status)
 
 

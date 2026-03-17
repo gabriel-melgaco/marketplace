@@ -71,6 +71,21 @@ class Conversation(models.Model):
             models.Index(fields=['order']),
             models.Index(fields=['listing']),
         ]
+        constraints = [
+            # Garante que não existam duas conversas buyer_seller ativas
+            # para o mesmo anúncio (listing).  Um anúncio possui exatamente
+            # uma thread de conversa ativa entre comprador e vendedor.
+            # A constraint é PARCIAL (condition=Q(status='active')) para que
+            # conversas fechadas/arquivadas não interfiram com novas aberturas.
+            models.UniqueConstraint(
+                fields=['conversation_type', 'listing'],
+                condition=models.Q(
+                    conversation_type='buyer_seller',
+                    status='active',
+                ),
+                name='unique_active_buyer_seller_per_listing',
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"Conversation({self.id}, type={self.conversation_type}, status={self.status})"

@@ -129,11 +129,12 @@ def buyer_seller_conversation(db, buyer, seller):
     """Conversa ativa entre comprador e vendedor."""
     from chats.services import ConversationService
     with override_settings(CACHES=CACHES_TEST):
-        return ConversationService.create_conversation(
+        conversation, _ = ConversationService.create_conversation(
             initiator=buyer,
             conversation_type='buyer_seller',
             recipient_id=seller.pk,
         )
+        return conversation
 
 
 @pytest.fixture
@@ -141,11 +142,12 @@ def buyer_support_conversation(db, buyer, support_staff):
     """Conversa ativa entre comprador e suporte."""
     from chats.services import ConversationService
     with override_settings(CACHES=CACHES_TEST):
-        return ConversationService.create_conversation(
+        conversation, _ = ConversationService.create_conversation(
             initiator=buyer,
             conversation_type='buyer_support',
             recipient_id=support_staff.pk,
         )
+        return conversation
 
 
 @pytest.fixture
@@ -153,8 +155,9 @@ def seller_support_conversation(db, seller, support_staff):
     """Conversa ativa entre vendedor e suporte."""
     from chats.services import ConversationService
     with override_settings(CACHES=CACHES_TEST):
-        return ConversationService.create_conversation(
+        conversation, _ = ConversationService.create_conversation(
             initiator=seller,
             conversation_type='seller_support',
             recipient_id=support_staff.pk,
         )
+        return conversation

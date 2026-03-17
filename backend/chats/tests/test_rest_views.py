@@ -245,6 +245,8 @@ class TestConversationCreateView:
         }
         r1 = buyer_client.post(conversations_url(), payload, format='json')
         r2 = buyer_client.post(conversations_url(), payload, format='json')
+        assert r1.status_code == 201
+        assert r2.status_code == 200
         assert r1.data['id'] == r2.data['id']
 
 
