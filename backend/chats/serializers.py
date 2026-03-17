@@ -114,6 +114,3 @@ class CreateConversationSerializer(serializers.Serializer):
     listing_id = serializers.IntegerField(required=False, allow_null=True)
 
 
-class MarkAsReadSerializer(serializers.Serializer):
-    """Request body for POST /api/chats/conversations/<id>/messages/read/."""
-    last_message_id = serializers.UUIDField()

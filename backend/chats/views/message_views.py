@@ -14,7 +14,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from chats.serializers import MarkAsReadSerializer, MessageSerializer
+from chats.serializers import MessageSerializer
 from chats.services import MessageService, MessageServiceError
 
 logger = logging.getLogger(__name__)
@@ -96,30 +96,23 @@ class MarkAsReadView(APIView):
         tags=['Chat'],
         summary='Marcar mensagens como lidas',
         description=(
-            'Marca como lidas todas as mensagens desta conversa até '
-            '`last_message_id` (inclusive) para o usuário autenticado.'
+            'Marca como lidas todas as mensagens não lidas desta conversa '
+            'para o usuário autenticado. Não requer body.'
         ),
-        request=MarkAsReadSerializer,
+        request=None,
         responses={
             200: OpenApiTypes.OBJECT,
-            400: OpenApiTypes.OBJECT,
             403: OpenApiTypes.OBJECT,
         },
         operation_id='chat_messages_mark_read',
     )
     def post(self, request: Request, pk: str) -> Response:
-        serializer = MarkAsReadSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        last_message_id = str(serializer.validated_data['last_message_id'])
-
         try:
             updated = MessageService.mark_as_read(
                 user=request.user,
                 conversation_id=str(pk),
-                last_message_id=last_message_id,
             )
         except MessageServiceError as exc:
-            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'detail': str(exc)}, status=status.HTTP_403_FORBIDDEN)
 
         return Response({'updated': updated})
