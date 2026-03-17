@@ -19,6 +19,8 @@ import {
 import { useCart } from "@/contexts/CartContext";
 import { paymentService } from "@/services/paymentService";
 import api from "@/api/axios";
+import axios from "axios";
+import Swal from "sweetalert2";
 
 // ─── Stripe init (module-level — never recreated) ────────────────────────────
 
@@ -160,6 +162,13 @@ function StripeCardForm({ clientSecret, stripePaymentIntentId, orderId }: Stripe
         if (payment.status === "succeeded") {
           stopped = true;
           clearInterval(intervalId);
+
+          try {
+            await api.post("/logistics/shipments/create/", { order_id: orderId });
+          } catch (err: unknown) {
+            console.error("Erro ao criar shipments:", getAxiosErrorMessage(err, "Erro desconhecido"));
+          }
+
           navigate("/payment/success", { state: { orderId } });
           return;
         }
@@ -350,6 +359,30 @@ export function Payment() {
         // Axios throws a CanceledError when the AbortController signal fires;
         // treat that as a silent cancellation, not a user-visible error.
         if (controller.signal.aborted) return;
+
+        if (axios.isAxiosError(err) && err.response?.status === 422) {
+          const data = err.response.data as { error?: string };
+          if (data.error === "insufficient_me_balance") {
+            await Swal.fire({
+              icon: "error",
+              title: "Envio indisponível",
+              text: "Este vendedor não pode processar o envio no momento. Tente novamente mais tarde ou contate o vendedor diretamente.",
+            });
+            setOrderLoading(false);
+            return;
+          }
+        }
+
+        if (axios.isAxiosError(err) && err.response?.status === 400) {
+          const msg = (err.response.data as { error?: string })?.error ?? "";
+          if (msg.toLowerCase().includes("cotação") || msg.toLowerCase().includes("expirada")) {
+            navigate("/checkout", {
+              state: { error: "Sua cotação de frete expirou. Por favor, recalcule o frete." },
+            });
+            return;
+          }
+        }
+
         setOrderError(getAxiosErrorMessage(err, "Erro ao criar o pedido."));
         setOrderLoading(false);
       }
