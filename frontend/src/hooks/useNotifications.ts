@@ -35,7 +35,7 @@ export function useNotifications(options: UseNotificationsOptions): UseNotificat
   const [unreadCount, setUnreadCount] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
+  const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -73,7 +73,8 @@ export function useNotifications(options: UseNotificationsOptions): UseNotificat
       const response = await notificationsApi.list({ page: 1 });
       if (!isMountedRef.current) return;
       setNotifications(response.results);
-      setHasMore(response.next !== null);
+      // Empty list or no next page → hasMore must be false to stop the sentinel
+      setHasMore(response.results.length > 0 && response.next !== null);
       currentPageRef.current = 1;
     } catch (err) {
       if (!isMountedRef.current) return;
@@ -246,7 +247,7 @@ export function useNotifications(options: UseNotificationsOptions): UseNotificat
   }, [loadInitialNotifications]);
 
   const loadMore = useCallback(async () => {
-    if (isLoadingRef.current || !hasMore) return;
+    if (isLoadingRef.current || !hasMore || notifications.length === 0) return;
     isLoadingRef.current = true;
     setIsLoading(true);
     try {
@@ -266,7 +267,7 @@ export function useNotifications(options: UseNotificationsOptions): UseNotificat
       isLoadingRef.current = false;
       if (isMountedRef.current) setIsLoading(false);
     }
-  }, [hasMore]);
+  }, [hasMore, notifications.length]);
 
   const refresh = useCallback(async () => {
     currentPageRef.current = 1;

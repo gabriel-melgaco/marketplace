@@ -44,7 +44,9 @@ export function NotificationList({ onClose }: NotificationListProps) {
   const sentinelRef = useCallback(
     (node: HTMLDivElement | null) => {
       if (observerRef.current) observerRef.current.disconnect();
-      if (!node) return;
+      // Do not observe when list is empty — avoids firing loadMore before
+      // the initial load completes, which would cause the loading loop.
+      if (!node || !hasMore || notifications.length === 0) return;
       observerRef.current = new IntersectionObserver(
         (entries) => {
           if (entries[0].isIntersecting && hasMore && !isLoading) {
@@ -55,7 +57,7 @@ export function NotificationList({ onClose }: NotificationListProps) {
       );
       observerRef.current.observe(node);
     },
-    [hasMore, isLoading, loadMore],
+    [hasMore, isLoading, loadMore, notifications.length],
   );
 
   const unreadNotifications = notifications.filter((n) => !n.is_read);
@@ -111,6 +113,14 @@ export function NotificationList({ onClose }: NotificationListProps) {
       </div>
 
       <div className="overflow-y-auto flex-1 min-h-0">
+        {/* Initial loading spinner — only when list is still empty */}
+        {isLoading && notifications.length === 0 && (
+          <div className="flex justify-center py-8">
+            <div className="h-5 w-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+          </div>
+        )}
+
+        {/* Empty state — only shown after loading completes with no results */}
         {notifications.length === 0 && !isLoading && (
           <div className="flex flex-col items-center justify-center py-12 text-gray-400">
             <svg
@@ -143,7 +153,8 @@ export function NotificationList({ onClose }: NotificationListProps) {
 
         {hasMore && <div ref={sentinelRef} className="h-4" />}
 
-        {isLoading && (
+        {/* Pagination spinner — only when appending to an existing list */}
+        {isLoading && notifications.length > 0 && (
           <div className="flex justify-center py-4">
             <div className="h-5 w-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
           </div>
