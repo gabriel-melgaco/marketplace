@@ -273,10 +273,13 @@ class OrderDetailView(generics.RetrieveAPIView):
             ),
         }
     ),
-    responses={201: OrderSerializer},
+    responses={201: OrderSerializer(many=True)},
     description=(
-        "Create an order from the cart. Delivery method is chosen **per item** (listing), "
-        "not per seller.\n\n"
+        "Create orders from the cart. One Order is created **per seller**. "
+        "Delivery method is chosen **per item** (listing), not per seller.\n\n"
+        "## Multi-seller cart\n\n"
+        "If the cart has items from two sellers, two Orders are returned. "
+        "Each Order belongs to exactly one seller, simplifying refunds and logistics.\n\n"
         "## Fields\n\n"
         "**`items_delivery`** (required): List with one entry per cart item.\n"
         "- `listing_id`: ID of the listing in the cart\n"
@@ -466,9 +469,9 @@ def create_order(request):
     payment_method = serializer.validated_data['payment_method']
     buyer_notes = serializer.validated_data.get('buyer_notes', '')
 
-    # Create order using service layer
+    # Create orders using service layer (one per seller)
     try:
-        order = OrderCreationService.create_order_from_cart(
+        orders = OrderCreationService.create_order_from_cart(
             user=user,
             cart=cart,
             shipping_address=shipping_address,
@@ -477,8 +480,8 @@ def create_order(request):
             buyer_notes=buyer_notes
         )
 
-        # Return created order
-        order_serializer = OrderSerializer(order)
+        # Return list of created orders (one per seller)
+        order_serializer = OrderSerializer(orders, many=True)
         return Response(order_serializer.data, status=status.HTTP_201_CREATED)
 
     except InsufficientMEBalanceError as e:

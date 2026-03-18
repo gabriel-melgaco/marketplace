@@ -30,7 +30,16 @@ class Order(models.Model):
         on_delete=models.PROTECT,
         related_name='orders'
     )
-    
+
+    seller = models.ForeignKey(
+        CustomUser,
+        on_delete=models.PROTECT,
+        related_name='seller_orders',
+        null=True,
+        blank=True,
+        help_text='Vendedor deste pedido. Todos os itens pertencem a este único vendedor.'
+    )
+
     # Status e valores
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending_payment')
     subtotal = models.DecimalField(max_digits=10, decimal_places=2)

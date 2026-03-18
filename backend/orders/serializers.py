@@ -503,18 +503,29 @@ class OrderListSerializer(serializers.ModelSerializer):
     """Serializer simplificado para listagem de pedidos"""
     items_count = serializers.SerializerMethodField()
     buyer_name = serializers.CharField(source='buyer.get_full_name', read_only=True)
+    seller_name = serializers.SerializerMethodField()
     status_display = serializers.CharField(source='get_status_display', read_only=True)
-    
+
     class Meta:
         model = Order
         fields = [
-            'id', 'order_number', 'buyer_name', 'status', 'status_display',
+            'id', 'order_number', 'buyer_name', 'seller_name', 'status', 'status_display',
             'total', 'items_count', 'created_at'
         ]
-    
+
     @extend_schema_field(serializers.IntegerField())
     def get_items_count(self, obj):
         return obj.items.count()
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_seller_name(self, obj):
+        if obj.seller:
+            return obj.seller.get_full_name()
+        # Fallback: derive from items (legacy orders created before seller FK was added)
+        first_item = obj.items.select_related('seller').first()
+        if first_item:
+            return first_item.seller.get_full_name()
+        return None
 
 
 class OrderUpdateStatusSerializer(serializers.Serializer):
