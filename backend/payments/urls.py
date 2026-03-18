@@ -12,6 +12,7 @@ urlpatterns = [
 
     # =================== Payment Processing ===================
     path('create-intent/', views.create_payment_intent, name='create-intent'),
+    path('create-intents-batch/', views.create_payment_intents_batch, name='create-intents-batch'),
     path('confirm/', views.confirm_payment, name='confirm-payment'),
     path('status/<str:payment_intent_id>/', views.check_payment_status, name='check-status'),
 

@@ -20,6 +20,8 @@ from .serializers import (
     RefundRequestSerializer, RefundRequestCreateSerializer,
     RefundRequestApproveSerializer, RefundRequestRejectSerializer,
     RefundRequestPlatformDecideSerializer,
+    PaymentIntentBatchCreateSerializer, PaymentIntentBatchResponseSerializer,
+    PaymentIntentBatchItemSerializer, PaymentIntentBatchErrorItemSerializer,
 )
 from .payment_intent_service import PaymentIntentService, SellerNotReadyError
 from .webhook_service import WebhookService
@@ -220,6 +222,190 @@ def create_payment_intent(request):
             {'error': 'Erro ao criar pagamento. Tente novamente.'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+
+@extend_schema(
+    tags=['Payments'],
+    summary='Create payment intents (batch, multi-seller)',
+    request=PaymentIntentBatchCreateSerializer,
+    responses={200: PaymentIntentBatchResponseSerializer},
+    description=(
+        "Create one Stripe PaymentIntent per Order in the list.\n\n"
+        "Use this endpoint after POST /orders/ returns multiple Orders "
+        "(multi-seller cart). Send all order_ids at once; the platform creates "
+        "one PaymentIntent per Order and returns all client_secrets.\n\n"
+        "## Response structure\n\n"
+        "**`succeeded`**: list of successfully created/reused PaymentIntents.\n"
+        "Each item contains `order_id`, `payment_id`, `client_secret`, `amount`, "
+        "`currency`, `payment_method`, and `reused` (true if PI was already pending).\n\n"
+        "**`failed`**: list of Orders for which PI creation failed, with `error` reason.\n\n"
+        "The response always returns HTTP 200. The caller must inspect `failed` "
+        "to determine if any order requires user action.\n\n"
+        "## Idempotency\n\n"
+        "If a pending PaymentIntent already exists for an Order, it is reused. "
+        "A PI already succeeded returns an error entry in `failed`."
+    ),
+    operation_id='payments_create_intents_batch',
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_payment_intents_batch(request):
+    """
+    Criar PaymentIntents em batch — um por Order.
+
+    Retorna todos os client_secrets para o frontend processar em paralelo.
+    Erros individuais são isolados: a falha num Order não cancela os demais.
+    """
+    serializer = PaymentIntentBatchCreateSerializer(data=request.data)
+
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    order_ids = serializer.validated_data['order_ids']
+    payment_method = serializer.validated_data['payment_method']
+
+    succeeded = []
+    failed = []
+
+    for order_id in order_ids:
+        order_id_str = str(order_id)
+
+        # Verificar se order existe e pertence ao usuário
+        try:
+            order = Order.objects.get(id=order_id, buyer=request.user)
+        except Order.DoesNotExist:
+            failed.append({
+                'order_id': order_id,
+                'error': 'Pedido não encontrado ou não pertence ao usuário',
+            })
+            continue
+
+        # Verificar se pedido já tem pagamento confirmado
+        if hasattr(order, 'payment'):
+            existing_payment = order.payment
+
+            if existing_payment.status in ['succeeded', 'processing']:
+                failed.append({
+                    'order_id': order_id,
+                    'error': 'Pedido já possui pagamento confirmado',
+                })
+                continue
+
+            if existing_payment.status == 'pending':
+                try:
+                    intent = PaymentIntentService.retrieve_payment_intent(
+                        existing_payment.stripe_payment_intent_id
+                    )
+                    if intent.status in [
+                        'requires_payment_method',
+                        'requires_confirmation',
+                        'requires_action',
+                    ]:
+                        logger.info(
+                            "Batch: reusing existing payment intent for order %s",
+                            order_id_str,
+                            extra={
+                                'order_id': order_id_str,
+                                'payment_id': existing_payment.id,
+                                'payment_intent_id': intent.id,
+                            },
+                        )
+                        succeeded.append({
+                            'order_id': order_id,
+                            'payment_id': existing_payment.id,
+                            'client_secret': intent.client_secret,
+                            'amount': float(existing_payment.amount),
+                            'currency': existing_payment.currency,
+                            'payment_method': existing_payment.payment_method,
+                            'reused': True,
+                        })
+                        continue
+                    # PI cancelado/expirado — cai para criação abaixo
+                except Exception as e:
+                    logger.warning(
+                        "Batch: failed to retrieve existing PI for order %s, proceeding to create: %s",
+                        order_id_str,
+                        str(e),
+                    )
+
+        # Validar estoque de todos os itens do pedido
+        try:
+            for item in order.items.select_related('listing').all():
+                ProductValidationService.validate_listing_availability(
+                    listing=item.listing,
+                    quantity=item.quantity,
+                )
+        except (InsufficientStockError, ProductValidationError) as e:
+            logger.warning(
+                "Batch: payment intent blocked for order %s — stock error: %s",
+                order_id_str,
+                str(e),
+            )
+            failed.append({
+                'order_id': order_id,
+                'error': 'Item indisponível',
+                'detail': str(e),
+            })
+            continue
+
+        # Criar PaymentIntent
+        try:
+            payment, client_secret = PaymentIntentService.create_payment_intent(
+                order=order,
+                payment_method=payment_method,
+                user=request.user,
+            )
+            succeeded.append({
+                'order_id': order_id,
+                'payment_id': payment.id,
+                'client_secret': client_secret,
+                'amount': float(payment.amount),
+                'currency': payment.currency,
+                'payment_method': payment.payment_method,
+                'reused': False,
+            })
+        except SellerNotReadyError as e:
+            logger.warning(
+                "Batch: seller not ready for order %s: %s",
+                order_id_str,
+                str(e),
+            )
+            failed.append({
+                'order_id': order_id,
+                'error': 'Vendedor não está pronto para receber pagamentos',
+                'detail': str(e),
+            })
+        except ValueError as e:
+            failed.append({
+                'order_id': order_id,
+                'error': str(e),
+            })
+        except Exception as e:
+            logger.error(
+                "Batch: unexpected error creating PI for order %s: %s",
+                order_id_str,
+                str(e),
+                exc_info=True,
+            )
+            failed.append({
+                'order_id': order_id,
+                'error': 'Erro ao criar pagamento. Tente novamente.',
+            })
+
+    logger.info(
+        "Batch payment intent creation completed",
+        extra={
+            'user_id': request.user.id,
+            'total_orders': len(order_ids),
+            'succeeded': len(succeeded),
+            'failed': len(failed),
+        },
+    )
+
+    return Response({
+        'succeeded': succeeded,
+        'failed': failed,
+    })
 
 
 @extend_schema(

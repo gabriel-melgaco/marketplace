@@ -69,6 +69,53 @@ class PaymentIntentCreateSerializer(serializers.Serializer):
     save_payment_method = serializers.BooleanField(default=False)
 
 
+class PaymentIntentBatchItemSerializer(serializers.Serializer):
+    """Item de resultado no endpoint batch de criação de Payment Intents"""
+    order_id = serializers.UUIDField()
+    payment_id = serializers.IntegerField()
+    client_secret = serializers.CharField()
+    amount = serializers.FloatField()
+    currency = serializers.CharField()
+    payment_method = serializers.CharField()
+    reused = serializers.BooleanField(default=False)
+
+
+class PaymentIntentBatchErrorItemSerializer(serializers.Serializer):
+    """Item de erro no endpoint batch de criação de Payment Intents"""
+    order_id = serializers.UUIDField()
+    error = serializers.CharField()
+    detail = serializers.CharField(required=False, allow_blank=True)
+
+
+class PaymentIntentBatchCreateSerializer(serializers.Serializer):
+    """
+    Serializer para criar Payment Intents em batch — um por Order.
+
+    Utilizado quando POST /orders/ retorna múltiplos Orders (carrinho multi-vendedor).
+    O buyer envia todos os order_ids de uma vez; a plataforma cria um PaymentIntent
+    por Order e retorna todos os client_secrets para o frontend processar.
+    """
+    order_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=20,
+        help_text=(
+            'Lista de UUIDs dos Orders criados por POST /orders/. '
+            'Um PaymentIntent será criado por Order.'
+        ),
+    )
+    payment_method = serializers.ChoiceField(
+        choices=['credit_card', 'debit_card', 'pix', 'boleto'],
+        help_text='Método de pagamento (aplicado a todos os Orders da lista).',
+    )
+
+
+class PaymentIntentBatchResponseSerializer(serializers.Serializer):
+    """Resposta do endpoint batch de criação de Payment Intents"""
+    succeeded = PaymentIntentBatchItemSerializer(many=True)
+    failed = PaymentIntentBatchErrorItemSerializer(many=True)
+
+
 class PaymentConfirmSerializer(serializers.Serializer):
     """Serializer para confirmar pagamento"""
     payment_intent_id = serializers.CharField()
