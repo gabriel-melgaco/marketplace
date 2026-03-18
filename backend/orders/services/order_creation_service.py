@@ -1,12 +1,14 @@
 """
 Order Creation Service
 
-Orchestrates the complete order creation process from cart to order.
-This service handles all business logic for converting a cart into an order.
+Orchestrates the complete order creation process from cart to orders.
+When a cart contains items from multiple sellers, one Order is created
+per seller. This simplifies refunds and logistics since each Order
+belongs to exactly one seller.
 """
 
 import logging
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 from decimal import Decimal
 from collections import defaultdict
 from django.db import transaction
@@ -44,13 +46,20 @@ class OrderCreationService:
     """
     Service for creating orders from cart with full validation and orchestration.
 
-    This service:
-    - Validates all cart items and stock availability
-    - Validates shipping quotes
-    - Calculates totals server-side
-    - Creates order with snapshot data
-    - Handles stock management based on configuration
-    - Creates audit trail
+    One Order is created per seller in the cart. If the cart has items from
+    two sellers, two separate Orders are returned. This design choice:
+
+    - Simplifies refunds: each Order belongs to one seller, so a partial
+      refund (for one seller's items) does not touch the other seller's Order.
+    - Simplifies logistics: each Order has its own shipping_services scoped
+      to one seller, with exactly one Shipment relationship.
+    - Simplifies payment splits: PaymentSplit.unique_together=(payment, seller)
+      already handles the accounting; the split just maps to a single Order.
+
+    NOTE: Because Payment has OneToOneField(Order), each seller's Order gets
+    its own Payment record and its own Stripe PaymentIntent. The buyer will
+    be charged once per seller — this is the expected behaviour for a
+    marketplace with per-vendor fulfilment.
     """
 
     # Stock management strategy
@@ -68,9 +77,9 @@ class OrderCreationService:
         shipping_services_input: Dict,
         payment_method: str,
         buyer_notes: str = ''
-    ):
+    ) -> List:
         """
-        Create an order from user's cart with full validation.
+        Create one Order per seller from user's cart with full validation.
 
         Args:
             user: User creating the order
@@ -82,13 +91,13 @@ class OrderCreationService:
             buyer_notes: Optional notes from buyer
 
         Returns:
-            Order instance
+            List[Order]: One Order instance per seller in the cart.
 
         Raises:
             OrderCreationError: If order creation fails
         """
         logger.info(
-            f"Creating order from cart for user {user.email}",
+            f"Creating orders from cart for user {user.email}",
             extra={
                 'user_id': user.id,
                 'cart_id': cart.id,
@@ -114,25 +123,23 @@ class OrderCreationService:
             logger.error(f"Product validation failed: {str(e)}")
             raise OrderCreationError(f"Product validation failed: {str(e)}")
 
-        # Step 3: Calculate subtotal
-        subtotal = OrderTotalCalculator.calculate_cart_subtotal(validated_items)
+        # Step 3: Group validated items by seller
+        items_by_seller: dict = defaultdict(list)
+        for item in validated_items:
+            items_by_seller[item['seller'].id].append(item)
 
-        # Step 4: Validate and calculate shipping
+        # Step 4: Validate and calculate shipping per seller
         shipping_data = cls._validate_and_calculate_shipping(
             user,
             validated_items,
             shipping_services_input
         )
 
-        total_shipping = shipping_data['total_shipping']
+        total_shipping_global = shipping_data['total_shipping']
         shipping_services_data = shipping_data['shipping_services_data']
         shipping_by_seller = shipping_data['shipping_by_seller']
 
-        # Step 5: Calculate total
-        total = OrderTotalCalculator.calculate_order_total(subtotal, total_shipping)
-
         # Step 4.5: Verify seller ME wallet balances before touching ME API or DB.
-        # Fail fast: avoids adding to ME cart and creating the order when seller has no funds.
         logger.info(
             "Step 4.5: Verificando saldo ME dos vendedores",
             extra={
@@ -145,18 +152,12 @@ class OrderCreationService:
             }
         )
         if any(cost > 0 for cost in shipping_by_seller.values()):
-            # Build items_by_seller from validated_items (mirrors _add_sellers_to_me_cart_preorder)
-            from collections import defaultdict as _defaultdict
-            items_by_seller_local = _defaultdict(list)
-            for item in validated_items:
-                items_by_seller_local[item['seller'].id].append(item)
             cls._check_sellers_me_balance(
-                items_by_seller=dict(items_by_seller_local),
+                items_by_seller=dict(items_by_seller),
                 shipping_by_seller=shipping_by_seller,
             )
 
-        # Step 5.5: Add freight to Melhor Envio cart BEFORE creating order in DB.
-        # Fail fast: if ME API rejects the payload, we never persist an inconsistent order.
+        # Step 5: Add freight to Melhor Envio cart BEFORE creating orders in DB.
         me_cart_results = cls._add_sellers_to_me_cart_preorder(
             user=user,
             validated_items=validated_items,
@@ -164,88 +165,114 @@ class OrderCreationService:
             shipping_address=shipping_address,
         )
 
-        # Step 6: Create order
-        order = cls._create_order_record(
-            user=user,
-            subtotal=subtotal,
-            shipping_cost=total_shipping,
-            total=total,
-            shipping_address=shipping_address,
-            shipping_services_data=shipping_services_data,
-            payment_method=payment_method,
-            buyer_notes=buyer_notes
-        )
+        # Step 6: Create one Order per seller
+        created_orders: List = []
 
-        # Step 7: Create order items with snapshots
-        cls._create_order_items(
-            order=order,
-            validated_items=validated_items,
-            shipping_by_seller=shipping_by_seller
-        )
+        for seller_id, seller_items in items_by_seller.items():
+            seller = seller_items[0]['seller']
 
-        # Step 7.5: Create Shipment DB records from cart IDs collected in step 5.5.
-        # order.items now exist so create_shipment_record() can read dimensions.
+            # Subtotal for this seller's items only
+            seller_subtotal = OrderTotalCalculator.calculate_cart_subtotal(seller_items)
+
+            # Shipping cost for this seller
+            seller_shipping = shipping_by_seller.get(seller_id, Decimal('0.00'))
+
+            # Total for this seller's order
+            seller_total = OrderTotalCalculator.calculate_order_total(
+                seller_subtotal, seller_shipping
+            )
+
+            # shipping_services scoped to this seller only
+            seller_shipping_services = {
+                str(seller_id): shipping_services_data.get(str(seller_id), {})
+            }
+
+            # Create the Order record for this seller
+            order = cls._create_order_record(
+                user=user,
+                seller=seller,
+                subtotal=seller_subtotal,
+                shipping_cost=seller_shipping,
+                total=seller_total,
+                shipping_address=shipping_address,
+                shipping_services_data=seller_shipping_services,
+                payment_method=payment_method,
+                buyer_notes=buyer_notes
+            )
+
+            # Create OrderItems for this seller
+            cls._create_order_items(
+                order=order,
+                validated_items=seller_items,
+                shipping_by_seller=shipping_by_seller
+            )
+
+            # Create initial status history
+            from orders.models import OrderStatusHistory
+            OrderStatusHistory.objects.create(
+                order=order,
+                old_status='',
+                new_status='pending_payment',
+                changed_by=user,
+                notes='Order created from cart'
+            )
+
+            created_orders.append(order)
+            logger.info(
+                f"Order {order.order_number} created for seller {seller.email}",
+                extra={
+                    'order_id': str(order.id),
+                    'seller_id': seller_id,
+                    'items': len(seller_items),
+                    'total': float(seller_total),
+                }
+            )
+
+        # Step 7: Create Shipment DB records from ME cart IDs
         if me_cart_results:
-            cls._create_shipment_records_from_cart(order, me_cart_results)
-
-        # NOTE: In-person OrderDelivery records are NOT created here.
-        # All delivery records (in_person and shipping) are created after
-        # payment confirmation via the auto_create_shipments_on_payment signal.
+            # Pass all created orders — _create_shipment_records_from_cart
+            # identifies the right order by seller
+            cls._create_shipment_records_from_cart_multi(created_orders, me_cart_results)
 
         # Step 8: Handle stock management based on strategy
         if cls.STOCK_STRATEGY == 'immediate':
             cls._reserve_stock_immediate(validated_items)
-        # If 'on_payment', stock will be decremented after payment confirmation
 
-        # Step 9: Create initial status history (order already created as pending_payment)
-        from orders.models import OrderStatusHistory
-        OrderStatusHistory.objects.create(
-            order=order,
-            old_status='',
-            new_status='pending_payment',
-            changed_by=user,
-            notes='Order created from cart'
-        )
-
-        # Step 10: Clear cart
+        # Step 9: Clear cart
         cart.items.all().delete()
 
-        # Step 11: Notify buyer and sellers about the new order.
-        # Import inside function to avoid circular imports.
+        # Step 10: Notify buyer and sellers
         try:
             from notifications.services import NotificationService
             from notifications.models import NotificationType
 
-            # Notify buyer
+            # Notify buyer once with the list of order numbers
+            order_numbers = ', '.join(f'#{o.order_number}' for o in created_orders)
+            total_all = sum(o.total for o in created_orders)
             NotificationService.notify(
                 recipient=user,
                 event_type=NotificationType.ORDER_CREATED,
-                title=f'Pedido #{order.order_number} criado',
+                title=f'{len(created_orders)} pedido(s) criado(s)',
                 body=(
-                    f'Seu pedido foi criado com sucesso. '
-                    f'Total: R$ {order.total:.2f}. '
+                    f'Seus pedidos foram criados com sucesso. '
+                    f'Pedidos: {order_numbers}. '
+                    f'Total: R$ {total_all:.2f}. '
                     f'Aguardando confirmação do pagamento.'
                 ),
                 metadata={
-                    'order_id': str(order.id),
-                    'order_number': order.order_number,
-                    'total': str(order.total),
+                    'order_ids': [str(o.id) for o in created_orders],
+                    'order_numbers': [o.order_number for o in created_orders],
+                    'total': str(total_all),
                 },
-                idempotency_key=f'order_created_buyer_{order.id}',
+                idempotency_key=f'orders_created_buyer_{user.id}_{created_orders[0].id}',
             )
 
-            # Notify each seller that has items in this order
-            sellers_notified = set()
-            for item in order.items.select_related('seller').all():
-                seller = item.seller
-                if seller.id in sellers_notified:
+            # Notify each seller
+            for order in created_orders:
+                seller = order.seller
+                if seller is None:
                     continue
-                sellers_notified.add(seller.id)
-                # Calculate this seller's subtotal from order items
-                seller_subtotal = sum(
-                    i.subtotal
-                    for i in order.items.filter(seller=seller)
-                )
+                seller_subtotal = sum(i.subtotal for i in order.items.all())
                 NotificationService.notify(
                     recipient=seller,
                     event_type=NotificationType.ORDER_CREATED,
@@ -265,23 +292,21 @@ class OrderCreationService:
                     idempotency_key=f'order_created_seller_{order.id}_{seller.id}',
                 )
         except Exception as _notify_exc:
-            # Notification failure must NOT roll back the order.
             logger.warning(
-                'Falha ao enfileirar notificação order_created para pedido %s: %s',
-                order.order_number,
+                'Falha ao enfileirar notificações de order_created: %s',
                 _notify_exc,
             )
 
         logger.info(
-            f"Order {order.order_number} created successfully",
+            f"Created {len(created_orders)} order(s) from cart for user {user.email}",
             extra={
-                'order_id': str(order.id),
-                'order_number': order.order_number,
-                'total': float(order.total),
+                'user_id': user.id,
+                'order_count': len(created_orders),
+                'order_ids': [str(o.id) for o in created_orders],
             }
         )
 
-        return order
+        return created_orders
 
     @staticmethod
     def _add_sellers_to_me_cart_preorder(user, validated_items, shipping_services_data, shipping_address):
@@ -413,8 +438,9 @@ class OrderCreationService:
     @staticmethod
     def _create_shipment_records_from_cart(order, me_cart_results):
         """
-        Cria registros de Shipment no banco usando os cart_ids coletados antes
-        da criação do pedido. Chamado APÓS order.items existirem no banco.
+        Cria registros de Shipment para um único Order usando os cart_ids coletados.
+
+        Filtra me_cart_results para incluir somente entradas do seller deste Order.
 
         Args:
             order: Order instance já persistida com items
@@ -423,8 +449,13 @@ class OrderCreationService:
         from logistics.services.melhor_envio_service import MelhorEnvioService
 
         me_service = MelhorEnvioService()
-        # me_cart_results is keyed by (seller_id, listing_id)
-        for (seller_id, listing_id), data in me_cart_results.items():
+        seller_id = order.seller_id if order.seller_id else None
+
+        for (result_seller_id, listing_id), data in me_cart_results.items():
+            # Only process ME results belonging to this order's seller
+            if seller_id is not None and result_seller_id != seller_id:
+                continue
+
             seller = data['seller']
             cart_response = data['cart_response']
             sent_payload = data['sent_payload']
@@ -447,6 +478,60 @@ class OrderCreationService:
                 f'Shipment criado para pedido {order.order_number}, '
                 f'vendedor {seller.email}, listing {listing_id}: '
                 f'id={shipment.id}, melhorenvio_order_id={shipment.melhorenvio_order_id}'
+            )
+            if insurance_warning:
+                logger.warning(
+                    f'Pedido {order.order_number}: {insurance_warning.get("message", "")}'
+                )
+
+    @staticmethod
+    def _create_shipment_records_from_cart_multi(orders: List, me_cart_results: dict):
+        """
+        Cria registros de Shipment para cada Order na lista, roteando entradas
+        do me_cart_results para o Order do seller correspondente.
+
+        Args:
+            orders: Lista de Order instances já persistidas com items
+            me_cart_results: retorno de _add_sellers_to_me_cart_preorder()
+        """
+        # Build seller_id -> order lookup
+        order_by_seller = {
+            o.seller_id: o for o in orders if o.seller_id is not None
+        }
+
+        from logistics.services.melhor_envio_service import MelhorEnvioService
+        me_service = MelhorEnvioService()
+
+        for (result_seller_id, listing_id), data in me_cart_results.items():
+            order = order_by_seller.get(result_seller_id)
+            if order is None:
+                logger.warning(
+                    f'ME cart result para seller_id={result_seller_id} não encontrou '
+                    f'Order correspondente na lista criada. Ignorado.'
+                )
+                continue
+
+            seller = data['seller']
+            cart_response = data['cart_response']
+            sent_payload = data['sent_payload']
+            insurance_warning = data['insurance_warning']
+
+            if insurance_warning:
+                if isinstance(cart_response, list) and cart_response:
+                    cart_response[0]['_insurance_warning'] = insurance_warning
+                elif isinstance(cart_response, dict):
+                    cart_response['_insurance_warning'] = insurance_warning
+
+            shipment, _ = me_service.create_shipment_record(
+                order=order,
+                seller=seller,
+                cart_data=cart_response,
+                sent_payload=sent_payload,
+            )
+            logger.info(
+                f'Shipment criado para pedido {order.order_number}, '
+                f'vendedor {seller.email}, listing {listing_id}: '
+                f'id={shipment.id}'
             )
             if insurance_warning:
                 logger.warning(
@@ -838,6 +923,7 @@ class OrderCreationService:
     @staticmethod
     def _create_order_record(
         user,
+        seller,
         subtotal: Decimal,
         shipping_cost: Decimal,
         total: Decimal,
@@ -847,15 +933,16 @@ class OrderCreationService:
         buyer_notes: str
     ):
         """
-        Create Order database record.
+        Create Order database record for a single seller.
 
         Args:
-            user: User instance
-            subtotal: Order subtotal
-            shipping_cost: Total shipping cost
-            total: Order total
+            user: Buyer user instance
+            seller: Seller user instance (owner of all items in this order)
+            subtotal: Order subtotal (this seller's items only)
+            shipping_cost: Shipping cost for this seller
+            total: Order total (subtotal + shipping)
             shipping_address: Address instance
-            shipping_services_data: Shipping services data
+            shipping_services_data: Shipping services data (scoped to this seller)
             payment_method: Payment method
             buyer_notes: Buyer notes
 
@@ -866,6 +953,7 @@ class OrderCreationService:
 
         order = Order.objects.create(
             buyer=user,
+            seller=seller,
             status='pending_payment',
             subtotal=subtotal,
             shipping_cost=shipping_cost,
@@ -889,7 +977,7 @@ class OrderCreationService:
 
         Args:
             order: Order instance
-            validated_items: List of validated cart items
+            validated_items: List of validated cart items (all from the same seller)
             shipping_by_seller: Dict mapping seller_id to shipping cost
         """
         from orders.models import OrderItem

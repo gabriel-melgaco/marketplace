@@ -12,6 +12,7 @@ class OrderAdmin(admin.ModelAdmin):
     list_display = (
         'order_number',
         'buyer',
+        'seller',
         'status',
         'subtotal',
         'shipping_cost',
@@ -24,8 +25,12 @@ class OrderAdmin(admin.ModelAdmin):
         'buyer__email',
         'buyer__first_name',
         'buyer__last_name',
+        'seller__email',
+        'seller__first_name',
+        'seller__last_name',
         'status',
     )
+    list_filter = ('status', 'seller')
 
 
 admin.site.register(Order, OrderAdmin)
