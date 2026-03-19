@@ -387,6 +387,66 @@ class RefundRequestHistory(models.Model):
         )
 
 
+class ScheduledTransfer(models.Model):
+    """
+    Intenção de repasse agendado para o vendedor.
+
+    Criado quando a Order transiciona para 'delivered'.
+    O Celery Beat processa os registros com scheduled_for <= now e status='pending',
+    disparando os Transfers via Stripe.
+
+    Regra: 1 ScheduledTransfer por Order (unique=True em order).
+    """
+
+    STATUS_CHOICES = [
+        ('pending', 'Pendente'),
+        ('dispatched', 'Despachado'),
+        ('failed', 'Falhou'),
+    ]
+
+    order = models.OneToOneField(
+        Order,
+        on_delete=models.PROTECT,
+        related_name='scheduled_transfer',
+    )
+
+    payment = models.ForeignKey(
+        'Payment',
+        on_delete=models.PROTECT,
+        related_name='scheduled_transfers',
+    )
+
+    scheduled_for = models.DateTimeField(
+        help_text='Data/hora a partir da qual o repasse pode ser executado (delivered_at + PAYOUT_DAYS)'
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='pending',
+        db_index=True,
+    )
+
+    error_message = models.TextField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Repasse Agendado'
+        verbose_name_plural = 'Repasses Agendados'
+        ordering = ['scheduled_for']
+        indexes = [
+            models.Index(fields=['status', 'scheduled_for']),
+        ]
+
+    def __str__(self):
+        return (
+            f'ScheduledTransfer order={self.order.order_number} '
+            f'status={self.status} scheduled_for={self.scheduled_for.date()}'
+        )
+
+
 class SellerPayout(models.Model):
     """Repasses para vendedores (legado - mantido para compatibilidade)"""
 

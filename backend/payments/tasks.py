@@ -28,6 +28,112 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 
+@shared_task(bind=True, max_retries=3, default_retry_delay=300)
+def process_scheduled_transfers(self):
+    """
+    Processa ScheduledTransfers pendentes cujo scheduled_for <= agora.
+
+    Para cada registro elegível, chama
+    TransferDispatchService.dispatch_transfers_for_order() e atualiza o
+    status do ScheduledTransfer para 'dispatched' ou 'failed'.
+
+    Frequência recomendada: horária (crontab(minute=0)).
+    """
+    from payments.models import ScheduledTransfer
+    from payments.services import TransferDispatchService
+
+    now = timezone.now()
+    pending_qs = (
+        ScheduledTransfer.objects
+        .filter(status='pending', scheduled_for__lte=now)
+        .select_related('order', 'payment')
+    )
+
+    total = pending_qs.count()
+    logger.info(
+        'process_scheduled_transfers: found %d scheduled transfers to process',
+        total,
+    )
+
+    success = 0
+    errors = 0
+
+    for st in pending_qs:
+        order = st.order
+        payment = st.payment
+
+        if not payment.stripe_charge_id:
+            error_msg = (
+                f"Payment {payment.id} (order={order.order_number}) "
+                f"has no stripe_charge_id — cannot dispatch transfers."
+            )
+            logger.error(
+                'process_scheduled_transfers: %s', error_msg,
+                extra={
+                    'scheduled_transfer_id': st.id,
+                    'order_id': str(order.id),
+                    'payment_id': payment.id,
+                },
+            )
+            st.status = 'failed'
+            st.error_message = error_msg
+            st.save(update_fields=['status', 'error_message', 'updated_at'])
+            errors += 1
+            continue
+
+        try:
+            logger.info(
+                'process_scheduled_transfers: dispatching transfers for order %s',
+                order.order_number,
+                extra={
+                    'scheduled_transfer_id': st.id,
+                    'order_id': str(order.id),
+                    'payment_id': payment.id,
+                    'charge_id': payment.stripe_charge_id,
+                },
+            )
+
+            TransferDispatchService.dispatch_transfers_for_order(
+                order=order,
+                payment=payment,
+                charge_id=payment.stripe_charge_id,
+            )
+
+            st.status = 'dispatched'
+            st.error_message = ''
+            st.save(update_fields=['status', 'error_message', 'updated_at'])
+            success += 1
+
+            logger.info(
+                'process_scheduled_transfers: successfully dispatched order %s',
+                order.order_number,
+                extra={'scheduled_transfer_id': st.id, 'order_id': str(order.id)},
+            )
+
+        except Exception as exc:
+            error_msg = str(exc)
+            logger.error(
+                'process_scheduled_transfers: failed for ScheduledTransfer %s (order=%s): %s',
+                st.id, order.order_number, exc,
+                exc_info=True,
+                extra={
+                    'scheduled_transfer_id': st.id,
+                    'order_id': str(order.id),
+                    'payment_id': payment.id,
+                },
+            )
+            st.status = 'failed'
+            st.error_message = error_msg
+            st.save(update_fields=['status', 'error_message', 'updated_at'])
+            errors += 1
+
+    logger.info(
+        'process_scheduled_transfers: done. total=%d success=%d errors=%d',
+        total, success, errors,
+    )
+    return {'total': total, 'success': success, 'errors': errors}
+
+
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def expire_seller_review_task(self):
     """

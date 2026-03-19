@@ -195,6 +195,63 @@ class OrderStateMachine:
             }
         )
 
+        # When delivered, schedule the payout to the seller.
+        if new_status == cls.DELIVERED:
+            try:
+                from datetime import timedelta
+                from django.conf import settings
+                from payments.models import ScheduledTransfer
+
+                payout_days = getattr(settings, 'PAYOUT_DAYS', 7)
+                scheduled_for = timezone.now() + timedelta(days=payout_days)
+
+                payment = getattr(order, 'payment', None)
+                if payment is not None and payment.status == 'succeeded':
+                    st, created = ScheduledTransfer.objects.get_or_create(
+                        order=order,
+                        defaults={
+                            'payment': payment,
+                            'scheduled_for': scheduled_for,
+                            'status': 'pending',
+                        },
+                    )
+                    if created:
+                        logger.info(
+                            'ScheduledTransfer criado para order %s, scheduled_for=%s',
+                            order.order_number,
+                            scheduled_for.isoformat(),
+                            extra={
+                                'order_id': str(order.id),
+                                'payment_id': payment.id,
+                                'scheduled_transfer_id': st.id,
+                                'scheduled_for': scheduled_for.isoformat(),
+                            },
+                        )
+                    else:
+                        logger.info(
+                            'ScheduledTransfer já existia para order %s (id=%s), não recriado.',
+                            order.order_number,
+                            st.id,
+                            extra={'order_id': str(order.id), 'scheduled_transfer_id': st.id},
+                        )
+                else:
+                    logger.warning(
+                        'Order %s transitou para delivered mas não há Payment succeeded associado. '
+                        'ScheduledTransfer não criado.',
+                        order.order_number,
+                        extra={
+                            'order_id': str(order.id),
+                            'payment_status': getattr(payment, 'status', None),
+                        },
+                    )
+            except Exception as _st_exc:
+                logger.error(
+                    'Falha ao criar ScheduledTransfer para order %s → delivered: %s',
+                    order.order_number,
+                    _st_exc,
+                    exc_info=True,
+                )
+
         # Notify buyer and sellers about status change.
         # Use default-arg capture for loop-safety and guard against import issues.
         try:

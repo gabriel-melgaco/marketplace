@@ -378,52 +378,16 @@ class WebhookService:
             )
             raise
 
-        # Dispatch Transfers to sellers
-        # This must happen AFTER order is marked as PAID
-        if charge_id:
-            try:
-                from .services.transfer_dispatch_service import TransferDispatchService
-                splits = TransferDispatchService.dispatch_transfers_for_order(
-                    order=order,
-                    payment=payment,
-                    charge_id=charge_id,
-                )
-
-                dispatched = sum(1 for s in splits if s.transfer_status == 'dispatched')
-                failed = sum(1 for s in splits if s.transfer_status == 'failed')
-
-                logger.info(
-                    "Transfers dispatched after payment success",
-                    extra={
-                        'order_id': str(order.id),
-                        'payment_id': payment.id,
-                        'splits_total': len(splits),
-                        'splits_dispatched': dispatched,
-                        'splits_failed': failed,
-                    }
-                )
-            except Exception as e:
-                # Transfer dispatch failure MUST NOT roll back payment success
-                # Log and continue — manual reconciliation will be needed for failed splits
-                logger.error(
-                    f"Transfer dispatch failed for payment {payment.id}: {str(e)}",
-                    extra={
-                        'payment_id': payment.id,
-                        'order_id': str(order.id),
-                        'charge_id': charge_id,
-                    },
-                    exc_info=True
-                )
-        else:
-            logger.error(
-                "No charge_id available — cannot dispatch transfers. "
-                "Manual intervention required.",
-                extra={
-                    'payment_id': payment.id,
-                    'order_id': str(order.id),
-                    'payment_intent_id': payment_intent.id,
-                }
-            )
+        # Transfers to sellers are dispatched by Celery Beat (process_scheduled_transfers)
+        # after the order is marked as delivered + PAYOUT_DAYS. No immediate transfer here.
+        logger.info(
+            "Payment succeeded — transfer will be dispatched after delivery + PAYOUT_DAYS",
+            extra={
+                'payment_id': payment.id,
+                'order_id': str(order.id),
+                'charge_id': charge_id,
+            }
+        )
 
         # Notify buyer and sellers that payment was confirmed.
         try:
