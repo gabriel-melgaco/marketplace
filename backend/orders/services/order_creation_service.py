@@ -105,6 +105,15 @@ class OrderCreationService:
             }
         )
 
+        # Step 1a: Block if buyer already has a pending_payment order
+        from orders.models import Order as OrderModel
+        pending = OrderModel.objects.filter(buyer=user, status='pending_payment').first()
+        if pending:
+            raise OrderCreationError(
+                f"Você já possui um pedido aguardando pagamento ({pending.order_number}). "
+                f"Conclua ou cancele-o antes de criar um novo."
+            )
+
         # Step 1: Validate cart is not empty
         cart_items = cart.items.select_related(
             'listing__product',

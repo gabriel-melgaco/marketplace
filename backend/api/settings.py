@@ -384,7 +384,10 @@ MELHOR_ENVIO_DEFAULT_SERVICES = os.getenv('MELHOR_ENVIO_DEFAULT_SERVICES', '1,2,
 PLATFORM_FEE_PERCENTAGE = int(os.getenv('PLATFORM_FEE_PERCENTAGE', 10))
 
 # Dias para liberar pagamento ao vendedor
-PAYOUT_DAYS = 7  # Após 7 dias da confirmação da entrega
+PAYOUT_DAYS = int(os.getenv('PAYOUT_DAYS', 7))
+
+# Minutos até cancelar order pendente sem pagamento
+ORDER_PAYMENT_TIMEOUT_MINUTES = int(os.getenv('ORDER_PAYMENT_TIMEOUT_MINUTES', 30))
 
 STOCK_STRATEGY = 'on_payment'
 # =================== LOGISTICS CONFIGURATION ===================
@@ -543,5 +546,10 @@ CELERY_BEAT_SCHEDULE = {
     'process-scheduled-transfers-hourly': {
         'task': 'payments.tasks.process_scheduled_transfers',
         'schedule': crontab(minute=0),
+    },
+    # Cancela orders pending_payment sem pagamento após ORDER_PAYMENT_TIMEOUT_MINUTES
+    'expire-pending-payment-orders': {
+        'task': 'payments.tasks.expire_pending_payment_orders',
+        'schedule': crontab(minute='*/15'),  # a cada 15 minutos
     },
 }
