@@ -17,6 +17,10 @@ Registrar no CELERY_BEAT_SCHEDULE (api/settings.py):
         'task': 'payments.tasks.notify_seller_deadline_reminder_task',
         'schedule': crontab(hour=9, minute=0),  # 9h UTC diariamente
     },
+    'expire-pending-payment-orders': {
+        'task': 'payments.tasks.expire_pending_payment_orders',
+        'schedule': crontab(minute='*/15'),  # a cada 15 minutos
+    },
 """
 
 import logging
@@ -300,3 +304,63 @@ def notify_seller_deadline_reminder_task(self):
         notified,
     )
     return {'upcoming': count, 'notified': notified}
+
+
+@shared_task(bind=True, max_retries=3, default_retry_delay=60)
+def expire_pending_payment_orders(self):
+    """
+    Cancela orders em 'pending_payment' criadas há mais de ORDER_PAYMENT_TIMEOUT_MINUTES.
+
+    Frequência recomendada: a cada 15 minutos.
+    """
+    from django.conf import settings
+    from orders.models import Order
+    from orders.services.order_creation_service import OrderCreationService
+    from authentication.models import CustomUser
+
+    timeout_minutes = getattr(settings, 'ORDER_PAYMENT_TIMEOUT_MINUTES', 30)
+    cutoff = timezone.now() - timedelta(minutes=timeout_minutes)
+
+    expired_orders = Order.objects.filter(
+        status='pending_payment',
+        created_at__lte=cutoff,
+    ).select_related('buyer')
+
+    total = expired_orders.count()
+    logger.info(
+        'expire_pending_payment_orders: found %d expired orders (timeout=%d min)',
+        total, timeout_minutes,
+    )
+
+    success = 0
+    errors = 0
+    system_user = None
+
+    for order in expired_orders:
+        try:
+            if system_user is None:
+                system_user = order.buyer.__class__.objects.filter(is_staff=True).first()
+
+            OrderCreationService.cancel_order_and_release_stock(
+                order=order,
+                canceled_by=system_user or order.buyer,
+                reason=f'Pagamento não realizado em {timeout_minutes} minutos. Pedido cancelado automaticamente.',
+            )
+            success += 1
+            logger.info(
+                'expire_pending_payment_orders: cancelled order %s (buyer=%s)',
+                order.order_number, order.buyer.email,
+            )
+        except Exception as exc:
+            errors += 1
+            logger.error(
+                'expire_pending_payment_orders: failed to cancel order %s: %s',
+                order.order_number, exc,
+                exc_info=True,
+            )
+
+    logger.info(
+        'expire_pending_payment_orders: done. total=%d success=%d errors=%d',
+        total, success, errors,
+    )
+    return {'total': total, 'success': success, 'errors': errors}
