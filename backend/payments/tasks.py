@@ -341,11 +341,22 @@ def expire_pending_payment_orders(self):
             if system_user is None:
                 system_user = order.buyer.__class__.objects.filter(is_staff=True).first()
 
-            OrderCreationService.cancel_order_and_release_stock(
-                order=order,
-                canceled_by=system_user or order.buyer,
-                reason=f'Pagamento não realizado em {timeout_minutes} minutos. Pedido cancelado automaticamente.',
-            )
+            # Com STOCK_STRATEGY='on_payment' o estoque não foi reservado na criação,
+            # então apenas transicionamos para cancelled sem liberar estoque.
+            if OrderCreationService.STOCK_STRATEGY == 'immediate':
+                OrderCreationService.cancel_order_and_release_stock(
+                    order=order,
+                    canceled_by=system_user or order.buyer,
+                    reason=f'Pagamento não realizado em {timeout_minutes} minutos. Pedido cancelado automaticamente.',
+                )
+            else:
+                from orders.services.order_state_machine import OrderStateMachine
+                OrderStateMachine.transition_to(
+                    order=order,
+                    new_status=OrderStateMachine.CANCELED,
+                    changed_by=system_user or order.buyer,
+                    notes=f'Pagamento não realizado em {timeout_minutes} minutos. Pedido cancelado automaticamente.',
+                )
             success += 1
             logger.info(
                 'expire_pending_payment_orders: cancelled order %s (buyer=%s)',
