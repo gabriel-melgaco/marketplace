@@ -539,4 +539,9 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'payments.tasks.notify_seller_deadline_reminder_task',
         'schedule': crontab(hour=9, minute=0),
     },
+    # Dispara repasses agendados para vendedores (entrega confirmada + PAYOUT_DAYS)
+    'process-scheduled-transfers-hourly': {
+        'task': 'payments.tasks.process_scheduled_transfers',
+        'schedule': crontab(minute=0),
+    },
 }
