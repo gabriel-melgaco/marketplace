@@ -5,7 +5,7 @@ from django.conf import settings
 from authentication.models import CustomUser
 from .models import (
     Payment, PaymentSplit, PaymentWebhook, Dispute, SellerPayout,
-    RefundRequest, RefundRequestHistory,
+    ScheduledTransfer, RefundRequest, RefundRequestHistory,
 )
 
 
@@ -541,6 +541,73 @@ class SellerPayoutAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         if obj and obj.status == 'pending':
             return True
+        return False
+
+
+# =================== Scheduled Transfer Admin ===================
+
+@admin.register(ScheduledTransfer)
+class ScheduledTransferAdmin(admin.ModelAdmin):
+    list_display = [
+        'id', 'order_link', 'payment_link', 'status_badge',
+        'scheduled_for', 'error_message_short', 'created_at',
+    ]
+    list_filter = ['status', 'scheduled_for', 'created_at']
+    search_fields = [
+        'order__order_number', 'payment__stripe_payment_intent_id',
+        'payment__stripe_charge_id',
+    ]
+    readonly_fields = [
+        'order', 'payment', 'status', 'scheduled_for',
+        'error_message', 'created_at', 'updated_at',
+    ]
+
+    fieldsets = (
+        ('Pedido e Pagamento', {
+            'fields': ('order', 'payment')
+        }),
+        ('Agendamento', {
+            'fields': ('status', 'scheduled_for')
+        }),
+        ('Erro', {
+            'fields': ('error_message',),
+            'classes': ('collapse',)
+        }),
+        ('Datas', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def order_link(self, obj):
+        url = reverse('admin:orders_order_change', args=[obj.order.id])
+        return format_html('<a href="{}">{}</a>', url, obj.order.order_number)
+    order_link.short_description = 'Pedido'
+
+    def payment_link(self, obj):
+        url = reverse('admin:payments_payment_change', args=[obj.payment.id])
+        return format_html('<a href="{}">{}</a>', url, obj.payment.stripe_payment_intent_id)
+    payment_link.short_description = 'Pagamento'
+
+    def status_badge(self, obj):
+        colors = {
+            'pending': '#ffc107',
+            'dispatched': '#28a745',
+            'failed': '#dc3545',
+        }
+        return _status_badge(obj.status, obj.get_status_display(), colors)
+    status_badge.short_description = 'Status'
+
+    def error_message_short(self, obj):
+        if obj.error_message:
+            return obj.error_message[:60] + ('…' if len(obj.error_message) > 60 else '')
+        return '-'
+    error_message_short.short_description = 'Erro'
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
         return False
 
 
