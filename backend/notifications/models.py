@@ -27,6 +27,7 @@ class NotificationType(models.TextChoices):
     SELLER_VERIFIED = 'seller_verified', 'Vendedor Verificado'
     LISTING_BLOCKED = 'listing_blocked', 'Anúncio Bloqueado'
     LISTING_CREATED = 'listing_created', 'Anúncio Publicado'
+    PAYOUT_SCHEDULED = 'payout_scheduled', 'Repasse Agendado'
 
 
 class Notification(models.Model):
@@ -148,6 +149,10 @@ class NotificationPreference(models.Model):
     # --- listing_created ---
     listing_created_ws = models.BooleanField(default=True)
     listing_created_email = models.BooleanField(default=False)
+
+    # --- payout_scheduled ---
+    payout_scheduled_ws = models.BooleanField(default=True)
+    payout_scheduled_email = models.BooleanField(default=True)
 
     class Meta:
         verbose_name = 'Preferência de Notificação'
