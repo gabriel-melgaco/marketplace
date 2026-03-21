@@ -1081,6 +1081,87 @@ def mark_shipment_shipped(request, pk):
 
 @extend_schema(
     tags=['Logistics - Shipping'],
+    summary='Buyer confirms delivery',
+    description=(
+        'Buyer manually confirms that the shipment was received.\n\n'
+        'Only the buyer of the order can call this endpoint.\n\n'
+        'The shipment must be in status `posted` or `in_transit`.\n\n'
+        'If all shipments for the order are now delivered, the order is '
+        'transitioned to `delivered` and the payout timer starts.'
+    ),
+    request=None,
+    responses={
+        200: inline_serializer(
+            name='MarkShipmentDeliveredResponse',
+            fields={
+                'message': rf_serializers.CharField(),
+                'shipment': ShipmentSerializer(),
+                'order_status': rf_serializers.CharField(),
+                'order_transitioned': rf_serializers.BooleanField(),
+            }
+        ),
+        400: OpenApiResponse(description='Shipment not in a deliverable status'),
+        403: OpenApiResponse(description='Only the buyer can confirm delivery'),
+        404: OpenApiResponse(description='Shipment not found'),
+    }
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@transaction.atomic
+def mark_shipment_delivered(request, pk):
+    """
+    Comprador confirma manualmente que a encomenda foi recebida.
+    """
+    shipment = get_object_or_404(Shipment, id=pk)
+
+    if request.user != shipment.order.buyer:
+        return Response(
+            {'error': 'Apenas o comprador pode confirmar o recebimento do envio'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    if shipment.status not in ('posted', 'in_transit'):
+        return Response(
+            {'error': f'Não é possível confirmar recebimento para um envio com status "{shipment.get_status_display()}"'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    shipment.status = 'delivered'
+    shipment.delivered_at = timezone.now()
+    shipment.save()
+
+    order = shipment.order
+    order_transitioned = False
+
+    all_shipments = Shipment.objects.filter(order=order)
+    all_delivered = all_shipments.exclude(status='delivered').count() == 0
+
+    if all_delivered and OrderStateMachine.can_transition(order.status, OrderStateMachine.DELIVERED):
+        try:
+            OrderStateMachine.transition_to(
+                order=order,
+                new_status=OrderStateMachine.DELIVERED,
+                changed_by=request.user,
+                notes='Comprador confirmou o recebimento.',
+            )
+            order_transitioned = True
+        except OrderStatusTransitionError as e:
+            logger.warning(
+                f'Não foi possível transicionar order {order.order_number} para delivered: {e}'
+            )
+
+    serializer = ShipmentSerializer(shipment)
+
+    return Response({
+        'message': 'Recebimento confirmado com sucesso',
+        'shipment': serializer.data,
+        'order_status': order.status,
+        'order_transitioned': order_transitioned,
+    })
+
+
+@extend_schema(
+    tags=['Logistics - Shipping'],
     summary='Get order shipments',
     description='List all shipments for a specific order. Useful for multi-seller orders.',
     parameters=[

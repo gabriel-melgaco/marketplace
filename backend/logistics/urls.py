@@ -24,6 +24,7 @@ urlpatterns = [
     path('shipments/<int:pk>/label/', views.generate_shipping_label, name='shipment-label'),
     path('shipments/<int:pk>/track/', views.track_shipment, name='shipment-track'),
     path('shipments/<int:pk>/ship/', views.mark_shipment_shipped, name='shipment-ship'),
+    path('shipments/<int:pk>/delivered/', views.mark_shipment_delivered, name='shipment-delivered'),
     path('shipments/order/<uuid:order_id>/', views.get_order_shipments, name='order-shipments'),
 
     # =================== Utilities ===================
