@@ -386,6 +386,9 @@ PLATFORM_FEE_PERCENTAGE = int(os.getenv('PLATFORM_FEE_PERCENTAGE', 10))
 # Dias para liberar pagamento ao vendedor
 PAYOUT_DAYS = int(os.getenv('PAYOUT_DAYS', 7))
 
+# Dias sem confirmação do comprador (e sem disputa aberta) para auto-confirmar entrega
+AUTO_CONFIRM_DELIVERY_DAYS = int(os.getenv('AUTO_CONFIRM_DELIVERY_DAYS', 20))
+
 # Minutos até cancelar order pendente sem pagamento
 ORDER_PAYMENT_TIMEOUT_MINUTES = int(os.getenv('ORDER_PAYMENT_TIMEOUT_MINUTES', 30))
 
@@ -551,5 +554,10 @@ CELERY_BEAT_SCHEDULE = {
     'expire-pending-payment-orders': {
         'task': 'payments.tasks.expire_pending_payment_orders',
         'schedule': crontab(minute='*/15'),  # a cada 15 minutos
+    },
+    # Confirma automaticamente entregas sem resposta do comprador após AUTO_CONFIRM_DELIVERY_DAYS, caso não haja disputas.
+    'auto-confirm-deliveries-daily': {
+        'task': 'logistics.tasks.auto_confirm_deliveries',
+        'schedule': crontab(hour=6, minute=0),  # diariamente às 6h
     },
 }
