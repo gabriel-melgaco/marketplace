@@ -62,6 +62,7 @@ urlpatterns = [
     path('me/callback/', views.seller_me_callback, name='seller-me-callback'),
     path('me/status/', views.seller_me_status, name='seller-me-status'),
     path('me/disconnect/', views.seller_me_disconnect, name='seller-me-disconnect'),
+    path('me/balance/', views.seller_me_balance, name='seller-me-balance'),
 
     # =================== Carrier Services ===================
     # GET: Fetches live carrier services from Melhor Envio API
