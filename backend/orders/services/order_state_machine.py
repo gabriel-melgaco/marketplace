@@ -227,6 +227,35 @@ class OrderStateMachine:
                                 'scheduled_for': scheduled_for.isoformat(),
                             },
                         )
+                        try:
+                            from notifications.services import NotificationService
+                            from notifications.models import NotificationType
+
+                            scheduled_for_display = scheduled_for.strftime('%d/%m/%Y')
+                            NotificationService.notify(
+                                recipient=order.seller,
+                                event_type=NotificationType.PAYOUT_SCHEDULED,
+                                title=f'Repasse agendado — Pedido #{order.order_number}',
+                                body=(
+                                    f'O repasse referente ao pedido #{order.order_number} '
+                                    f'foi agendado para {scheduled_for_display}. '
+                                    f'O valor será transferido para sua conta na data prevista.'
+                                ),
+                                metadata={
+                                    'order_id': str(order.id),
+                                    'order_number': order.order_number,
+                                    'scheduled_transfer_id': st.id,
+                                    'scheduled_for': scheduled_for.isoformat(),
+                                    'order_total': str(order.total),
+                                },
+                                idempotency_key=f'payout_scheduled_{st.id}',
+                            )
+                        except Exception as _payout_notify_exc:
+                            logger.warning(
+                                'Falha ao enfileirar notificação payout_scheduled para order %s: %s',
+                                order.order_number,
+                                _payout_notify_exc,
+                            )
                     else:
                         logger.info(
                             'ScheduledTransfer já existia para order %s (id=%s), não recriado.',

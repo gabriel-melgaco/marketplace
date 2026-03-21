@@ -12,11 +12,11 @@ from drf_spectacular.utils import extend_schema, inline_serializer
 import json
 import stripe
 
-from .models import Payment, PaymentWebhook, SellerPayout, PaymentSplit, RefundRequest
+from .models import Payment, PaymentWebhook, SellerPayout, PaymentSplit, RefundRequest, ScheduledTransfer
 from .serializers import (
     PaymentSerializer, PaymentIntentCreateSerializer,
     PaymentConfirmSerializer, RefundSerializer,
-    SellerPayoutSerializer, PaymentSplitSerializer,
+    SellerPayoutSerializer, PaymentSplitSerializer, ScheduledTransferSerializer,
     RefundRequestSerializer, RefundRequestCreateSerializer,
     RefundRequestApproveSerializer, RefundRequestRejectSerializer,
     RefundRequestPlatformDecideSerializer,
@@ -938,6 +938,31 @@ class SellerPayoutDetailView(generics.RetrieveAPIView):
             PaymentSplit.objects
             .filter(seller=self.request.user)
             .select_related('payment__order', 'seller')
+        )
+
+
+@extend_schema(
+    tags=['Payments'],
+    summary='List scheduled transfers',
+    description=(
+        'List all scheduled transfers (repasses agendados) for the authenticated seller.\n\n'
+        'A `ScheduledTransfer` is created when an order transitions to `delivered`. '
+        'The Celery Beat task processes records with `scheduled_for <= now` and `status=pending`, '
+        'dispatching the actual Stripe Transfer.\n\n'
+        'Possible statuses: `pending` (aguardando), `dispatched` (executado), `failed` (falhou).'
+    ),
+    responses={200: ScheduledTransferSerializer(many=True)},
+)
+class ScheduledTransferListView(generics.ListAPIView):
+    serializer_class = ScheduledTransferSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return (
+            ScheduledTransfer.objects
+            .filter(order__seller=self.request.user)
+            .select_related('order', 'payment')
+            .order_by('-scheduled_for')
         )
 
 

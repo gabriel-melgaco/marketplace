@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Payment, PaymentWebhook, SellerPayout, PaymentSplit, Dispute, RefundRequest, RefundRequestHistory
+from .models import Payment, PaymentWebhook, SellerPayout, PaymentSplit, Dispute, RefundRequest, RefundRequestHistory, ScheduledTransfer
 
 
 class PaymentSplitSerializer(serializers.ModelSerializer):
@@ -14,6 +14,21 @@ class PaymentSplitSerializer(serializers.ModelSerializer):
             'gross_amount', 'product_amount', 'shipping_amount',
             'platform_fee_amount', 'net_amount',
             'shipping_status', 'stripe_transfer_id', 'transfer_status',
+            'error_message', 'created_at', 'updated_at',
+        ]
+        read_only_fields = fields
+
+
+class ScheduledTransferSerializer(serializers.ModelSerializer):
+    order_number = serializers.CharField(source='order.order_number', read_only=True)
+    order_total = serializers.DecimalField(source='order.total', max_digits=10, decimal_places=2, read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = ScheduledTransfer
+        fields = [
+            'id', 'order', 'order_number', 'order_total',
+            'status', 'status_display', 'scheduled_for',
             'error_message', 'created_at', 'updated_at',
         ]
         read_only_fields = fields

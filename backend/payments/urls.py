@@ -35,6 +35,7 @@ urlpatterns = [
     # =================== Seller Payouts ===================
     path('payouts/', views.SellerPayoutListView.as_view(), name='payout-list'),
     path('payouts/<int:pk>/', views.SellerPayoutDetailView.as_view(), name='payout-detail'),
+    path('payouts/scheduled/', views.ScheduledTransferListView.as_view(), name='payout-scheduled-list'),
     path('balance/', views.seller_balance, name='seller-balance'),
 
     # Stripe Connect endpoints
