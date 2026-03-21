@@ -4,7 +4,7 @@ from django.urls import reverse
 from django.conf import settings
 from authentication.models import CustomUser
 from .models import (
-    Payment, PaymentSplit, PaymentWebhook, Dispute, SellerPayout,
+    Payment, PaymentSplit, PaymentWebhook, Dispute,
     ScheduledTransfer, RefundRequest, RefundRequestHistory,
 )
 
@@ -463,85 +463,6 @@ class SellerConnectedAccountAdmin(admin.ModelAdmin):
     def has_change_permission(self, request, obj=None):
         return False
 
-
-# =================== Seller Payout Admin ===================
-
-@admin.register(SellerPayout)
-class SellerPayoutAdmin(admin.ModelAdmin):
-    list_display = [
-        'id', 'seller_link', 'order_link', 'net_amount_formatted',
-        'status_badge', 'scheduled_for', 'paid_at'
-    ]
-    list_filter = ['status', 'scheduled_for', 'paid_at', 'created_at']
-    search_fields = [
-        'seller__email', 'order__order_number', 'stripe_transfer_id'
-    ]
-    readonly_fields = [
-        'seller', 'order', 'gross_amount', 'platform_fee',
-        'net_amount', 'status', 'stripe_transfer_id',
-        'created_at', 'scheduled_for', 'paid_at',
-        'platform_fee_percentage'
-    ]
-
-    fieldsets = (
-        ('Informações do Repasse', {
-            'fields': ('seller', 'order', 'status')
-        }),
-        ('Valores', {
-            'fields': (
-                'gross_amount', 'platform_fee',
-                'platform_fee_percentage', 'net_amount'
-            )
-        }),
-        ('Stripe', {
-            'fields': ('stripe_transfer_id',),
-            'classes': ('collapse',)
-        }),
-        ('Datas', {
-            'fields': ('created_at', 'scheduled_for', 'paid_at'),
-            'classes': ('collapse',)
-        }),
-    )
-
-    def seller_link(self, obj):
-        url = reverse('admin:authentication_customuser_change', args=[obj.seller.id])
-        return format_html('<a href="{}">{}</a>', url, obj.seller.email)
-    seller_link.short_description = 'Vendedor'
-
-    def order_link(self, obj):
-        url = reverse('admin:orders_order_change', args=[obj.order.id])
-        return format_html('<a href="{}">{}</a>', url, obj.order.order_number)
-    order_link.short_description = 'Pedido'
-
-    def net_amount_formatted(self, obj):
-        return f'R$ {obj.net_amount}'
-    net_amount_formatted.short_description = 'Valor Líquido'
-    net_amount_formatted.admin_order_field = 'net_amount'
-
-    def status_badge(self, obj):
-        colors = {
-            'pending': '#ffc107',
-            'processing': '#17a2b8',
-            'completed': '#28a745',
-            'failed': '#dc3545',
-        }
-        return _status_badge(obj.status, obj.get_status_display(), colors)
-    status_badge.short_description = 'Status'
-
-    def platform_fee_percentage(self, obj):
-        if obj.gross_amount > 0:
-            percentage = (obj.platform_fee / obj.gross_amount) * 100
-            return f'{percentage:.1f}%'
-        return '0%'
-    platform_fee_percentage.short_description = 'Taxa (%)'
-
-    def has_add_permission(self, request):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        if obj and obj.status == 'pending':
-            return True
-        return False
 
 
 # =================== Scheduled Transfer Admin ===================

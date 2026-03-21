@@ -2824,6 +2824,71 @@ def seller_me_disconnect(request):
     })
 
 
+@extend_schema(
+    tags=['Logistics - Seller ME OAuth'],
+    summary='Get seller Melhor Envio wallet balance',
+    description=(
+        'Retorna o saldo disponível na carteira Melhor Envio do vendedor autenticado.\n\n'
+        'Consulta `GET /api/v2/me/balance` na API do Melhor Envio usando o token OAuth '
+        'do vendedor. O vendedor precisa ter uma conta conectada via '
+        '`/api/logistics/me/connect/` para usar este endpoint.\n\n'
+        'Requer autenticação JWT (vendedor logado).'
+    ),
+    request=None,
+    responses={
+        200: inline_serializer(
+            name='SellerMEBalanceResponse',
+            fields={
+                'balance': rf_serializers.DecimalField(max_digits=10, decimal_places=2),
+                'currency': rf_serializers.CharField(),
+                'environment': rf_serializers.CharField(),
+            }
+        ),
+        400: OpenApiResponse(description='Conta Melhor Envio não conectada ou token expirado'),
+        502: OpenApiResponse(description='Erro ao comunicar com a API do Melhor Envio'),
+    }
+)
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def seller_me_balance(request):
+    """
+    Retorna o saldo da carteira Melhor Envio do vendedor autenticado.
+    """
+    from .services.melhor_envio_service import MelhorEnvioService, ShippingValidationError
+
+    me_service = MelhorEnvioService()
+
+    try:
+        balance = me_service.get_seller_balance(seller=request.user)
+    except ShippingValidationError as e:
+        # Token ausente, expirado ou 401 da API ME — conta não conectada ou inválida
+        return Response(
+            {
+                'error': 'Conta Melhor Envio não conectada ou token inválido.',
+                'detail': str(e),
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    except Exception as e:
+        # Timeout, erro de rede ou resposta inesperada da API ME
+        logger.error(
+            f'seller_me_balance: erro ao consultar saldo ME para {request.user.email}: {e}'
+        )
+        return Response(
+            {
+                'error': 'Erro ao consultar saldo na API do Melhor Envio.',
+                'detail': str(e),
+            },
+            status=status.HTTP_502_BAD_GATEWAY
+        )
+
+    return Response({
+        'balance': str(balance),
+        'currency': 'BRL',
+        'environment': 'sandbox' if me_service.is_sandbox else 'production',
+    })
+
+
 # =================== Carrier Services Views ===================
 
 @extend_schema(
