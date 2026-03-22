@@ -13,7 +13,7 @@ import datetime
 from .models import Order, OrderItem, OrderStatusHistory, Cart, CartItem
 from .serializers import (
     OrderSerializer, OrderListSerializer, OrderCreateSerializer,
-    OrderUpdateStatusSerializer, CartSerializer, CartItemSerializer,
+    CartSerializer, CartItemSerializer,
     CartItemCreateSerializer
 )
 from .services import (
@@ -600,63 +600,3 @@ class SellerOrderDetailView(generics.RetrieveAPIView):
         order_id = self.kwargs.get('pk')
         return get_object_or_404(self.get_queryset(), id=order_id)
 
-
-@extend_schema(
-    tags=['Seller Orders'],
-    summary='Update order status',
-    request=OrderUpdateStatusSerializer,
-    responses={200: OrderSerializer},
-    description="Update order status (seller only). Validates state transitions using state machine."
-)
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def update_order_status(request, pk):
-    """Atualizar status do pedido (vendedor) usando state machine"""
-    serializer = OrderUpdateStatusSerializer(data=request.data)
-
-    if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    # Get order - verify user is seller of this order
-    order = get_object_or_404(
-        Order,
-        id=pk,
-        items__seller=request.user
-    )
-
-    new_status = serializer.validated_data['status']
-    notes = serializer.validated_data.get('notes', '')
-
-    # Validate transition using state machine
-    try:
-        OrderStateMachine.transition_to(
-            order=order,
-            new_status=new_status,
-            changed_by=request.user,
-            notes=notes or f'Status atualizado pelo vendedor',
-            is_payment_system=False
-        )
-
-        # Return updated order
-        order_serializer = OrderSerializer(order)
-        return Response(order_serializer.data)
-
-    except OrderStatusTransitionError as e:
-        return Response(
-            {
-                'error': str(e),
-                'current_status': order.status,
-                'requested_status': new_status,
-                'allowed_transitions': OrderStateMachine.get_available_transitions(order.status)
-            },
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    except Exception as e:
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.error(f"Error updating order status: {str(e)}", exc_info=True)
-
-        return Response(
-            {'error': 'Erro ao atualizar status do pedido.'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
