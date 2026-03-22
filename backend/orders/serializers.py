@@ -526,11 +526,3 @@ class OrderListSerializer(serializers.ModelSerializer):
         if first_item:
             return first_item.seller.get_full_name()
         return None
-
-
-class OrderUpdateStatusSerializer(serializers.Serializer):
-    """Serializer para atualizar status do pedido"""
-    status = serializers.ChoiceField(
-        choices=Order.STATUS_CHOICES
-    )
-    notes = serializers.CharField(required=False, allow_blank=True)

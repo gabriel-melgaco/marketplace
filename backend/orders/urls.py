@@ -20,5 +20,4 @@ urlpatterns = [
     # =================== Orders (Seller) ===================
     path('sales/', views.SellerOrdersView.as_view(), name='seller-orders'),
     path('sales/<uuid:pk>/', views.SellerOrderDetailView.as_view(), name='seller-order-detail'),
-    path('sales/<uuid:pk>/update-status/', views.update_order_status, name='order-update-status'),
 ]
