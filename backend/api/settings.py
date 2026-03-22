@@ -90,7 +90,163 @@ REST_FRAMEWORK = {
 
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Gym Equipment Marketplace API',
-    'DESCRIPTION': 'Complete REST API for a gym equipment marketplace platform with multi-vendor support, payment processing, shipping integration, and dual delivery options (shipping + in-person).',
+    'DESCRIPTION': """
+# Gym Equipment Marketplace — API Reference
+
+## Introduction
+
+A multi-vendor REST API for buying and selling used and new gym equipment in Brazil.
+Sellers list individual items; buyers browse, cart, and purchase across multiple vendors in a single checkout.
+Each order is automatically split per seller, payments are routed via Stripe Connect, and shipping is
+orchestrated through Melhor Envio with per-seller OAuth credentials.
+
+---
+
+## Base URL
+
+| Environment | Base URL |
+|-------------|----------|
+| Production  | `https://api.megdev.com.br/api/` |
+| Local dev   | `http://localhost:8000/api/` |
+
+Interactive documentation is available at `/api/docs/` (Swagger UI) and `/api/redoc/` (Redoc).
+
+---
+
+## Authentication
+
+All protected endpoints require a valid JWT access token issued by this API.
+
+**Mechanism:** JWT via HttpOnly cookies — the token is set automatically on login and sent transparently
+on every subsequent request. Clients do not need to handle `Authorization` headers manually.
+
+**Token lifetimes:**
+- Access token: 24 hours
+- Refresh token: 30 days
+
+**Registration** requires: `email`, `complete_name`, `cpf`, `birthday`, `password1`, `password2`.
+Email verification is mandatory before the first login.
+
+**Social login** is supported via Google OAuth2 and GitHub OAuth2. The frontend initiates the flow and
+exchanges the authorization code with the backend at `/api/auth/social/`.
+
+Endpoints that do not require authentication are explicitly marked as **Public** in their descriptions.
+
+---
+
+## Functional Areas
+
+### Authentication (`/api/auth/`)
+User registration, email verification, login, logout, token refresh, password change/reset, and profile
+management. Social login flows for Google and GitHub are included under `/api/auth/social/`.
+
+### Products (`/api/products/`)
+Read-only catalog of gym equipment: **Categories** (hierarchical), **Brands**, **Series**, **Conditions**,
+and **Products** (the canonical item definition). The purchasable unit is the **MarketplaceListing** —
+a seller's offer for a specific product in a specific condition at a specific price.
+
+Sellers manage their own listings (create, update, activate/deactivate, mark as sold) and upload listing
+images through dedicated sub-resources. Public search and filter endpoints are available without authentication.
+
+### Cart & Orders (`/api/orders/`)
+Authenticated buyers maintain a persistent cart. When the buyer checks out, one `Order` is created
+**per seller** (multi-vendor split). Orders follow the state machine:
+
+```
+pending_payment → paid → processing → shipped → delivered → (refunded)
+                                                           → cancelled
+```
+
+Buyers can view and cancel their own orders. Sellers access their sales queue under `/api/orders/sales/`.
+
+### Payments (`/api/payments/`)
+Payments are processed via **Stripe**. The flow:
+
+1. `POST /api/payments/create-intent/` — creates a Stripe PaymentIntent and returns a `client_secret`.
+2. The frontend completes the payment using Stripe.js with the `client_secret`.
+3. `POST /api/payments/confirm/` — confirms the intent server-side; triggers order status update and
+   automatic shipment creation.
+
+Payment splits are computed server-side: the platform retains a configurable fee (default 10%) and the
+shipping cost; the seller receives the net product amount via a Stripe Transfer dispatched by Celery Beat
+`PAYOUT_DAYS` days after confirmed delivery.
+
+**Refund Requests** follow a non-unilateral workflow:
+`requested → seller_reviewing → approved/rejected → (escalated → platform_decision) → refunded`
+
+**Stripe Connect** (`/api/payments/connect/`) handles seller onboarding: account creation, the hosted
+onboarding link, status sync, and disconnect.
+
+### Logistics (`/api/logistics/`)
+Shipping is integrated with **Melhor Envio**. Each seller authenticates independently via per-vendor
+OAuth2 (`/api/logistics/me/`), which is required before labels can be generated.
+
+Key flows:
+- **Freight quotes** — request real-time quotes from multiple carriers before checkout.
+- **Shipments** — automatically created on payment confirmation; the seller generates and downloads the
+  label, then posts the package and updates the status.
+- **Dual delivery** — each order item can be delivered either by carrier (`shipping`) or in-person
+  (`in_person`). `OrderDelivery` orchestrates the overall delivery status while `InPersonDelivery`
+  manages meeting scheduling and confirmation for hand-off deliveries.
+- **Addresses** — buyers and sellers manage saved addresses; CEP lookup via ViaCEP is available at
+  `/api/logistics/cep/lookup/`.
+
+### Chat (`/api/chats/`)
+Real-time messaging via WebSocket (Django Channels + Redis). The REST layer manages conversation
+lifecycle (create, retrieve, close) and message history. Unread messages are tracked per participant.
+Conversation types cover buyer↔seller, buyer↔support, and group support threads.
+
+### Notifications (`/api/notifications/`)
+In-app notification feed with read/unread tracking. Supports per-user delivery preferences.
+Notifications are triggered automatically by order, payment, and refund state changes.
+
+---
+
+## API Conventions
+
+| Convention | Detail |
+|------------|--------|
+| Primary keys | `UUID` for Orders, RefundRequests, Conversations; `integer` for most other resources |
+| Field naming | `snake_case` throughout |
+| Dates | ISO 8601 with timezone (`2026-03-22T14:30:00-03:00`) |
+| Monetary values | `decimal` strings in BRL (e.g. `"149.90"`) |
+| Pagination | Page-number pagination; default page size 20 (`?page=2`) |
+| Errors | Standard DRF validation errors: `{"field": ["message"]}` or `{"detail": "message"}` |
+| Currency | Brazilian Real (`BRL`) only |
+| Language | Response messages in Brazilian Portuguese |
+
+---
+
+## Standard HTTP Status Codes
+
+| Code | Meaning |
+|------|---------|
+| 200 | Success (GET, PUT, PATCH) |
+| 201 | Resource created (POST) |
+| 204 | No content (DELETE) |
+| 400 | Validation error |
+| 401 | Missing or invalid authentication |
+| 403 | Authenticated but insufficient permissions |
+| 404 | Resource not found |
+| 409 | State conflict (e.g. order already paid) |
+| 410 | Endpoint permanently removed |
+| 422 | Business logic error |
+
+---
+
+## External Integrations
+
+| Service | Purpose |
+|---------|---------|
+| **Stripe** | Payment processing, Connect multi-vendor splits, webhooks |
+| **Melhor Envio** | Freight quotes, shipment creation, label generation, tracking |
+| **ViaCEP** | Brazilian zipcode (CEP) address lookup |
+| **Google OAuth2** | Social login |
+| **GitHub OAuth2** | Social login |
+| **MinIO (S3-compatible)** | Listing image storage |
+| **Resend (SMTP)** | Transactional email (verification, password reset) |
+| **Redis** | Cache, Celery task queue, Django Channels layer |
+""",
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
     'TAGS': [
@@ -126,6 +282,12 @@ SPECTACULAR_SETTINGS = {
         'RefundTypeEnum': 'payments.models.RefundRequest.REFUND_TYPE_CHOICES',
         # Resolve colisão de payment_method entre Payment (com choices) e Order (CharField sem choices)
         'PaymentMethodEnum': ['credit_card', 'debit_card', 'pix', 'boleto'],
+    },
+    'EXTENSIONS_INFO': {
+        'x-logo': {
+            'url': 'https://marketplace.megdev.com.br/src/assets/logo1.png',
+            'altText': 'Marketplace Academia',
+        },
     },
 }
 
