@@ -54,8 +54,9 @@ class InPersonDeliveryService:
             InPersonDelivery criado
         """
 
-        # Validar se já existe entrega presencial para este seller/buyer
+        # Validar se já existe entrega presencial para este pedido/seller/buyer
         existing = InPersonDelivery.objects.filter(
+            order=order,
             seller=seller,
             buyer=buyer,
             meeting_status__in=['pending_schedule', 'scheduled', 'confirmed']
@@ -63,7 +64,7 @@ class InPersonDeliveryService:
 
         if existing:
             raise ValueError(
-                f'Já existe uma entrega presencial pendente entre {seller.email} e {buyer.email}'
+                f'Já existe uma entrega presencial pendente para o pedido {order.id}'
             )
 
         # Definir status inicial
