@@ -82,11 +82,18 @@ interface RawShippingOption {
   delivery_days?: number;
 }
 
+export interface QuoteSnapshot {
+  melhor_envio_items: { listing_id: number }[];
+  in_person_items: { listing_id: number }[];
+  in_person_only: boolean;
+}
+
 export interface CheckoutNavigationState {
   shippingAddressId: number;
   selectedServices: Record<string, number>;
   inPersonSellers: string[];
   sellerDeliveryMethods: Record<string, SellerDeliveryMethod>;
+  quotesSnapshot: Record<string, QuoteSnapshot>;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -581,9 +588,19 @@ export function Checkout() {
           .filter(([, m]) => m === 'vendor' || m === 'both')
           .map(([id]) => id),
         sellerDeliveryMethods,
+        quotesSnapshot: Object.fromEntries(
+          Object.entries(quotesMap).map(([id, q]) => [
+            id,
+            {
+              melhor_envio_items: q.melhor_envio_items.map((i) => ({ listing_id: i.listing_id })),
+              in_person_items: q.in_person_items.map((i) => ({ listing_id: i.listing_id })),
+              in_person_only: q.in_person_only,
+            },
+          ])
+        ),
       } as CheckoutNavigationState,
     });
-  }, [allServicesSelected, selectedAddressId, navigate, selectedServices, inPersonSellers, sellerDeliveryMethods]);
+  }, [allServicesSelected, selectedAddressId, navigate, selectedServices, inPersonSellers, sellerDeliveryMethods, quotesMap]);
 
   // ── Early return while redirecting ──
   if (items.length === 0) return null;

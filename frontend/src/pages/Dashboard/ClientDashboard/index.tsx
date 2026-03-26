@@ -791,6 +791,110 @@ function ReviewsSection({ stats }: { stats: ReviewStats | null }) {
   );
 }
 
+// ─── Payouts Widget ───────────────────────────────────────────────────────────
+
+function PayoutsWidget() {
+  const [payouts, setPayouts] = useState<import("@/services/paymentService").PaymentSplit[]>([]);
+  const [scheduled, setScheduled] = useState<import("@/services/paymentService").ScheduledPayout[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchPayouts() {
+      setLoading(true);
+      const [pRes, sRes] = await Promise.allSettled([
+        paymentService.listPayouts(),
+        paymentService.listScheduledPayouts(),
+      ]);
+      if (cancelled) return;
+      setPayouts(pRes.status === "fulfilled" ? pRes.value : []);
+      setScheduled(sRes.status === "fulfilled" ? sRes.value : []);
+      setLoading(false);
+    }
+    fetchPayouts();
+    return () => { cancelled = true; };
+  }, []);
+
+  function formatBRL(value: string | number | null | undefined): string {
+    if (value == null) return "—";
+    return `R$ ${Number(value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
+  }
+
+  const TRANSFER_STATUS_LABELS: Record<string, string> = {
+    pending: "Pendente",
+    dispatched: "Enviado",
+    failed: "Falhou",
+  };
+
+  const TRANSFER_STATUS_COLORS: Record<string, string> = {
+    pending: "bg-yellow-100 text-yellow-800",
+    dispatched: "bg-green-100 text-green-800",
+    failed: "bg-red-100 text-red-800",
+  };
+
+  if (loading) {
+    return (
+      <div className="bg-white rounded-xl shadow-sm p-5 animate-pulse">
+        <div className="h-4 bg-gray-100 rounded w-32 mb-4" />
+        <div className="space-y-3">
+          <div className="h-12 bg-gray-100 rounded-xl" />
+          <div className="h-12 bg-gray-100 rounded-xl" />
+        </div>
+      </div>
+    );
+  }
+
+  if (payouts.length === 0 && scheduled.length === 0) return null;
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm p-5">
+      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">
+        Repasses
+      </h3>
+      <div className="space-y-4">
+        {scheduled.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-gray-500 mb-2">Agendados</p>
+            <div className="space-y-2">
+              {scheduled.slice(0, 3).map((s) => (
+                <div key={s.id} className="flex items-center justify-between p-3 bg-yellow-50 border border-yellow-100 rounded-lg">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-700">#{s.order_number}</p>
+                    <p className="text-xs text-gray-400">
+                      {s.scheduled_date
+                        ? new Date(s.scheduled_date).toLocaleDateString("pt-BR")
+                        : "Data a confirmar"}
+                    </p>
+                  </div>
+                  <p className="text-sm font-bold text-yellow-700">{formatBRL(s.net_amount)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {payouts.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-gray-500 mb-2">Histórico</p>
+            <div className="space-y-2">
+              {payouts.slice(0, 5).map((p) => (
+                <div key={p.id} className="flex items-center justify-between p-3 bg-gray-50 border border-gray-100 rounded-lg">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-700">#{p.order_number}</p>
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${TRANSFER_STATUS_COLORS[p.transfer_status] ?? "bg-gray-100 text-gray-600"}`}>
+                      {TRANSFER_STATUS_LABELS[p.transfer_status] ?? p.transfer_status}
+                    </span>
+                  </div>
+                  <p className="text-sm font-bold text-gray-800">{formatBRL(p.net_amount)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Balance Widget ───────────────────────────────────────────────────────────
 
 function BalanceWidget() {
@@ -952,6 +1056,9 @@ function OverviewSection({
 
       {/* Balance widget */}
       <BalanceWidget />
+
+      {/* Payouts widget */}
+      <PayoutsWidget />
 
       {/* Quick navigation */}
       <div className="bg-white rounded-xl shadow-sm p-5">

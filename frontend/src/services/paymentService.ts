@@ -187,6 +187,45 @@ export interface PlatformDecideBody {
   reason: string;
 }
 
+// ─── Payment Intent ───────────────────────────────────────────────────────────
+
+export interface CreatePaymentIntentRequest {
+  order_id: string;
+  payment_method: PaymentMethodType;
+  save_payment_method?: boolean;
+}
+
+export interface CreatePaymentIntentResponse {
+  payment_id: number;
+  client_secret: string;
+  amount: number;
+  currency: string;
+  payment_method: string;
+  reused?: boolean;
+}
+
+// ─── Scheduled Payout ─────────────────────────────────────────────────────────
+
+export interface ScheduledPayout {
+  id: number;
+  payment: number;
+  order_number: string;
+  seller: number;
+  seller_email: string;
+  gross_amount: string;
+  product_amount: string;
+  shipping_amount: string;
+  platform_fee_amount: string;
+  net_amount: string;
+  shipping_status: ShippingStatus;
+  stripe_transfer_id: string;
+  transfer_status: TransferStatus;
+  error_message: string;
+  scheduled_date?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 // ─── Service ─────────────────────────────────────────────────────────────────
 
 export const paymentService = {
@@ -207,6 +246,11 @@ export const paymentService = {
     return response.data;
   },
 
+  async createPaymentIntent(data: CreatePaymentIntentRequest) {
+    const response = await api.post<CreatePaymentIntentResponse>("/payments/create-intent/", data);
+    return response.data;
+  },
+
   // ── Balance & Payouts ─────────────────────────────────────────────────────
 
   async getBalance() {
@@ -216,6 +260,11 @@ export const paymentService = {
 
   async listPayouts() {
     const response = await api.get<PaymentSplit[]>("/payments/payouts/");
+    return response.data;
+  },
+
+  async listScheduledPayouts() {
+    const response = await api.get<ScheduledPayout[]>("/payments/payouts/scheduled/");
     return response.data;
   },
 

@@ -16,7 +16,6 @@ import {
   Lock,
   ShieldCheck,
 } from "lucide-react";
-import { useCart } from "@/contexts/CartContext";
 import { paymentService } from "@/services/paymentService";
 import api from "@/api/axios";
 import axios from "axios";
@@ -34,10 +33,18 @@ const stripePromise = loadStripe(STRIPE_PUBLIC_KEY);
 
 type PaymentMethodType = "credit_card" | "debit_card";
 
+interface QuoteSnapshot {
+  melhor_envio_items: { listing_id: number }[];
+  in_person_items: { listing_id: number }[];
+  in_person_only: boolean;
+}
+
 export interface CheckoutNavigationState {
   shippingAddressId: number;
   selectedServices: Record<string, number>;
   inPersonSellers: string[];
+  sellerDeliveryMethods: Record<string, "melhor_envio" | "vendor" | "both">;
+  quotesSnapshot: Record<string, QuoteSnapshot>;
 }
 
 interface ItemDelivery {
@@ -50,7 +57,6 @@ interface OrderCreatePayload {
   shipping_address_id: number;
   payment_method: PaymentMethodType;
   items_delivery: ItemDelivery[];
-  in_person_by_seller: Record<string, unknown>;
 }
 
 interface OrderCreateResponse {
@@ -58,10 +64,12 @@ interface OrderCreateResponse {
 }
 
 interface PaymentIntentResponseData {
-  id: number;
+  payment_id: number;
   client_secret: string;
-  stripe_payment_intent_id: string;
-  status: string;
+  amount: number;
+  currency: string;
+  payment_method: string;
+  reused?: boolean;
 }
 
 interface PaymentIntentState {
@@ -302,7 +310,6 @@ function StripeCardForm({ clientSecret, stripePaymentIntentId, orderId }: Stripe
 export function Payment() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { items } = useCart();
 
   const checkoutState = location.state as CheckoutNavigationState | null;
 
@@ -327,32 +334,51 @@ export function Payment() {
     if (!checkoutState) return;
 
     const controller = new AbortController();
-    const { shippingAddressId, selectedServices, inPersonSellers } = checkoutState;
+    const { shippingAddressId, selectedServices, sellerDeliveryMethods, quotesSnapshot } = checkoutState;
 
-    // Guard: every melhor_envio item must have a service_id selected.
-    // If any is missing, the checkout state is stale — send the user back.
-    const missingService = items.some((item) => {
-      const sid = String(item.listing.seller);
-      return !inPersonSellers.includes(sid) && selectedServices[sid] === undefined;
-    });
-    if (missingService) {
+    // Build items_delivery from quotesSnapshot (per-listing arrays from shipping calc)
+    const itemsDelivery: ItemDelivery[] = [];
+    for (const [sellerId, snapshot] of Object.entries(quotesSnapshot)) {
+      const method = sellerDeliveryMethods?.[sellerId] ?? "melhor_envio";
+      const serviceId = selectedServices[sellerId];
+
+      if (method === "vendor") {
+        for (const item of [...snapshot.in_person_items, ...snapshot.melhor_envio_items]) {
+          itemsDelivery.push({ listing_id: item.listing_id, delivery_method: "in_person" });
+        }
+      } else if (method === "melhor_envio") {
+        for (const item of snapshot.melhor_envio_items) {
+          itemsDelivery.push({
+            listing_id: item.listing_id,
+            delivery_method: "melhor_envio",
+            ...(serviceId != null ? { service_id: serviceId } : {}),
+          });
+        }
+        for (const item of snapshot.in_person_items) {
+          itemsDelivery.push({ listing_id: item.listing_id, delivery_method: "in_person" });
+        }
+      } else {
+        // both
+        for (const item of snapshot.melhor_envio_items) {
+          itemsDelivery.push({
+            listing_id: item.listing_id,
+            delivery_method: "melhor_envio",
+            ...(serviceId != null ? { service_id: serviceId } : {}),
+          });
+        }
+        for (const item of snapshot.in_person_items) {
+          itemsDelivery.push({ listing_id: item.listing_id, delivery_method: "in_person" });
+        }
+      }
+    }
+
+    // Guard: if quotesSnapshot is missing, send user back to checkout
+    if (itemsDelivery.length === 0) {
       navigate("/checkout", {
-        state: { error: "Selecione uma opção de frete para todos os vendedores antes de continuar." },
+        state: { error: "Informações de entrega incompletas. Por favor, recalcule o frete." },
       });
       return;
     }
-
-    const itemsDelivery: ItemDelivery[] = items.map((item) => {
-      const sid = String(item.listing.seller);
-      if (inPersonSellers.includes(sid)) {
-        return { listing_id: item.listing.id, delivery_method: "in_person" as const };
-      }
-      return {
-        listing_id: item.listing.id,
-        delivery_method: "melhor_envio" as const,
-        service_id: selectedServices[sid],
-      };
-    });
 
     async function createOrder() {
       try {
@@ -360,7 +386,6 @@ export function Payment() {
           shipping_address_id: shippingAddressId,
           payment_method: paymentMethod,
           items_delivery: itemsDelivery,
-          in_person_by_seller: {},
         };
 
         const response = await api.post<OrderCreateResponse>("/orders/create/", payload, {
@@ -425,7 +450,7 @@ export function Payment() {
 
       setPaymentIntent({
         clientSecret: response.data.client_secret,
-        stripePaymentIntentId: response.data.stripe_payment_intent_id,
+        stripePaymentIntentId: response.data.client_secret.split("_secret_")[0],
       });
     } catch (err: unknown) {
       setIntentError(getAxiosErrorMessage(err, "Erro ao inicializar pagamento."));
