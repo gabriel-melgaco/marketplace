@@ -70,7 +70,18 @@ export interface OrderShipmentsResponse {
   shipments: SellerShipment[];
 }
 
+export interface SellerMEBalanceResponse {
+  balance: string;
+  currency: string;
+  environment: string;
+}
+
 export const shippingService = {
+  async getMEBalance() {
+    const response = await api.get<SellerMEBalanceResponse>("/logistics/me/balance/");
+    return response.data;
+  },
+
   async calculateShipping(data: CalculateShippingRequest) {
     const response = await api.post<CalculateShippingResponse>("/logistics/shipping/calculate/", data);
     return response.data;

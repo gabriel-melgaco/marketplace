@@ -16,12 +16,18 @@ import {
   AlertCircle,
   RefreshCw,
   DollarSign,
+  Truck,
+  CreditCard,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { productService } from "@/services/productService";
 import { confirmDelete } from "@/utils/confirmDialog";
 import Swal from "sweetalert2";
 import { orderService } from "@/services/orderService";
+import { shippingService } from "@/services/shippingService";
+import { paymentService } from "@/services/paymentService";
+import type { SellerMEBalanceResponse } from "@/services/shippingService";
+import type { SellerBalanceResponse } from "@/services/paymentService";
 import { reviewService } from "@/services/reviewService";
 import { SaleOrderModal } from "@/components/ui/SaleOrderModal";
 import { BuyerOrderModal } from "@/components/ui/BuyerOrderModal";
@@ -785,6 +791,107 @@ function ReviewsSection({ stats }: { stats: ReviewStats | null }) {
   );
 }
 
+// ─── Balance Widget ───────────────────────────────────────────────────────────
+
+function BalanceWidget() {
+  const [meBalance, setMeBalance] = useState<SellerMEBalanceResponse | null>(null);
+  const [stripeBalance, setStripeBalance] = useState<SellerBalanceResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchBalances() {
+      setLoading(true);
+      const [me, stripe] = await Promise.allSettled([
+        shippingService.getMEBalance(),
+        paymentService.getBalance(),
+      ]);
+      if (cancelled) return;
+      setMeBalance(me.status === "fulfilled" ? me.value : null);
+      setStripeBalance(stripe.status === "fulfilled" ? stripe.value : null);
+      setLoading(false);
+    }
+    fetchBalances();
+    return () => { cancelled = true; };
+  }, []);
+
+  function formatBRL(value: number | string | null | undefined): string {
+    if (value == null) return "—";
+    return `R$ ${Number(value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
+  }
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm p-5">
+      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">
+        Saldo das Contas
+      </h3>
+      {loading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 animate-pulse">
+          <div className="h-20 bg-gray-100 rounded-xl" />
+          <div className="h-20 bg-gray-100 rounded-xl" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Melhor Envio */}
+          <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-100 rounded-xl">
+            <div className="p-2 bg-blue-900 rounded-lg shrink-0">
+              <Truck size={16} className="text-white" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                Melhor Envio
+              </p>
+              {meBalance ? (
+                <>
+                  <p className="text-lg font-extrabold text-gray-900 leading-tight mt-0.5">
+                    {formatBRL(meBalance.balance)}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-0.5">Carteira</p>
+                </>
+              ) : (
+                <p className="text-sm text-gray-400 mt-0.5 italic">
+                  Conta não conectada
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Stripe */}
+          <div className="flex items-start gap-3 p-4 bg-purple-50 border border-purple-100 rounded-xl">
+            <div className="p-2 bg-purple-700 rounded-lg shrink-0">
+              <CreditCard size={16} className="text-white" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                Stripe
+              </p>
+              {stripeBalance && !stripeBalance.stripe_balance_error ? (
+                <>
+                  <p className="text-lg font-extrabold text-gray-900 leading-tight mt-0.5">
+                    {formatBRL(stripeBalance.stripe_available)}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Disponível
+                    {stripeBalance.stripe_pending != null && stripeBalance.stripe_pending > 0 && (
+                      <> · {formatBRL(stripeBalance.stripe_pending)} pendente</>
+                    )}
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-gray-400 mt-0.5 italic">
+                  {stripeBalance?.stripe_balance_error
+                    ? "Erro ao carregar"
+                    : "Conta não configurada"}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Overview Section ─────────────────────────────────────────────────────────
 
 function OverviewSection({
@@ -842,6 +949,9 @@ function OverviewSection({
           accent="border-yellow-400"
         />
       </div>
+
+      {/* Balance widget */}
+      <BalanceWidget />
 
       {/* Quick navigation */}
       <div className="bg-white rounded-xl shadow-sm p-5">
