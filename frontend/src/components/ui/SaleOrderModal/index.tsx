@@ -13,6 +13,9 @@ import {
 import Swal from "sweetalert2";
 import api from "@/api/axios";
 import { shippingService } from "@/services/shippingService";
+import { inPersonService } from "@/services/inPersonService";
+import type { InPersonDelivery } from "@/services/inPersonService";
+import { InPersonDeliveryPanel } from "@/components/ui/InPersonDeliveryPanel";
 import { toPublicUrl } from "@/services/storageService";
 import type {
   SellerOrderDetail,
@@ -152,6 +155,7 @@ function ModalSkeleton() {
 export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderModalProps) {
   const [order, setOrder] = useState<SellerOrderDetail | null>(null);
   const [shipments, setShipments] = useState<SellerShipment[]>([]);
+  const [inPersonDeliveries, setInPersonDeliveries] = useState<InPersonDelivery[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [generatingTickets, setGeneratingTickets] = useState(false);
@@ -213,6 +217,20 @@ export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderMo
         ]);
         if (signal.aborted) return;
         setOrder(orderRes.data);
+
+        // Fetch in-person deliveries (non-critical)
+        try {
+          const ipRes = await inPersonService.list({ role: "seller" });
+          if (!signal.aborted) {
+            // Filter by order UUID if the field is present; otherwise show all
+            const filtered = ipRes.deliveries.filter(
+              (d) => !d.order || d.order === orderId,
+            );
+            setInPersonDeliveries(filtered);
+          }
+        } catch {
+          // non-critical — fail silently
+        }
       } catch (err: unknown) {
         if ((err as { name?: string })?.name === "AbortError") return;
         if ((err as { name?: string })?.name === "CanceledError") return;
@@ -711,6 +729,25 @@ export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderMo
                   </div>
                 )}
               </section>
+
+            {/* Section: In-Person Deliveries */}
+            {inPersonDeliveries.length > 0 && (
+              <section>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">
+                  Entrega Presencial
+                </h3>
+                <div className="space-y-4">
+                  {inPersonDeliveries.map((d) => (
+                    <InPersonDeliveryPanel
+                      key={d.id}
+                      deliveryId={d.id}
+                      role="seller"
+                      onUpdated={onOrderUpdated}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
 
             </div>
           )}
