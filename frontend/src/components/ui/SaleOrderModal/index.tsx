@@ -13,7 +13,6 @@ import {
 import Swal from "sweetalert2";
 import api from "@/api/axios";
 import { shippingService } from "@/services/shippingService";
-import { orderService } from "@/services/orderService";
 import { toPublicUrl } from "@/services/storageService";
 import type {
   SellerOrderDetail,
@@ -93,15 +92,6 @@ const PAYMENT_METHOD_LABELS: Record<string, string> = {
   boleto_bancario: "Boleto Bancário",
 };
 
-const SELLER_STATUS_OPTIONS = [
-  { value: "pending_payment", label: "Aguardando Pagamento" },
-  { value: "paid", label: "Pago" },
-  { value: "processing", label: "Em Processamento" },
-  { value: "shipped", label: "Enviado" },
-  { value: "delivered", label: "Entregue" },
-  { value: "cancelled", label: "Cancelado" },
-];
-
 const SWAL_TOAST_CONFIG = {
   toast: true as const,
   position: "top-end" as const,
@@ -169,11 +159,7 @@ export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderMo
   const [markingShipped, setMarkingShipped] = useState<Record<number, boolean>>({});
   const [trackingInputs, setTrackingInputs] = useState<Record<number, string>>({});
   const [showTrackingInput, setShowTrackingInput] = useState<Record<number, boolean>>({});
-  const [updatingStatus, setUpdatingStatus] = useState(false);
-  const [selectedStatus, setSelectedStatus] = useState("");
-
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const isUpdatingStatusRef = useRef(false);
 
   // Move focus into modal on open
   useEffect(() => {
@@ -227,7 +213,6 @@ export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderMo
         ]);
         if (signal.aborted) return;
         setOrder(orderRes.data);
-        setSelectedStatus(orderRes.data.status);
       } catch (err: unknown) {
         if ((err as { name?: string })?.name === "AbortError") return;
         if ((err as { name?: string })?.name === "CanceledError") return;
@@ -320,32 +305,6 @@ export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderMo
       });
     } finally {
       setMarkingShipped((prev) => ({ ...prev, [shipmentId]: false }));
-    }
-  }
-
-  async function handleUpdateStatus() {
-    if (!order || selectedStatus === order.status) return;
-    if (isUpdatingStatusRef.current) return;
-    isUpdatingStatusRef.current = true;
-    setUpdatingStatus(true);
-    try {
-      await orderService.updateOrderStatus(orderId, { status: selectedStatus });
-      setOrder((prev) => (prev ? { ...prev, status: selectedStatus as typeof order.status } : prev));
-      Swal.fire({
-        ...SWAL_TOAST_CONFIG,
-        icon: "success",
-        title: "Status atualizado com sucesso!",
-      });
-      onOrderUpdated?.();
-    } catch (err: unknown) {
-      Swal.fire({
-        ...SWAL_TOAST_CONFIG,
-        icon: "error",
-        title: getAxiosErrorMessage(err, "Erro ao atualizar status."),
-      });
-    } finally {
-      isUpdatingStatusRef.current = false;
-      setUpdatingStatus(false);
     }
   }
 
@@ -753,33 +712,6 @@ export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderMo
                 )}
               </section>
 
-              {/* Section: Update Status */}
-              <section>
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">
-                  Atualizar Status
-                </h3>
-                <div className="space-y-3">
-                  <select
-                    value={selectedStatus}
-                    onChange={(e) => setSelectedStatus(e.target.value)}
-                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/30 focus:border-blue-900 bg-white"
-                  >
-                    {SELLER_STATUS_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={handleUpdateStatus}
-                    disabled={selectedStatus === order.status || updatingStatus}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-900 text-white rounded-xl text-sm font-semibold hover:bg-blue-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {updatingStatus && <Loader2 size={16} className="animate-spin" />}
-                    {updatingStatus ? "Atualizando…" : "Atualizar Status"}
-                  </button>
-                </div>
-              </section>
             </div>
           )}
         </div>

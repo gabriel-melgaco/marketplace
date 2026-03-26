@@ -4,6 +4,7 @@ import { Package } from "lucide-react";
 import { productService } from "@/services/productService";
 import { catalogService } from "@/services/catalogService";
 import { Footer } from "@/components/layout/Footer";
+import { FilterButton } from "@/components/ui/FilterButton";
 import { ProductCard } from "@/components/ui/ProductCard";
 import { ProductGridSkeleton } from "@/components/skeletons/ProductCardSkeleton";
 import type { MarketplaceListing } from "@/types/product";
@@ -67,8 +68,13 @@ export function CategoryProductList() {
 
   return (
     <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900">
-      {/* Titulo */}
+      {/* Filtro */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-6">
+        <FilterButton selectedCategory={categorySlug ?? undefined} />
+      </div>
+
+      {/* Titulo */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-4">
         <h1 className="text-white text-xl font-bold">{title}</h1>
         {!loading && !error && (
           <p className="text-white/60 text-sm mt-1">

@@ -30,9 +30,15 @@ export interface OrderList {
   created_at: string;
 }
 
+export interface ItemDelivery {
+  listing_id: number;
+  delivery_method: 'melhor_envio' | 'in_person';
+  service_id?: number;
+}
+
 export interface OrderCreateRequest {
   shipping_address_id: number;
-  shipping_services: Record<string, any>;
+  items_delivery: ItemDelivery[];
   payment_method: string;
   buyer_notes?: string;
 }

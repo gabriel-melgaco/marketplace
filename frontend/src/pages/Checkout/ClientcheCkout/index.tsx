@@ -12,6 +12,7 @@ import {
   AlertCircle,
   CheckCircle2,
   ShoppingBag,
+  MessageSquare,
 } from "lucide-react";
 import { useCart, type CartItem } from "@/contexts/CartContext";
 import { addressService, type Address, type AddressCreateRequest } from "@/services/addressService";
@@ -24,6 +25,14 @@ import axios from "axios";
 import Swal from "sweetalert2";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+export type SellerDeliveryMethod = 'melhor_envio' | 'vendor' | 'both';
+
+interface ItemRef {
+  listing_id: number;
+  title: string;
+  shipping_method: string;
+}
 
 interface ShippingOption {
   service_id: number;
@@ -38,6 +47,8 @@ interface SellerQuote {
   seller_name: string;
   in_person_only: boolean;
   has_in_person: boolean;
+  in_person_items: ItemRef[];
+  melhor_envio_items: ItemRef[];
   quotes: ShippingOption[];
 }
 
@@ -50,8 +61,8 @@ interface SellerQuote {
 interface RawSellerQuote {
   seller_name?: string;
   in_person_only?: boolean;
-  in_person_items?: unknown[];
-  melhor_envio_items?: unknown[];
+  in_person_items?: { listing_id?: number; title?: string; shipping_method?: string }[];
+  melhor_envio_items?: { listing_id?: number; title?: string; shipping_method?: string }[];
   services?: RawShippingOption[];
   quotes?: RawShippingOption[];
   options?: RawShippingOption[];
@@ -71,10 +82,18 @@ interface RawShippingOption {
   delivery_days?: number;
 }
 
+export interface QuoteSnapshot {
+  melhor_envio_items: { listing_id: number }[];
+  in_person_items: { listing_id: number }[];
+  in_person_only: boolean;
+}
+
 export interface CheckoutNavigationState {
   shippingAddressId: number;
   selectedServices: Record<string, number>;
   inPersonSellers: string[];
+  sellerDeliveryMethods: Record<string, SellerDeliveryMethod>;
+  quotesSnapshot: Record<string, QuoteSnapshot>;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -301,6 +320,7 @@ export function Checkout() {
   const [shippingError, setShippingError] = useState("");
   const [selectedServices, setSelectedServices] = useState<Record<string, number>>({});
   const [inPersonSellers, setInPersonSellers] = useState<string[]>([]);
+  const [sellerDeliveryMethods, setSellerDeliveryMethods] = useState<Record<string, SellerDeliveryMethod>>({});
   const [syncingCart, setSyncingCart] = useState(false);
 
   // ── Load addresses ──
@@ -350,6 +370,7 @@ export function Checkout() {
     async function syncAndCalculate() {
       try {
         // ── Step 1: sync backend cart (must complete before shipping call) ──
+        setSellerDeliveryMethods({});
         setSyncingCart(true);
         setShippingLoading(true);
         setShippingError("");
@@ -393,13 +414,38 @@ export function Checkout() {
           const rawOptions = rawData.services ?? rawData.quotes ?? rawData.options ?? [];
           const quotes = rawOptions.map(parseRawShippingOption);
 
+          const inPersonItems: ItemRef[] = (rawData.in_person_items ?? []).map((item) => ({
+            listing_id: item.listing_id ?? 0,
+            title: item.title ?? "",
+            shipping_method: item.shipping_method ?? "",
+          }));
+
+          const melhorEnvioItems: ItemRef[] = (rawData.melhor_envio_items ?? []).map((item) => ({
+            listing_id: item.listing_id ?? 0,
+            title: item.title ?? "",
+            shipping_method: item.shipping_method ?? "",
+          }));
+
           newQuotes[sellerId] = {
             seller_name: rawData.seller_name ?? groups.get(sellerId)?.seller_name ?? sellerId,
             in_person_only: inPersonOnly,
-            has_in_person: (rawData.in_person_items ?? []).length > 0,
+            has_in_person: inPersonItems.length > 0,
+            in_person_items: inPersonItems,
+            melhor_envio_items: melhorEnvioItems,
             quotes,
           };
         }
+
+        const autoMethods: Record<string, SellerDeliveryMethod> = {};
+        for (const [sellerId, quote] of Object.entries(newQuotes)) {
+          if (quote.in_person_only) {
+            autoMethods[sellerId] = 'vendor';
+          } else if (!quote.has_in_person) {
+            autoMethods[sellerId] = 'melhor_envio';
+          }
+          // mixed sellers: no auto-selection, user must choose
+        }
+        setSellerDeliveryMethods(autoMethods);
 
         setQuotesMap(newQuotes);
         setInPersonSellers(newInPerson);
@@ -492,6 +538,18 @@ export function Checkout() {
     }
   }, [savingAddress, newAddress]);
 
+  // ── Delivery method selection ──
+  const handleSelectDeliveryMethod = useCallback((sellerId: string, method: SellerDeliveryMethod) => {
+    setSellerDeliveryMethods(prev => ({ ...prev, [sellerId]: method }));
+    if (method === 'vendor') {
+      setSelectedServices(prev => {
+        const next = { ...prev };
+        delete next[sellerId];
+        return next;
+      });
+    }
+  }, []);
+
   // ── Totals ──
   const productSubtotal = useMemo(
     () => items.reduce((sum, item) => sum + Number(item.listing.price) * item.quantity, 0),
@@ -510,11 +568,15 @@ export function Checkout() {
     if (!selectedAddressId || shippingLoading) return false;
     return Array.from(sellerGroups.keys()).every((sid) => {
       const quote = quotesMap[sid];
-      // In-person only or no quotes → no selection needed
-      if (!quote || quote.in_person_only || quote.quotes.length === 0) return true;
+      if (!quote) return false;
+      if (quote.in_person_only) return true;
+      const method = sellerDeliveryMethods[sid];
+      if (!method) return false;
+      if (method === 'vendor') return true;
+      if (quote.quotes.length === 0) return true;
       return selectedServices[sid] !== undefined;
     });
-  }, [selectedAddressId, shippingLoading, sellerGroups, quotesMap, selectedServices]);
+  }, [selectedAddressId, shippingLoading, sellerGroups, quotesMap, sellerDeliveryMethods, selectedServices]);
 
   const handleProceedToPayment = useCallback(() => {
     if (!allServicesSelected || !selectedAddressId) return;
@@ -522,10 +584,23 @@ export function Checkout() {
       state: {
         shippingAddressId: selectedAddressId,
         selectedServices,
-        inPersonSellers,
+        inPersonSellers: Object.entries(sellerDeliveryMethods)
+          .filter(([, m]) => m === 'vendor' || m === 'both')
+          .map(([id]) => id),
+        sellerDeliveryMethods,
+        quotesSnapshot: Object.fromEntries(
+          Object.entries(quotesMap).map(([id, q]) => [
+            id,
+            {
+              melhor_envio_items: q.melhor_envio_items.map((i) => ({ listing_id: i.listing_id })),
+              in_person_items: q.in_person_items.map((i) => ({ listing_id: i.listing_id })),
+              in_person_only: q.in_person_only,
+            },
+          ])
+        ),
       } as CheckoutNavigationState,
     });
-  }, [allServicesSelected, selectedAddressId, navigate, selectedServices, inPersonSellers]);
+  }, [allServicesSelected, selectedAddressId, navigate, selectedServices, inPersonSellers, sellerDeliveryMethods, quotesMap]);
 
   // ── Early return while redirecting ──
   if (items.length === 0) return null;
@@ -1052,112 +1127,201 @@ export function Checkout() {
                             </p>
 
                             {!sellerQuote ? (
-                              <p className="text-sm text-gray-400 italic pl-1">
-                                Aguardando cotações...
-                              </p>
+                              <p className="text-sm text-gray-400 italic pl-1">Aguardando cotações...</p>
                             ) : sellerQuote.in_person_only ? (
+                              // Case 1: vendor-only delivery
                               <AlertBanner variant="warning">
-                                Este vendedor realiza entrega presencial. Entre em contato após a compra.
+                                Este vendedor realiza entrega pessoal. Entre em contato com o vendedor após a compra para combinar a entrega.
                               </AlertBanner>
-                            ) : (
-                              <>
+                            ) : !sellerQuote.has_in_person ? (
+                              // Case 2: ME-only — show quotes directly
+                              <div role="radiogroup" aria-label={`Frete para ${sellerName}`} className="space-y-2">
                                 {sellerQuote.quotes.length === 0 ? (
-                                  <p className="text-sm text-gray-500 italic pl-1">
-                                    Nenhuma opção de frete disponível para este vendedor.
-                                  </p>
+                                  <p className="text-sm text-gray-500 italic pl-1">Nenhuma opção de frete disponível.</p>
                                 ) : (
-                                  <div
-                                    className="space-y-2"
-                                    role="radiogroup"
-                                    aria-label={`Frete para ${sellerName}`}
-                                  >
-                                    {sellerQuote.quotes.map((option) => {
-                                      const isSelected =
-                                        selectedServices[sellerId] === option.service_id;
-                                      return (
-                                        <div
-                                          key={option.service_id}
-                                          role="radio"
-                                          aria-checked={isSelected}
-                                          tabIndex={0}
-                                          onClick={() =>
+                                  sellerQuote.quotes.map((option) => {
+                                    const isSelected = selectedServices[sellerId] === option.service_id;
+                                    return (
+                                      <div
+                                        key={option.service_id}
+                                        role="radio"
+                                        aria-checked={isSelected}
+                                        tabIndex={0}
+                                        onClick={() =>
+                                          setSelectedServices((prev) => ({
+                                            ...prev,
+                                            [sellerId]: option.service_id,
+                                          }))
+                                        }
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter" || e.key === " ") {
+                                            e.preventDefault();
                                             setSelectedServices((prev) => ({
                                               ...prev,
                                               [sellerId]: option.service_id,
-                                            }))
+                                            }));
                                           }
-                                          onKeyDown={(e) => {
-                                            if (e.key === "Enter" || e.key === " ") {
-                                              e.preventDefault();
+                                        }}
+                                        className={`flex items-center gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-colors min-h-[56px] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-800/50 ${
+                                          isSelected
+                                            ? "border-blue-800 bg-blue-50"
+                                            : "border-gray-200 hover:border-blue-300 hover:bg-gray-50"
+                                        }`}
+                                      >
+                                        <div
+                                          aria-hidden="true"
+                                          className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
+                                            isSelected ? "border-blue-800" : "border-gray-300"
+                                          }`}
+                                        >
+                                          {isSelected && <div className="w-2 h-2 rounded-full bg-blue-800" />}
+                                        </div>
+                                        {option.company_picture && (
+                                          <img
+                                            src={option.company_picture}
+                                            alt={option.company}
+                                            className="h-6 w-auto object-contain shrink-0"
+                                          />
+                                        )}
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-sm font-semibold text-gray-800 leading-tight">{option.name}</p>
+                                          <p className="text-xs text-gray-500 mt-0.5">
+                                            {option.company} &middot;{" "}
+                                            {option.delivery_time}{" "}
+                                            {option.delivery_time === 1 ? "dia útil" : "dias úteis"}
+                                          </p>
+                                        </div>
+                                        <span
+                                          className={`text-sm font-bold shrink-0 ${
+                                            isSelected ? "text-blue-800" : "text-gray-700"
+                                          }`}
+                                        >
+                                          {formatCurrency(option.price)}
+                                        </span>
+                                      </div>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            ) : (
+                              // Case 3: mixed seller — delivery method selector + conditional content
+                              <>
+                                {/* Delivery method buttons */}
+                                <div
+                                  className="flex flex-wrap gap-2 mb-4"
+                                  role="radiogroup"
+                                  aria-label={`Método de entrega para ${sellerName}`}
+                                >
+                                  {(
+                                    [
+                                      { value: 'melhor_envio' as SellerDeliveryMethod, label: 'Melhor Envio', icon: <Truck size={14} /> },
+                                      { value: 'vendor' as SellerDeliveryMethod, label: 'Entrega pelo Vendedor', icon: <MessageSquare size={14} /> },
+                                      { value: 'both' as SellerDeliveryMethod, label: 'Ambos', icon: <Package size={14} /> },
+                                    ] as { value: SellerDeliveryMethod; label: string; icon: React.ReactNode }[]
+                                  ).map(({ value, label, icon }) => {
+                                    const sel = sellerDeliveryMethods[sellerId] === value;
+                                    return (
+                                      <button
+                                        key={value}
+                                        type="button"
+                                        role="radio"
+                                        aria-checked={sel}
+                                        onClick={() => handleSelectDeliveryMethod(sellerId, value)}
+                                        className={`flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border-2 font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-800/50 ${
+                                          sel
+                                            ? 'border-blue-800 bg-blue-50 text-blue-800'
+                                            : 'border-gray-200 text-gray-600 hover:border-blue-300 hover:bg-gray-50'
+                                        }`}
+                                      >
+                                        {icon}
+                                        {label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+
+                                {/* ME quotes when melhor_envio or both selected */}
+                                {(sellerDeliveryMethods[sellerId] === 'melhor_envio' || sellerDeliveryMethods[sellerId] === 'both') && (
+                                  sellerQuote.quotes.length === 0 ? (
+                                    <p className="text-sm text-gray-500 italic pl-1">Nenhuma opção de frete disponível.</p>
+                                  ) : (
+                                    <div role="radiogroup" aria-label={`Serviços Melhor Envio para ${sellerName}`} className="space-y-2 mb-3">
+                                      {sellerQuote.quotes.map((option) => {
+                                        const isSelected = selectedServices[sellerId] === option.service_id;
+                                        return (
+                                          <div
+                                            key={option.service_id}
+                                            role="radio"
+                                            aria-checked={isSelected}
+                                            tabIndex={0}
+                                            onClick={() =>
                                               setSelectedServices((prev) => ({
                                                 ...prev,
                                                 [sellerId]: option.service_id,
-                                              }));
+                                              }))
                                             }
-                                          }}
-                                          className={`flex items-center gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-colors min-h-[56px] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-800/50 ${
-                                            isSelected
-                                              ? "border-blue-800 bg-blue-50"
-                                              : "border-gray-200 hover:border-blue-300 hover:bg-gray-50"
-                                          }`}
-                                        >
-                                          {/* Radio dot */}
-                                          <div
-                                            aria-hidden="true"
-                                            className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
-                                              isSelected ? "border-blue-800" : "border-gray-300"
+                                            onKeyDown={(e) => {
+                                              if (e.key === "Enter" || e.key === " ") {
+                                                e.preventDefault();
+                                                setSelectedServices((prev) => ({
+                                                  ...prev,
+                                                  [sellerId]: option.service_id,
+                                                }));
+                                              }
+                                            }}
+                                            className={`flex items-center gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-colors min-h-[56px] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-800/50 ${
+                                              isSelected
+                                                ? "border-blue-800 bg-blue-50"
+                                                : "border-gray-200 hover:border-blue-300 hover:bg-gray-50"
                                             }`}
                                           >
-                                            {isSelected && (
-                                              <div className="w-2 h-2 rounded-full bg-blue-800" />
+                                            <div
+                                              aria-hidden="true"
+                                              className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
+                                                isSelected ? "border-blue-800" : "border-gray-300"
+                                              }`}
+                                            >
+                                              {isSelected && <div className="w-2 h-2 rounded-full bg-blue-800" />}
+                                            </div>
+                                            {option.company_picture && (
+                                              <img
+                                                src={option.company_picture}
+                                                alt={option.company}
+                                                className="h-6 w-auto object-contain shrink-0"
+                                              />
                                             )}
+                                            <div className="flex-1 min-w-0">
+                                              <p className="text-sm font-semibold text-gray-800 leading-tight">{option.name}</p>
+                                              <p className="text-xs text-gray-500 mt-0.5">
+                                                {option.company} &middot;{" "}
+                                                {option.delivery_time}{" "}
+                                                {option.delivery_time === 1 ? "dia útil" : "dias úteis"}
+                                              </p>
+                                            </div>
+                                            <span
+                                              className={`text-sm font-bold shrink-0 ${
+                                                isSelected ? "text-blue-800" : "text-gray-700"
+                                              }`}
+                                            >
+                                              {formatCurrency(option.price)}
+                                            </span>
                                           </div>
-
-                                          {/* Carrier logo */}
-                                          {option.company_picture && (
-                                            <img
-                                              src={option.company_picture}
-                                              alt={option.company}
-                                              className="h-6 w-auto object-contain shrink-0"
-                                            />
-                                          )}
-
-                                          {/* Service name and delivery time */}
-                                          <div className="flex-1 min-w-0">
-                                            <p className="text-sm font-semibold text-gray-800 leading-tight">
-                                              {option.name}
-                                            </p>
-                                            <p className="text-xs text-gray-500 mt-0.5">
-                                              {option.company} &middot;{" "}
-                                              {option.delivery_time}{" "}
-                                              {option.delivery_time === 1
-                                                ? "dia útil"
-                                                : "dias úteis"}
-                                            </p>
-                                          </div>
-
-                                          {/* Price — inherits selected color */}
-                                          <span
-                                            className={`text-sm font-bold shrink-0 ${
-                                              isSelected ? "text-blue-800" : "text-gray-700"
-                                            }`}
-                                          >
-                                            {formatCurrency(option.price)}
-                                          </span>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )
                                 )}
 
-                                {/* In-person sub-notice */}
-                                {sellerQuote.has_in_person && (
-                                  <div className="mt-3">
-                                    <AlertBanner variant="warning">
-                                      Alguns itens deste vendedor são entregues presencialmente. Entre
-                                      em contato após a compra.
-                                    </AlertBanner>
-                                  </div>
+                                {/* Contact note when vendor or both selected */}
+                                {(sellerDeliveryMethods[sellerId] === 'vendor' || sellerDeliveryMethods[sellerId] === 'both') && (
+                                  <AlertBanner variant="warning">
+                                    Entre em contato com o vendedor para combinar a entrega dos itens a cargo dele.
+                                  </AlertBanner>
+                                )}
+
+                                {/* No method selected yet */}
+                                {!sellerDeliveryMethods[sellerId] && (
+                                  <p className="text-sm text-gray-400 italic pl-1">Selecione o método de entrega acima.</p>
                                 )}
                               </>
                             )}

@@ -16,12 +16,18 @@ import {
   AlertCircle,
   RefreshCw,
   DollarSign,
+  Truck,
+  CreditCard,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { productService } from "@/services/productService";
 import { confirmDelete } from "@/utils/confirmDialog";
 import Swal from "sweetalert2";
 import { orderService } from "@/services/orderService";
+import { shippingService } from "@/services/shippingService";
+import { paymentService } from "@/services/paymentService";
+import type { SellerMEBalanceResponse } from "@/services/shippingService";
+import type { SellerBalanceResponse } from "@/services/paymentService";
 import { reviewService } from "@/services/reviewService";
 import { SaleOrderModal } from "@/components/ui/SaleOrderModal";
 import { BuyerOrderModal } from "@/components/ui/BuyerOrderModal";
@@ -785,6 +791,225 @@ function ReviewsSection({ stats }: { stats: ReviewStats | null }) {
   );
 }
 
+// ─── Payouts Widget ───────────────────────────────────────────────────────────
+
+function PayoutsWidget() {
+  const [payouts, setPayouts] = useState<import("@/services/paymentService").PaymentSplit[]>([]);
+  const [scheduled, setScheduled] = useState<import("@/services/paymentService").ScheduledPayout[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchPayouts() {
+      setLoading(true);
+      const [pRes, sRes] = await Promise.allSettled([
+        paymentService.listPayouts(),
+        paymentService.listScheduledPayouts(),
+      ]);
+      if (cancelled) return;
+      setPayouts(pRes.status === "fulfilled" ? pRes.value : []);
+      setScheduled(sRes.status === "fulfilled" ? sRes.value : []);
+      setLoading(false);
+    }
+    fetchPayouts();
+    return () => { cancelled = true; };
+  }, []);
+
+  function formatBRL(value: string | number | null | undefined): string {
+    if (value == null) return "—";
+    return `R$ ${Number(value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
+  }
+
+  const TRANSFER_STATUS_LABELS: Record<string, string> = {
+    pending: "Pendente",
+    dispatched: "Enviado",
+    failed: "Falhou",
+  };
+
+  const TRANSFER_STATUS_COLORS: Record<string, string> = {
+    pending: "bg-yellow-100 text-yellow-800",
+    dispatched: "bg-green-100 text-green-800",
+    failed: "bg-red-100 text-red-800",
+  };
+
+  if (loading) {
+    return (
+      <div className="bg-white rounded-xl shadow-sm p-5 animate-pulse">
+        <div className="h-4 bg-gray-100 rounded w-32 mb-4" />
+        <div className="space-y-3">
+          <div className="h-12 bg-gray-100 rounded-xl" />
+          <div className="h-12 bg-gray-100 rounded-xl" />
+        </div>
+      </div>
+    );
+  }
+
+  if (payouts.length === 0 && scheduled.length === 0) return null;
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm p-5">
+      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">
+        Repasses
+      </h3>
+      <div className="space-y-4">
+        {scheduled.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-gray-500 mb-2">Agendados</p>
+            <div className="space-y-2">
+              {scheduled.slice(0, 3).map((s) => (
+                <div key={s.id} className="flex items-center justify-between p-3 bg-yellow-50 border border-yellow-100 rounded-lg">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-700">#{s.order_number}</p>
+                    <p className="text-xs text-gray-400">
+                      {s.scheduled_date
+                        ? new Date(s.scheduled_date).toLocaleDateString("pt-BR")
+                        : "Data a confirmar"}
+                    </p>
+                  </div>
+                  <p className="text-sm font-bold text-yellow-700">{formatBRL(s.net_amount)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {payouts.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-gray-500 mb-2">Histórico</p>
+            <div className="space-y-2">
+              {payouts.slice(0, 5).map((p) => (
+                <div key={p.id} className="flex items-center justify-between p-3 bg-gray-50 border border-gray-100 rounded-lg">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-700">#{p.order_number}</p>
+                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${TRANSFER_STATUS_COLORS[p.transfer_status] ?? "bg-gray-100 text-gray-600"}`}>
+                      {TRANSFER_STATUS_LABELS[p.transfer_status] ?? p.transfer_status}
+                    </span>
+                  </div>
+                  <p className="text-sm font-bold text-gray-800">{formatBRL(p.net_amount)}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Balance Widget ───────────────────────────────────────────────────────────
+
+function BalanceWidget() {
+  const [meBalance, setMeBalance] = useState<SellerMEBalanceResponse | null>(null);
+  const [stripeBalance, setStripeBalance] = useState<SellerBalanceResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchBalances() {
+      setLoading(true);
+      const [me, stripe] = await Promise.allSettled([
+        shippingService.getMEBalance(),
+        paymentService.getBalance(),
+      ]);
+      if (cancelled) return;
+      setMeBalance(me.status === "fulfilled" ? me.value : null);
+      setStripeBalance(stripe.status === "fulfilled" ? stripe.value : null);
+      setLoading(false);
+    }
+    fetchBalances();
+    return () => { cancelled = true; };
+  }, []);
+
+  function formatBRL(value: number | string | null | undefined): string {
+    if (value == null) return "—";
+    return `R$ ${Number(value).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
+  }
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm p-5">
+      <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4">
+        Saldo das Contas
+      </h3>
+      {loading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 animate-pulse">
+          <div className="h-20 bg-gray-100 rounded-xl" />
+          <div className="h-20 bg-gray-100 rounded-xl" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* Melhor Envio */}
+          <div className={`flex items-start gap-3 p-4 border rounded-xl ${
+            meBalance && Number(meBalance.balance) === 0
+              ? "bg-yellow-50 border-yellow-200"
+              : "bg-blue-50 border-blue-100"
+          }`}>
+            <div className={`p-2 rounded-lg shrink-0 ${
+              meBalance && Number(meBalance.balance) === 0 ? "bg-yellow-500" : "bg-blue-900"
+            }`}>
+              <Truck size={16} className="text-white" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                Melhor Envio
+              </p>
+              {meBalance ? (
+                <>
+                  <p className={`text-lg font-extrabold leading-tight mt-0.5 ${
+                    Number(meBalance.balance) === 0 ? "text-yellow-700" : "text-gray-900"
+                  }`}>
+                    {formatBRL(meBalance.balance)}
+                  </p>
+                  {Number(meBalance.balance) === 0 ? (
+                    <p className="text-xs text-yellow-700 mt-1 leading-snug">
+                      Saldo insuficiente para envios. Adicione créditos no Melhor Envio para realizar vendas na plataforma.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-gray-400 mt-0.5">Carteira</p>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-gray-400 mt-0.5 italic">
+                  Conta não conectada
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Stripe */}
+          <div className="flex items-start gap-3 p-4 bg-purple-50 border border-purple-100 rounded-xl">
+            <div className="p-2 bg-purple-700 rounded-lg shrink-0">
+              <CreditCard size={16} className="text-white" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                Stripe
+              </p>
+              {stripeBalance && !stripeBalance.stripe_balance_error ? (
+                <>
+                  <p className="text-lg font-extrabold text-gray-900 leading-tight mt-0.5">
+                    {formatBRL(stripeBalance.stripe_available)}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Disponível
+                    {stripeBalance.stripe_pending != null && stripeBalance.stripe_pending > 0 && (
+                      <> · {formatBRL(stripeBalance.stripe_pending)} pendente</>
+                    )}
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-gray-400 mt-0.5 italic">
+                  {stripeBalance?.stripe_balance_error
+                    ? "Erro ao carregar"
+                    : "Conta não configurada"}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Overview Section ─────────────────────────────────────────────────────────
 
 function OverviewSection({
@@ -842,6 +1067,12 @@ function OverviewSection({
           accent="border-yellow-400"
         />
       </div>
+
+      {/* Balance widget */}
+      <BalanceWidget />
+
+      {/* Payouts widget */}
+      <PayoutsWidget />
 
       {/* Quick navigation */}
       <div className="bg-white rounded-xl shadow-sm p-5">
