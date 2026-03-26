@@ -3,7 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { Package } from "lucide-react";
 import { productService } from "@/services/productService";
 import { Footer } from "@/components/layout/Footer";
-import { StateButton } from "@/components/ui/StateButton";
+import { FilterButton } from "@/components/ui/FilterButton";
 import { ProductCard } from "@/components/ui/ProductCard";
 import { ProductGridSkeleton } from "@/components/skeletons/ProductCardSkeleton";
 import { STATE_NAMES } from "@/constants/brazilianStates";
@@ -61,7 +61,7 @@ export function StateProductList() {
     return (
       <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-6">
-          <StateButton />
+          <FilterButton />
         </div>
         <div className="text-center py-20">
           <Package size={48} className="mx-auto mb-4 text-white/60" />
@@ -84,7 +84,7 @@ export function StateProductList() {
     <div className="min-h-screen bg-blue-900">
       {/* Botão Estado */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-6">
-        <StateButton selectedState={stateUF} />
+        <FilterButton selectedState={stateUF} />
       </div>
 
       {/* Título */}

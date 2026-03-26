@@ -1,43 +1,17 @@
-import { useState, useEffect } from "react";
 import type { HTMLAttributes } from "react";
-import { Link, useLocation } from "react-router-dom";
-import { productService } from "@/services/productService";
+import { Link } from "react-router-dom";
 import Logo from "@/assets/logo1.png";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { CartDrawer } from "@/components/layout/CartDrawer";
 import { useAuth } from "@/contexts/AuthContext";
-import type { CategorySimple } from "@/types/product";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { useChatContext } from "@/contexts/ChatContext";
 
 interface HeaderProps extends HTMLAttributes<HTMLDivElement> {}
 
 function Header(props: HeaderProps) {
-  const [categories, setCategories] = useState<CategorySimple[]>([]);
   const { isAuthenticated } = useAuth();
   const { totalUnread } = useChatContext();
-  const location = useLocation();
-
-  useEffect(() => {
-    async function fetchCategories() {
-      try {
-        const data = await productService.getListings({ page_size: 100 });
-        const seen = new Set<string>();
-        const unique: CategorySimple[] = [];
-        for (const listing of data.results) {
-          const cat = listing.category;
-          if (cat && !seen.has(cat.slug)) {
-            seen.add(cat.slug);
-            unique.push(cat);
-          }
-        }
-        setCategories(unique);
-      } catch (error) {
-        console.error("Erro ao buscar categorias:", error);
-      }
-    }
-    fetchCategories();
-  }, []);
 
   return (
     <header className="flex-shrink-0 sticky top-0 left-0 w-full z-50 bg-header shadow-lg">
@@ -110,32 +84,6 @@ function Header(props: HeaderProps) {
         )}
       </nav>
 
-      {categories.length > 0 && (
-        <div className="border-t border-white">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2">
-            <div className="flex md:justify-center gap-2 overflow-x-auto no-scrollbar">
-              {categories.map((category) => {
-                const isActive =
-                  location.pathname === "/products" &&
-                  location.search.includes(`category=${category.slug}`);
-                return (
-                  <Link
-                    to={`/products?category=${category.slug}`}
-                    key={category.id}
-                    className={`px-3 py-1.5 text-s rounded whitespace-nowrap transition-colors ${
-                      isActive
-                        ? "bg-white text-header font-semibold"
-                        : "bg-blue-900 text-white hover:bg-white/20"
-                    }`}
-                  >
-                    {category.name}
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
     </header>
   );
 }

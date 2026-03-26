@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Package } from "lucide-react";
 import { productService } from "@/services/productService";
 import { Footer } from "@/components/layout/Footer";
-import { StateButton } from "@/components/ui/StateButton";
+import { FilterButton } from "@/components/ui/FilterButton";
 import { ProductCard } from "@/components/ui/ProductCard";
 import { ProductGridSkeleton } from "@/components/skeletons/ProductCardSkeleton";
 import type { MarketplaceListing } from "@/types/product";
@@ -46,7 +46,7 @@ export default function Home() {
     <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900">
       {/* Botão Estado */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-6">
-        <StateButton />
+        <FilterButton />
       </div>
 
       {/* Produtos */}
