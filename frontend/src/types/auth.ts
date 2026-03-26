@@ -51,6 +51,7 @@ export interface User {
   /** Empty string ("") means no picture — use truthiness check before rendering. */
   picture: string;
   is_active: boolean;
+  is_seller?: boolean;
 }
 
 export interface LoginResponse {

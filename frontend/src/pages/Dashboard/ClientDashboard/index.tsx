@@ -937,8 +937,14 @@ function BalanceWidget() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {/* Melhor Envio */}
-          <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-100 rounded-xl">
-            <div className="p-2 bg-blue-900 rounded-lg shrink-0">
+          <div className={`flex items-start gap-3 p-4 border rounded-xl ${
+            meBalance && Number(meBalance.balance) === 0
+              ? "bg-yellow-50 border-yellow-200"
+              : "bg-blue-50 border-blue-100"
+          }`}>
+            <div className={`p-2 rounded-lg shrink-0 ${
+              meBalance && Number(meBalance.balance) === 0 ? "bg-yellow-500" : "bg-blue-900"
+            }`}>
               <Truck size={16} className="text-white" />
             </div>
             <div className="min-w-0">
@@ -947,10 +953,18 @@ function BalanceWidget() {
               </p>
               {meBalance ? (
                 <>
-                  <p className="text-lg font-extrabold text-gray-900 leading-tight mt-0.5">
+                  <p className={`text-lg font-extrabold leading-tight mt-0.5 ${
+                    Number(meBalance.balance) === 0 ? "text-yellow-700" : "text-gray-900"
+                  }`}>
                     {formatBRL(meBalance.balance)}
                   </p>
-                  <p className="text-xs text-gray-400 mt-0.5">Carteira</p>
+                  {Number(meBalance.balance) === 0 ? (
+                    <p className="text-xs text-yellow-700 mt-1 leading-snug">
+                      Saldo insuficiente para envios. Adicione créditos no Melhor Envio para realizar vendas na plataforma.
+                    </p>
+                  ) : (
+                    <p className="text-xs text-gray-400 mt-0.5">Carteira</p>
+                  )}
                 </>
               ) : (
                 <p className="text-sm text-gray-400 mt-0.5 italic">

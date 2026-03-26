@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   User as UserIcon,
   MapPin,
@@ -521,8 +521,14 @@ function AddressModal({ onClose, onSaved }: AddressModalProps) {
 export function AccountPage() {
   const { user, setUser, logout } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
-  const [activeSection, setActiveSection] = useState<Section>("personal");
+  const initialSection = (searchParams.get("section") as Section | null);
+  const [activeSection, setActiveSection] = useState<Section>(
+    initialSection && ["personal", "addresses", "security", "notifications", "connections"].includes(initialSection)
+      ? initialSection
+      : "personal"
+  );
 
   // Personal data
   const [fullName, setFullName] = useState(user?.full_name ?? "");
