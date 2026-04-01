@@ -28,7 +28,7 @@ const NOTIFICATION_META: Record<NotificationType, NotificationMeta> = {
     icon: "CheckCircleIcon",
     colorClass: "text-green-600",
     bgClass: "bg-green-50",
-    route: () => "/payment/success",
+    route: () => "/mypurchase",
   },
   payment_failed: {
     label: "Falha no Pagamento",

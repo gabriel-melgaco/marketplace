@@ -251,6 +251,14 @@ export const paymentService = {
     return response.data;
   },
 
+  async createIntentsBatch(orderIds: string[], paymentMethod: PaymentMethodType) {
+    const response = await api.post<CreatePaymentIntentResponse[]>(
+      '/payments/create-intents-batch/',
+      { order_ids: orderIds, payment_method: paymentMethod },
+    );
+    return response.data;
+  },
+
   // ── Balance & Payouts ─────────────────────────────────────────────────────
 
   async getBalance() {

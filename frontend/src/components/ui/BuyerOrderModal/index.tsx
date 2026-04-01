@@ -6,6 +6,8 @@ import {
   MapPin,
   Truck,
   ExternalLink,
+  CheckCircle,
+  Loader2,
 } from "lucide-react";
 import Swal from "sweetalert2";
 import { orderService } from "@/services/orderService";
@@ -142,6 +144,9 @@ export function BuyerOrderModal({
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const isCancellingRef = useRef(false);
 
+  const [isConfirmingDelivery, setIsConfirmingDelivery] = useState(false);
+  const isConfirmingDeliveryRef = useRef(false);
+
   // Focus into modal on open
   useEffect(() => {
     closeButtonRef.current?.focus();
@@ -220,6 +225,49 @@ export function BuyerOrderModal({
     fetchAll();
     return () => controller.abort();
   }, [orderId, fetchShipments]);
+
+  // ─── Confirm Delivery Action ────────────────────────────────────────────────
+
+  async function handleConfirmDelivery(shipmentId: number) {
+    if (isConfirmingDeliveryRef.current) return;
+
+    const result = await Swal.fire({
+      title: 'Confirmar recebimento?',
+      text: 'Ao confirmar, o vendedor receberá o pagamento pelo produto.',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Sim, recebi o produto',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#15803d',
+    });
+
+    if (!result.isConfirmed) return;
+
+    isConfirmingDeliveryRef.current = true;
+    setIsConfirmingDelivery(true);
+
+    try {
+      await shippingService.confirmDelivery(shipmentId);
+      await Swal.fire({
+        icon: 'success',
+        title: 'Recebimento confirmado!',
+        text: 'Obrigado por confirmar. O vendedor será notificado.',
+        timer: 3000,
+        showConfirmButton: false,
+      });
+      onOrderCancelled?.();
+      onClose();
+    } catch (err: unknown) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Erro',
+        text: getAxiosErrorMessage(err, 'Erro ao confirmar recebimento.'),
+      });
+    } finally {
+      isConfirmingDeliveryRef.current = false;
+      setIsConfirmingDelivery(false);
+    }
+  }
 
   // ─── Cancel Action ──────────────────────────────────────────────────────────
 
@@ -565,6 +613,25 @@ export function BuyerOrderModal({
                             >
                               <ExternalLink size={15} />
                               Rastrear envio
+                            </button>
+                          )}
+                          {['posted', 'in_transit', 'out_for_delivery'].includes(shipment.status) && (
+                            <button
+                              onClick={() => handleConfirmDelivery(shipment.id)}
+                              disabled={isConfirmingDelivery}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-2
+                                         bg-green-700 text-white rounded-lg text-sm font-medium
+                                         hover:bg-green-800 transition-colors
+                                         disabled:opacity-50 disabled:cursor-not-allowed
+                                         focus-visible:outline-none focus-visible:ring-2
+                                         focus-visible:ring-green-600"
+                            >
+                              {isConfirmingDelivery ? (
+                                <Loader2 size={16} className="animate-spin" />
+                              ) : (
+                                <CheckCircle size={16} />
+                              )}
+                              Confirmar Recebimento
                             </button>
                           )}
                         </div>

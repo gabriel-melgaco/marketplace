@@ -7,7 +7,7 @@ import LoginPage from "@/pages/auth/Login";
 import { ForgotPassword } from "@/pages/auth/ForgotPassword";
 import ResetPassword from "@/pages/auth/ResetPassword";
 import { Register } from "@/pages/auth/Register";
-import { Checkout } from "@/pages/Checkout/ClientcheCkout";
+import { Checkout } from "@/pages/Checkout/ClientCheckout";
 import { Payment } from "@/pages/Payment";
 import { PaymentSuccess } from "@/pages/Payment/PaymentSuccess";
 import { PaymentProcessing } from "@/pages/Payment/PaymentProcessing";

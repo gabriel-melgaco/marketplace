@@ -282,3 +282,160 @@ describe('paymentService', () => {
     });
   });
 });
+
+// ── Novos describes complementares ───────────────────────────────────────────
+
+describe('createPaymentIntent()', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('faz POST para /payments/create-intent/ com order_id e payment_method', async () => {
+    const intentResponse = {
+      payment_id: 42,
+      client_secret: 'pi_abc_secret_xyz',
+      amount: 19990,
+      currency: 'brl',
+      payment_method: 'credit_card',
+    };
+    mockPost.mockResolvedValueOnce({ data: intentResponse });
+    await paymentService.createPaymentIntent({
+      order_id: '101',
+      payment_method: 'credit_card',
+    });
+    expect(mockPost).toHaveBeenCalledWith('/payments/create-intent/', {
+      order_id: '101',
+      payment_method: 'credit_card',
+    });
+  });
+
+  it('inclui save_payment_method=true quando informado', async () => {
+    mockPost.mockResolvedValueOnce({
+      data: { payment_id: 1, client_secret: 'pi_x_secret_y', amount: 100, currency: 'brl', payment_method: 'credit_card' },
+    });
+    await paymentService.createPaymentIntent({
+      order_id: '101',
+      payment_method: 'credit_card',
+      save_payment_method: true,
+    });
+    expect(mockPost).toHaveBeenCalledWith(
+      '/payments/create-intent/',
+      expect.objectContaining({ save_payment_method: true }),
+    );
+  });
+
+  it('retorna objeto com client_secret', async () => {
+    const intentResponse = {
+      payment_id: 42,
+      client_secret: 'pi_abc_secret_xyz',
+      amount: 19990,
+      currency: 'brl',
+      payment_method: 'credit_card',
+    };
+    mockPost.mockResolvedValueOnce({ data: intentResponse });
+    const result = await paymentService.createPaymentIntent({
+      order_id: '101',
+      payment_method: 'credit_card',
+    });
+    expect(result.client_secret).toBe('pi_abc_secret_xyz');
+  });
+
+  it('propaga erro da API', async () => {
+    mockPost.mockRejectedValueOnce(new Error('Pagamento rejeitado'));
+    await expect(
+      paymentService.createPaymentIntent({ order_id: '101', payment_method: 'credit_card' }),
+    ).rejects.toThrow('Pagamento rejeitado');
+  });
+});
+
+describe('createIntentsBatch()', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('faz POST para /payments/create-intents-batch/ com array order_ids e payment_method', async () => {
+    mockPost.mockResolvedValueOnce({ data: [] });
+    await paymentService.createIntentsBatch(['101', '102'], 'credit_card');
+    expect(mockPost).toHaveBeenCalledWith('/payments/create-intents-batch/', {
+      order_ids: ['101', '102'],
+      payment_method: 'credit_card',
+    });
+  });
+
+  it('retorna array de respostas', async () => {
+    const batchResponse = [
+      { payment_id: 1, client_secret: 'pi_a_secret_b', amount: 100, currency: 'brl', payment_method: 'credit_card' },
+      { payment_id: 2, client_secret: 'pi_c_secret_d', amount: 200, currency: 'brl', payment_method: 'credit_card' },
+    ];
+    mockPost.mockResolvedValueOnce({ data: batchResponse });
+    const result = await paymentService.createIntentsBatch(['101', '102'], 'credit_card');
+    expect(result).toHaveLength(2);
+    expect(result[0].client_secret).toBe('pi_a_secret_b');
+  });
+
+  it('propaga erro da API', async () => {
+    mockPost.mockRejectedValueOnce(new Error('Erro em lote'));
+    await expect(
+      paymentService.createIntentsBatch(['101'], 'credit_card'),
+    ).rejects.toThrow('Erro em lote');
+  });
+});
+
+describe('listScheduledPayouts()', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('faz GET para /payments/payouts/scheduled/', async () => {
+    mockGet.mockResolvedValueOnce({ data: [] });
+    await paymentService.listScheduledPayouts();
+    expect(mockGet).toHaveBeenCalledWith('/payments/payouts/scheduled/');
+  });
+});
+
+describe('confirmPayment — método removido (deprecated)', () => {
+  it('confirmPayment NÃO existe em paymentService', () => {
+    expect((paymentService as Record<string, unknown>)['confirmPayment']).toBeUndefined();
+  });
+});
+
+describe('getBalance() — campos de resposta', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('faz GET para /payments/balance/', async () => {
+    mockGet.mockResolvedValueOnce({
+      data: {
+        stripe_available: 5000,
+        stripe_pending: 200,
+        stripe_in_transit: 0,
+        stripe_balance_error: false,
+        pending_transfers: '0.00',
+        dispatched_transfers: '100.00',
+        failed_transfers: '0.00',
+        splits_count: 2,
+      },
+    });
+    await paymentService.getBalance();
+    expect(mockGet).toHaveBeenCalledWith('/payments/balance/');
+  });
+
+  it('retorna resposta com campos stripe_available, stripe_pending, stripe_balance_error', async () => {
+    const balanceData = {
+      stripe_available: 5000,
+      stripe_pending: 200,
+      stripe_in_transit: 0,
+      stripe_balance_error: false,
+      pending_transfers: '0.00',
+      dispatched_transfers: '100.00',
+      failed_transfers: '0.00',
+      splits_count: 2,
+    };
+    mockGet.mockResolvedValueOnce({ data: balanceData });
+    const result = await paymentService.getBalance();
+    expect(result).toHaveProperty('stripe_available');
+    expect(result).toHaveProperty('stripe_pending');
+    expect(result).toHaveProperty('stripe_balance_error');
+  });
+});
