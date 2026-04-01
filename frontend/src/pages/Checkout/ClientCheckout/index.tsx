@@ -465,6 +465,16 @@ export function Checkout() {
           }
         }
 
+        if (axios.isAxiosError(err) && err.response?.status === 400) {
+          const msg = ((err.response.data as { error?: string })?.error ?? '').toLowerCase();
+          if (msg.includes('cotação') || msg.includes('cotacao') || msg.includes('expirada')) {
+            navigate('/checkout', {
+              state: { error: 'Sua cotação de frete expirou. Por favor, recalcule o frete.' },
+            });
+            return;
+          }
+        }
+
         setShippingError(getAxiosErrorMessage(err, "Erro ao calcular o frete."));
       } finally {
         if (!cancelled) {
@@ -600,7 +610,7 @@ export function Checkout() {
         ),
       } as CheckoutNavigationState,
     });
-  }, [allServicesSelected, selectedAddressId, navigate, selectedServices, inPersonSellers, sellerDeliveryMethods, quotesMap]);
+  }, [allServicesSelected, selectedAddressId, navigate, selectedServices, sellerDeliveryMethods, quotesMap]);
 
   // ── Early return while redirecting ──
   if (items.length === 0) return null;

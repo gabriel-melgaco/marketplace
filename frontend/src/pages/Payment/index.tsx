@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { loadStripe } from "@stripe/stripe-js";
 import {
   Elements,
-  CardElement,
+  PaymentElement,
   useStripe,
   useElements,
 } from "@stripe/react-stripe-js";
@@ -92,17 +92,46 @@ function getAxiosErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
-const CARD_ELEMENT_OPTIONS = {
-  style: {
-    base: {
-      fontSize: "15px",
-      color: "#1a1a2e",
-      "::placeholder": { color: "#9ca3af" },
-      fontFamily: "inherit",
-    },
-    invalid: { color: "#dc2626" },
-  },
-};
+// ─── Poll payment status ──────────────────────────────────────────────────────
+
+async function pollPaymentStatus(
+  paymentIntentId: string,
+  signal: AbortSignal,
+): Promise<'succeeded' | 'failed' | 'cancelled' | 'timeout'> {
+  const MAX_ATTEMPTS = 12;
+  const INTERVAL_MS = 2500;
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (signal.aborted) return 'timeout';
+
+    try {
+      const response = await api.get<{ status: string }>(
+        `/payments/status/${paymentIntentId}/`,
+        { signal },
+      );
+
+      if (response.data.status === 'succeeded') return 'succeeded';
+      if (response.data.status === 'failed' || response.data.status === 'cancelled') {
+        return response.data.status as 'failed' | 'cancelled';
+      }
+    } catch (err: unknown) {
+      if (axios.isCancel(err)) return 'timeout';
+      console.error('[polling] erro:', getAxiosErrorMessage(err, 'Erro desconhecido'));
+    }
+
+    if (attempt < MAX_ATTEMPTS - 1) {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, INTERVAL_MS);
+        signal.addEventListener('abort', () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+    }
+  }
+
+  return 'timeout';
+}
 
 // ─── Shared: Step header (matches checkout page visual language) ──────────────
 
@@ -143,7 +172,7 @@ interface StripeCardFormProps {
   orderId: number;
 }
 
-function StripeCardForm({ clientSecret, stripePaymentIntentId, orderId }: StripeCardFormProps) {
+function StripeCardForm({ clientSecret: _clientSecret, stripePaymentIntentId, orderId }: StripeCardFormProps) {
   const stripe = useStripe();
   const elements = useElements();
   const navigate = useNavigate();
@@ -152,72 +181,26 @@ function StripeCardForm({ clientSecret, stripePaymentIntentId, orderId }: Stripe
   const [stripeError, setStripeError] = useState("");
   const [polling, setPolling] = useState(false);
 
-  // ── Polling for payment status ──
-  useEffect(() => {
-    if (!polling) return;
-
-    let attempts = 0;
-    let stopped = false;
-
-    const intervalId = setInterval(async () => {
-      if (stopped) return;
-      attempts++;
-
-      try {
-        const payment = await paymentService.getPaymentStatus(stripePaymentIntentId);
-        if (stopped) return;
-
-        if (payment.status === "succeeded") {
-          stopped = true;
-          clearInterval(intervalId);
-
-          try {
-            await api.post("/logistics/shipments/create/", { order_id: orderId });
-          } catch (err: unknown) {
-            console.error("Erro ao criar shipments:", getAxiosErrorMessage(err, "Erro desconhecido"));
-          }
-
-          navigate("/payment/success", { state: { orderId } });
-          return;
-        }
-
-        if (payment.status === "failed" || payment.status === "cancelled") {
-          stopped = true;
-          clearInterval(intervalId);
-          navigate("/payment/failed");
-          return;
-        }
-      } catch {
-        // ignore individual poll errors, keep trying
-      }
-
-      if (attempts >= 10) {
-        stopped = true;
-        clearInterval(intervalId);
-        navigate("/payment/processing", { state: { orderId } });
-      }
-    }, 2000);
-
-    return () => {
-      stopped = true;
-      clearInterval(intervalId);
-    };
-  }, [polling, stripePaymentIntentId, orderId, navigate]);
-
   const confirmingRef = useRef(false);
+  const pollingAbortRef = useRef<AbortController | null>(null);
+
+  // Abort polling on unmount
+  useEffect(() => {
+    return () => {
+      pollingAbortRef.current?.abort();
+    };
+  }, []);
 
   const handleConfirmPayment = useCallback(async () => {
     if (!stripe || !elements || confirmingRef.current) return;
-
-    const cardElement = elements.getElement(CardElement);
-    if (!cardElement) return;
 
     confirmingRef.current = true;
     setConfirming(true);
     setStripeError("");
 
-    const { error } = await stripe.confirmCardPayment(clientSecret, {
-      payment_method: { card: cardElement },
+    const { error } = await stripe.confirmPayment({
+      elements,
+      redirect: 'if_required',
     });
 
     if (error) {
@@ -227,12 +210,31 @@ function StripeCardForm({ clientSecret, stripePaymentIntentId, orderId }: Stripe
       return;
     }
 
+    // Start polling — release guard early so double-click window is minimal (Issue 1.4)
+    pollingAbortRef.current?.abort();
+    const controller = new AbortController();
+    pollingAbortRef.current = controller;
+
+    setPolling(true);
     confirmingRef.current = false;
     setConfirming(false);
-    setPolling(true);
-  }, [stripe, elements, clientSecret]);
 
-  // ── Polling loading UI ──
+    const result = await pollPaymentStatus(stripePaymentIntentId, controller.signal);
+
+    if (result === 'succeeded') {
+      // Fire-and-forget shipment creation (Issue 1.3)
+      api.post('/logistics/shipments/create/', { order_id: orderId })
+        .catch((err: unknown) =>
+          console.error('shipments/create error:', getAxiosErrorMessage(err, 'Erro desconhecido')),
+        );
+      navigate('/payment/success', { state: { orderId } });
+    } else if (result === 'failed' || result === 'cancelled') {
+      navigate('/payment/failed');
+    } else {
+      navigate('/payment/processing', { state: { orderId } });
+    }
+  }, [stripe, elements, stripePaymentIntentId, orderId, navigate]);
+
   if (polling) {
     return (
       <div
@@ -254,17 +256,11 @@ function StripeCardForm({ clientSecret, stripePaymentIntentId, orderId }: Stripe
 
   return (
     <div className="space-y-5">
-      {/* Card element wrapper */}
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1.5">
-          Dados do cartão
+          Dados do pagamento
         </label>
-        <div
-          className="border border-gray-200 rounded-xl px-4 py-3.5 bg-gray-50 focus-within:border-blue-800 focus-within:bg-white focus-within:shadow-[0_0_0_3px_rgba(30,64,175,0.08)] transition-all"
-          aria-label="Campo seguro de dados do cartão"
-        >
-          <CardElement options={CARD_ELEMENT_OPTIONS} />
-        </div>
+        <PaymentElement />
       </div>
 
       {stripeError && (
@@ -296,7 +292,6 @@ function StripeCardForm({ clientSecret, stripePaymentIntentId, orderId }: Stripe
         )}
       </button>
 
-      {/* Inline trust note */}
       <p className="text-center text-xs text-gray-400 flex items-center justify-center gap-1.5 pt-1">
         <ShieldCheck size={12} aria-hidden="true" />
         Seus dados são criptografados e nunca armazenados neste site
@@ -320,6 +315,7 @@ export function Payment() {
 
   // ── State ──
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>("credit_card");
+  const paymentMethodRef = useRef(paymentMethod);
 
   const [orderId, setOrderId] = useState<number | null>(null);
   const [orderLoading, setOrderLoading] = useState(true);
@@ -384,7 +380,7 @@ export function Payment() {
       try {
         const payload: OrderCreatePayload = {
           shipping_address_id: shippingAddressId,
-          payment_method: paymentMethod,
+          payment_method: paymentMethodRef.current,
           items_delivery: itemsDelivery,
         };
 
@@ -428,7 +424,7 @@ export function Payment() {
 
     createOrder();
     return () => controller.abort();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Create payment intent when user confirms method ──
   // intentLoadingRef prevents double-submission without adding intentLoading to deps,
@@ -682,7 +678,18 @@ export function Payment() {
               </p>
             </div>
 
-            <Elements stripe={stripePromise} options={{ clientSecret: paymentIntent.clientSecret }}>
+            <Elements
+              stripe={stripePromise}
+              options={{
+                clientSecret: paymentIntent.clientSecret,
+                appearance: {
+                  theme: 'stripe',
+                  variables: {
+                    colorPrimary: '#1e3a5f',
+                  },
+                },
+              }}
+            >
               <StripeCardForm
                 clientSecret={paymentIntent.clientSecret}
                 stripePaymentIntentId={paymentIntent.stripePaymentIntentId}

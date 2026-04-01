@@ -23,7 +23,7 @@ import { orderService } from "@/services/orderService";
 import type { ItemDelivery } from "@/services/orderService";
 import { paymentService } from "@/services/paymentService";
 import type { PaymentMethodType } from "@/services/paymentService";
-import type { CheckoutNavigationState } from "@/pages/Checkout/ClientcheCkout";
+import type { CheckoutNavigationState } from "@/pages/Checkout/ClientCheckout";
 import { formatCurrency } from "@/utils/formatters";
 
 // ─── Stripe setup ─────────────────────────────────────────────────────────────

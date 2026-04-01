@@ -128,4 +128,8 @@ export const shippingService = {
     });
     return response.data;
   },
+
+  async confirmDelivery(shipmentId: number): Promise<void> {
+    await api.post(`/logistics/shipments/${shipmentId}/delivered/`);
+  },
 };
