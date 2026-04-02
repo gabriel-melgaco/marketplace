@@ -201,38 +201,59 @@ class BasePayoutTestCase(TestCase):
         )
         return patch('stripe.Payout.list', return_value=mock_list)
 
-    def _mock_stripe_balance_and_payouts(self, available_cents=0, pending_cents=0, in_transit_cents=None):
+    def _mock_stripe_balance_and_payouts(
+        self,
+        available_cents=0,
+        pending_cents=0,
+        in_transit_cents=None,
+        paid_out_cents=None,
+    ):
         """
         Stacked context manager that mocks both stripe.Balance.retrieve and
         stripe.Payout.list simultaneously.
-        in_transit_cents: list of int payout amounts in cents; defaults to empty list (0 in transit).
-        Returns a single context manager via patch.multiple for convenience.
+
+        stripe.Payout.list is called twice by seller_balance:
+          1st call: status='in_transit'  -> sums in_transit_cents
+          2nd call: status='paid'        -> sums paid_out_cents
+
+        Each call receives a separate mock with its own auto_paging_iter so
+        that the first iterator being exhausted does not affect the second.
         """
-        amounts = in_transit_cents or []
-        mock_payout_list = MagicMock()
-        mock_payout_list.auto_paging_iter.return_value = iter(
-            [{'amount': a} for a in amounts]
-        )
+        in_transit_amounts = in_transit_cents or []
+        paid_out_amounts = paid_out_cents or []
+
+        def _make_payout_mock(amounts):
+            m = MagicMock()
+            m.auto_paging_iter.side_effect = lambda: iter(
+                [{'amount': a} for a in amounts]
+            )
+            return m
+
+        in_transit_mock = _make_payout_mock(in_transit_amounts)
+        paid_out_mock = _make_payout_mock(paid_out_amounts)
+        call_results = [in_transit_mock, paid_out_mock]
+
         from unittest.mock import patch as _patch
-        import unittest.mock as _mock
 
         class _StackedMock:
-            def __init__(self, balance_mock, payout_mock):
-                self._p1 = _patch('stripe.Balance.retrieve', return_value=balance_mock)
-                self._p2 = _patch('stripe.Payout.list', return_value=payout_mock)
+            def __init__(self_inner, balance_mock):
+                self_inner._p1 = _patch('stripe.Balance.retrieve', return_value=balance_mock)
+                self_inner._p2 = _patch(
+                    'stripe.Payout.list',
+                    side_effect=lambda **kwargs: call_results.pop(0),
+                )
 
-            def __enter__(self):
-                self._p1.__enter__()
-                self._p2.__enter__()
-                return self
+            def __enter__(self_inner):
+                self_inner._p1.__enter__()
+                self_inner._p2.__enter__()
+                return self_inner
 
-            def __exit__(self, *args):
-                self._p2.__exit__(*args)
-                self._p1.__exit__(*args)
+            def __exit__(self_inner, *args):
+                self_inner._p2.__exit__(*args)
+                self_inner._p1.__exit__(*args)
 
         return _StackedMock(
             _make_stripe_balance_mock(available_cents, pending_cents),
-            mock_payout_list,
         )
 
 
@@ -563,7 +584,7 @@ class TestSellerBalanceView(BasePayoutTestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         for key in ['stripe_available', 'stripe_pending', 'stripe_in_transit',
-                    'stripe_balance_error',
+                    'stripe_total_paid_out', 'stripe_balance_error',
                     'pending_transfers', 'dispatched_transfers',
                     'failed_transfers', 'splits_count']:
             self.assertIn(key, data,
@@ -655,6 +676,8 @@ class TestSellerBalanceView(BasePayoutTestCase):
                           "FINDING-3 fixed: stripe_pending must be None (not 0) when unavailable")
         self.assertIsNone(data['stripe_in_transit'],
                           "stripe_in_transit must be None when Stripe API fails")
+        self.assertIsNone(data['stripe_total_paid_out'],
+                          "stripe_total_paid_out must be None when Stripe API fails")
 
     def test_seller_without_stripe_account_skips_stripe_call(self):
         """A seller with no stripe_account_id gets stripe_available=None, no API call."""
@@ -675,6 +698,7 @@ class TestSellerBalanceView(BasePayoutTestCase):
         self.assertIsNone(data['stripe_available'])
         self.assertIsNone(data['stripe_pending'])
         self.assertIsNone(data['stripe_in_transit'])
+        self.assertIsNone(data['stripe_total_paid_out'])
         self.assertFalse(data['stripe_balance_error'])
 
     def test_balance_aggregates_multiple_splits_correctly(self):

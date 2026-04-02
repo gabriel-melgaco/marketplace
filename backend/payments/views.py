@@ -9,6 +9,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 from django.db import models
 from drf_spectacular.utils import extend_schema, inline_serializer
+import datetime
 import json
 import stripe
 
@@ -976,6 +977,7 @@ class ScheduledTransferListView(generics.ListAPIView):
                 'stripe_available': serializers.FloatField(allow_null=True),
                 'stripe_pending': serializers.FloatField(allow_null=True),
                 'stripe_in_transit': serializers.FloatField(allow_null=True),
+                'stripe_total_paid_out': serializers.FloatField(allow_null=True),
                 'stripe_balance_error': serializers.BooleanField(),
                 'pending_transfers': serializers.DecimalField(max_digits=10, decimal_places=2),
                 'dispatched_transfers': serializers.DecimalField(max_digits=10, decimal_places=2),
@@ -990,13 +992,15 @@ class ScheduledTransferListView(generics.ListAPIView):
         "stripe_pending: saldo em liquidação na conta Connect (tipicamente 2-7 dias úteis). "
         "stripe_in_transit: valor de payouts já sacados pelo vendedor que ainda estão a caminho do banco "
         "(via stripe.Payout.list(status='in_transit')). Corresponde ao 'Em trânsito para o banco' no Stripe Dashboard. "
+        "stripe_total_paid_out: soma de todos os payouts com status='paid' nos últimos 30 dias "
+        "(via stripe.Payout.list(status='paid', created.gte=now-30d)). Representa o total efetivamente pago ao banco do vendedor no período. "
         "pending_transfers: valor de splits aguardando disparo ao Stripe. "
         "dispatched_transfers: valor já transferido ao vendedor (histórico local). "
         "failed_transfers: valor em splits com falha (requer reconciliação). "
         "splits_count: total de splits do vendedor. "
         "Nota: stripe_available/stripe_pending/stripe_in_transit são a fonte de verdade para saldo; "
         "dispatched_transfers é o histórico de Transfers criados pela plataforma (não reflete saques bancários do vendedor). "
-        "stripe_available, stripe_pending e stripe_in_transit são None quando stripe_balance_error=True ou quando "
+        "stripe_available, stripe_pending, stripe_in_transit e stripe_total_paid_out são None quando stripe_balance_error=True ou quando "
         "o vendedor não possui stripe_account_id configurado."
     ),
 )
@@ -1036,6 +1040,7 @@ def seller_balance(request):
     stripe_available = None
     stripe_pending = None
     stripe_in_transit = None
+    stripe_total_paid_out = None
     stripe_balance_error = False
     stripe_account_id = getattr(user, 'stripe_account_id', None)
 
@@ -1058,11 +1063,26 @@ def seller_balance(request):
             payouts = stripe.Payout.list(status='in_transit', limit=100, stripe_account=stripe_account_id)
             stripe_in_transit = round(sum(p['amount'] for p in payouts.auto_paging_iter()) / 100, 2)
 
+            # Total pago ao vendedor nos últimos 30 dias
+            thirty_days_ago = int(
+                (datetime.datetime.now() - datetime.timedelta(days=30)).timestamp()
+            )
+            payouts_paid = stripe.Payout.list(
+                status='paid',
+                created={'gte': thirty_days_ago},
+                limit=100,
+                stripe_account=stripe_account_id,
+            )
+            stripe_total_paid_out = round(
+                sum(p['amount'] for p in payouts_paid.auto_paging_iter()) / 100, 2
+            )
+
         except stripe.error.StripeError as e:
             stripe_balance_error = True
             stripe_available = None
             stripe_pending = None
             stripe_in_transit = None
+            stripe_total_paid_out = None
             logger.warning(
                 "Could not retrieve Stripe balance for seller",
                 extra={'user_id': user.id, 'stripe_account_id': stripe_account_id, 'error': str(e)},
@@ -1075,6 +1095,7 @@ def seller_balance(request):
             'stripe_available': stripe_available,
             'stripe_pending': stripe_pending,
             'stripe_in_transit': stripe_in_transit,
+            'stripe_total_paid_out': stripe_total_paid_out,
             'dispatched': str(dispatched),
             'splits_count': splits_count,
         }
@@ -1084,6 +1105,7 @@ def seller_balance(request):
         'stripe_available': stripe_available,
         'stripe_pending': stripe_pending,
         'stripe_in_transit': stripe_in_transit,
+        'stripe_total_paid_out': stripe_total_paid_out,
         'stripe_balance_error': stripe_balance_error,
         'pending_transfers': pending,
         'dispatched_transfers': dispatched,

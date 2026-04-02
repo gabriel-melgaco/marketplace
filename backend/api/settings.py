@@ -127,7 +127,7 @@ on every subsequent request. Clients do not need to handle `Authorization` heade
 **Registration** requires: `email`, `complete_name`, `cpf`, `birthday`, `password1`, `password2`.
 Email verification is mandatory before the first login.
 
-**Social login** is supported via Google OAuth2 and GitHub OAuth2. The frontend initiates the flow and
+**Social login** is supported via Google OAuth2. The frontend initiates the flow and
 exchanges the authorization code with the backend at `/api/auth/social/`.
 
 Endpoints that do not require authentication are explicitly marked as **Public** in their descriptions.
@@ -138,7 +138,7 @@ Endpoints that do not require authentication are explicitly marked as **Public**
 
 ### Authentication (`/api/auth/`)
 User registration, email verification, login, logout, token refresh, password change/reset, and profile
-management. Social login flows for Google and GitHub are included under `/api/auth/social/`.
+management. Social login flows for Google are included under `/api/auth/social/`.
 
 ### Products (`/api/products/`)
 Read-only catalog of gym equipment: **Categories** (hierarchical), **Brands**, **Series**, **Conditions**,
@@ -242,7 +242,6 @@ Notifications are triggered automatically by order, payment, and refund state ch
 | **Melhor Envio** | Freight quotes, shipment creation, label generation, tracking |
 | **ViaCEP** | Brazilian zipcode (CEP) address lookup |
 | **Google OAuth2** | Social login |
-| **GitHub OAuth2** | Social login |
 | **MinIO (S3-compatible)** | Listing image storage |
 | **Resend (SMTP)** | Transactional email (verification, password reset) |
 | **Redis** | Cache, Celery task queue, Django Channels layer |
