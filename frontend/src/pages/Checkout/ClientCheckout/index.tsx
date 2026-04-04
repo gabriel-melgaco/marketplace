@@ -14,6 +14,7 @@ import {
   ShoppingBag,
   MessageSquare,
   MessageCircle,
+  Trash2,
 } from "lucide-react";
 import { useCart, type CartItem } from "@/contexts/CartContext";
 import { addressService, type Address, type AddressCreateRequest } from "@/services/addressService";
@@ -140,6 +141,39 @@ function groupBySeller(items: CartItem[]): Map<string, { seller_name: string; it
 
 function sellerSubtotal(sellerItems: CartItem[]): number {
   return sellerItems.reduce((sum, item) => sum + Number(item.listing.price) * item.quantity, 0);
+}
+
+/**
+ * Builds a SellerQuote from the cart items' listing.shipping_method.
+ * Used as fallback when the Melhor Envio API does not return data for a seller.
+ */
+function buildQuoteFromItems(sellerName: string, cartItems: CartItem[]): SellerQuote {
+  const inPersonItems: ItemRef[] = [];
+  const melhorEnvioItems: ItemRef[] = [];
+
+  for (const item of cartItems) {
+    const method = (item.listing as { shipping_method?: string }).shipping_method;
+    const title =
+      (item.listing as { title?: string }).title ||
+      (item.listing as { product?: { name?: string } }).product?.name ||
+      '';
+    const ref: ItemRef = { listing_id: item.listing.id, title, shipping_method: method ?? '' };
+    if (method === 'in_person' || method === 'both') inPersonItems.push(ref);
+    if (method === 'melhor_envio' || method === 'both') melhorEnvioItems.push(ref);
+  }
+
+  const allInPerson = cartItems.every(
+    (i) => (i.listing as { shipping_method?: string }).shipping_method === 'in_person',
+  );
+
+  return {
+    seller_name: sellerName,
+    in_person_only: allInPerson,
+    has_in_person: inPersonItems.length > 0,
+    in_person_items: inPersonItems,
+    melhor_envio_items: melhorEnvioItems,
+    quotes: [],
+  };
 }
 
 /** Rejects URLs that are not http/https to guard against unexpected schemes. */
@@ -437,6 +471,13 @@ export function Checkout() {
           };
         }
 
+        // Fallback: sellers absent from the API response → build from listing.shipping_method
+        for (const [sellerId, group] of groups.entries()) {
+          if (!newQuotes[sellerId]) {
+            newQuotes[sellerId] = buildQuoteFromItems(group.seller_name, group.items);
+          }
+        }
+
         const autoMethods: Record<string, SellerDeliveryMethod> = {};
         for (const [sellerId, quote] of Object.entries(newQuotes)) {
           if (quote.in_person_only) {
@@ -475,6 +516,20 @@ export function Checkout() {
             return;
           }
         }
+
+        // Even when the API fails, show shipping options derived from listing.shipping_method
+        const fallback: Record<string, SellerQuote> = {};
+        for (const [sellerId, group] of groups.entries()) {
+          fallback[sellerId] = buildQuoteFromItems(group.seller_name, group.items);
+        }
+        setQuotesMap(fallback);
+
+        const fallbackMethods: Record<string, SellerDeliveryMethod> = {};
+        for (const [sellerId, quote] of Object.entries(fallback)) {
+          if (quote.in_person_only) fallbackMethods[sellerId] = 'vendor';
+          else if (!quote.has_in_person) fallbackMethods[sellerId] = 'melhor_envio';
+        }
+        setSellerDeliveryMethods(fallbackMethods);
 
         setShippingError(getAxiosErrorMessage(err, "Erro ao calcular o frete."));
       } finally {
@@ -711,7 +766,7 @@ export function Checkout() {
                             </div>
 
                             {/* Line total + remove */}
-                            <div className="shrink-0 self-center text-right flex flex-col items-end gap-1.5">
+                            <div className="shrink-0 self-center text-right flex flex-col items-end gap-2">
                               <p className="text-sm font-bold text-blue-800">
                                 {formatCurrency(unitPrice * item.quantity)}
                               </p>
@@ -719,8 +774,9 @@ export function Checkout() {
                                 type="button"
                                 onClick={() => removeFromCart(item.listing.id)}
                                 aria-label={`Remover ${productName} do carrinho`}
-                                className="text-xs text-red-400 hover:text-red-600 transition-colors"
+                                className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-red-500 border border-red-200 hover:bg-red-50 hover:border-red-400 hover:text-red-600 active:bg-red-100 transition-colors"
                               >
+                                <Trash2 size={11} aria-hidden="true" />
                                 Remover
                               </button>
                             </div>
