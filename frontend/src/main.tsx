@@ -7,6 +7,7 @@ import { AuthProvider } from "./contexts/AuthContext";
 import { CartProvider } from "./contexts/CartContext";
 import { NotificationProvider } from "./contexts/NotificationContext";
 import { ChatProvider } from "./contexts/ChatContext";
+import { CookieBanner } from "./components/ui/CookieBanner";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
@@ -15,6 +16,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         <ChatProvider>
         <CartProvider>
           <RouterProvider router={router} />
+          <CookieBanner />
         </CartProvider>
         </ChatProvider>
       </NotificationProvider>

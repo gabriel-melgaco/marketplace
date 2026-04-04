@@ -36,6 +36,7 @@ import {
 } from "@/services/stripeConnectService";
 import { tokenStorage } from "@/utils/tokenStorage";
 import { toISODate } from "@/utils/formatters";
+import { clearConsent } from "@/utils/cookieConsent";
 import { startGoogleOAuth } from "@/hooks/useGoogleAuth";
 import Swal from "sweetalert2";
 import type { User } from "@/types/auth";
@@ -1317,9 +1318,39 @@ export function AccountPage() {
   // ── Section: Notificações ────────────────────────────────────────────────────
 
   const renderNotifications = () => (
-    <div className="bg-white rounded-2xl shadow p-6">
-      <h2 className="text-lg font-bold text-gray-900 mb-5">Notificações</h2>
-      <NotificationPreferences />
+    <div className="space-y-4">
+      <div className="bg-white rounded-2xl shadow p-6">
+        <h2 className="text-lg font-bold text-gray-900 mb-5">Notificações</h2>
+        <NotificationPreferences />
+      </div>
+
+      {/* ── Preferências de cookies ── */}
+      <div className="bg-white rounded-2xl shadow p-6">
+        <h2 className="text-lg font-bold text-gray-900 mb-1">Privacidade</h2>
+        <p className="text-sm text-gray-500 mb-4">
+          Gerencie quais cookies opcionais você aceita neste site.
+        </p>
+        <div className="flex items-center justify-between py-3 border border-gray-200 rounded-xl px-4">
+          <div>
+            <p className="text-sm font-medium text-gray-800">
+              Preferências de cookies
+            </p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Revise ou altere seu consentimento de cookies a qualquer momento
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              clearConsent();
+              window.location.reload();
+            }}
+            className="shrink-0 border border-gray-300 text-gray-700 px-4 py-1.5 rounded-xl text-sm hover:bg-gray-50 transition-colors"
+          >
+            Gerenciar
+          </button>
+        </div>
+      </div>
     </div>
   );
 

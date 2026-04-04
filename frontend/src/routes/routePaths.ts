@@ -31,6 +31,9 @@ export const ROUTES = {
 
   // Account
   ACCOUNT: "/account",
+
+  // Legal
+  COOKIE_POLICY: "/politica-de-cookies",
 } as const;
 
 // Função helper para criar rotas dinâmicas

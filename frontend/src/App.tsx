@@ -33,6 +33,7 @@ import { ROUTES } from "@/routes/routePaths";
 import { ConversationsPage } from "@/pages/Conversations";
 import { ConversationDetail } from "@/pages/Conversations/ConversationDetail";
 import ChatLayout from "@/layout/chatlayout";
+import { CookiePolicy } from "@/pages/CookiePolicy";
 
 const router = createBrowserRouter([
   // PUBLIC — with shared layout
@@ -45,6 +46,7 @@ const router = createBrowserRouter([
       { path: "productdetail/:id", element: <ProductDetail /> },
       { path: "estado/:uf", element: <StateProductList /> },
       { path: "products", element: <CategoryProductList /> },
+      { path: "politica-de-cookies", element: <CookiePolicy /> },
     ],
   },
 
