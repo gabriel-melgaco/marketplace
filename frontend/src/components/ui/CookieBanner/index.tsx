@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
 import { hasConsented, saveConsent } from '@/utils/cookieConsent'
 
 // ─── Toggle ───────────────────────────────────────────────────────────────────
@@ -93,12 +92,12 @@ export function CookieBanner() {
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <p className="text-sm text-gray-700 flex-1 leading-relaxed">
             Usamos cookies para melhorar sua experiência. Veja nossa{' '}
-            <Link
-              to="/politica-de-cookies"
+            <a
+              href="/politica-de-cookies"
               className="text-blue-800 underline underline-offset-2 hover:text-blue-900 font-medium"
             >
               Política de Cookies
-            </Link>
+            </a>
             .
           </p>
 
