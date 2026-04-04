@@ -179,8 +179,6 @@ const BLANK_ADDRESS: AddressCreateRequest = {
   neighborhood: "",
   city: "",
   state: "",
-  address_type: "shipping",
-  is_shipping_address: true,
 };
 
 // ─── Shared UI primitives ─────────────────────────────────────────────────────
@@ -292,7 +290,7 @@ function LoadingRow({ label }: { label: string }) {
 // ─── Main Component ────────────────────────────────────────────────────────────
 
 export function Checkout() {
-  const { items } = useCart();
+  const { items, removeFromCart } = useCart();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -712,11 +710,19 @@ export function Checkout() {
                               </p>
                             </div>
 
-                            {/* Line total */}
-                            <div className="shrink-0 self-center text-right">
+                            {/* Line total + remove */}
+                            <div className="shrink-0 self-center text-right flex flex-col items-end gap-1.5">
                               <p className="text-sm font-bold text-blue-800">
                                 {formatCurrency(unitPrice * item.quantity)}
                               </p>
+                              <button
+                                type="button"
+                                onClick={() => removeFromCart(item.listing.id)}
+                                aria-label={`Remover ${productName} do carrinho`}
+                                className="text-xs text-red-400 hover:text-red-600 transition-colors"
+                              >
+                                Remover
+                              </button>
                             </div>
                           </li>
                         );
@@ -1097,12 +1103,7 @@ export function Checkout() {
                 events blocked until an address is selected.
             ── */}
             <section
-              className={`bg-white rounded-xl border shadow-sm p-5 sm:p-6 transition-opacity duration-200 ${
-                selectedAddressId
-                  ? "border-gray-100 opacity-100"
-                  : "border-dashed border-gray-200 opacity-50 pointer-events-none select-none"
-              }`}
-              aria-disabled={!selectedAddressId}
+              className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 sm:p-6"
             >
               <StepHeader
                 step={3}
