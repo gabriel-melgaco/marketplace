@@ -974,35 +974,105 @@ function BalanceWidget() {
             </div>
           </div>
 
-          {/* Stripe */}
-          <div className="flex items-start gap-3 p-4 bg-purple-50 border border-purple-100 rounded-xl">
-            <div className="p-2 bg-purple-700 rounded-lg shrink-0">
-              <CreditCard size={16} className="text-white" />
-            </div>
-            <div className="min-w-0">
+          {/* Stripe — BUG 4: full 5-line breakdown */}
+          <div className="p-4 bg-purple-50 border border-purple-100 rounded-xl">
+            <div className="flex items-center gap-2.5 mb-3">
+              <div className="p-2 bg-purple-700 rounded-lg shrink-0">
+                <CreditCard size={16} className="text-white" />
+              </div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
                 Stripe
               </p>
-              {stripeBalance && !stripeBalance.stripe_balance_error ? (
-                <>
-                  <p className="text-lg font-extrabold text-gray-900 leading-tight mt-0.5">
-                    {formatBRL(stripeBalance.stripe_available)}
-                  </p>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    Disponível
-                    {stripeBalance.stripe_pending != null && stripeBalance.stripe_pending > 0 && (
-                      <> · {formatBRL(stripeBalance.stripe_pending)} pendente</>
-                    )}
-                  </p>
-                </>
-              ) : (
-                <p className="text-sm text-gray-400 mt-0.5 italic">
-                  {stripeBalance?.stripe_balance_error
-                    ? "Erro ao carregar"
-                    : "Conta não configurada"}
-                </p>
-              )}
             </div>
+
+            {!stripeBalance && (
+              <p className="text-sm text-gray-400 italic">Conta não configurada</p>
+            )}
+
+            {stripeBalance && stripeBalance.stripe_balance_error && (
+              <div className="flex items-start gap-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+                <AlertCircle size={13} className="shrink-0 mt-0.5" />
+                <span>Erro ao carregar saldo. Verifique a conexão com o Stripe.</span>
+              </div>
+            )}
+
+            {stripeBalance && !stripeBalance.stripe_balance_error && (
+              <div className="space-y-2.5">
+                {/* 1 — Já depositado no banco (30 dias) */}
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="text-xs text-gray-500 leading-snug">
+                    Já depositado no banco (30 dias)
+                  </p>
+                  <p className="text-sm font-extrabold text-green-700 shrink-0">
+                    {stripeBalance.stripe_total_paid_out != null
+                      ? stripeBalance.stripe_total_paid_out.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+                      : "—"}
+                  </p>
+                </div>
+
+                {/* 2 — Disponível para saque */}
+                <div className="flex items-baseline justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-xs text-gray-500 leading-snug">Disponível para saque</p>
+                    {stripeBalance.stripe_available === 0 && (
+                      <p className="text-xs text-gray-400 leading-snug">
+                        Payout automático diário ativo
+                      </p>
+                    )}
+                  </div>
+                  <p className="text-sm font-bold text-gray-800 shrink-0">
+                    {stripeBalance.stripe_available != null
+                      ? stripeBalance.stripe_available.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+                      : "—"}
+                  </p>
+                </div>
+
+                {/* 3 — A caminho do banco */}
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="text-xs text-gray-500 leading-snug">A caminho do banco</p>
+                  <p className="text-sm font-bold text-gray-800 shrink-0">
+                    {stripeBalance.stripe_in_transit != null
+                      ? stripeBalance.stripe_in_transit.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+                      : "—"}
+                  </p>
+                </div>
+
+                {/* 4 — Aguardando liberação */}
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="text-xs text-gray-500 leading-snug">Aguardando liberação</p>
+                  <p className="text-sm font-bold text-gray-800 shrink-0">
+                    {stripeBalance.stripe_pending != null
+                      ? stripeBalance.stripe_pending.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+                      : "—"}
+                  </p>
+                </div>
+
+                {/* 5 — Total repassado pela plataforma */}
+                <div className="flex items-baseline justify-between gap-2 pt-2 border-t border-purple-200">
+                  <div className="min-w-0">
+                    <p className="text-xs text-gray-500 leading-snug">
+                      Total repassado pela plataforma
+                    </p>
+                    <p className="text-xs text-gray-400">Histórico completo</p>
+                  </div>
+                  <p className="text-sm font-bold text-gray-800 shrink-0">
+                    {stripeBalance.dispatched_transfers
+                      ? Number(stripeBalance.dispatched_transfers).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+                      : "—"}
+                  </p>
+                </div>
+
+                {/* Failed transfers alert */}
+                {Number(stripeBalance.failed_transfers) > 0 && (
+                  <div className="flex items-start gap-2 p-2.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 mt-1">
+                    <AlertCircle size={13} className="shrink-0 mt-0.5" />
+                    <span>
+                      {Number(stripeBalance.failed_transfers).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} em repasses com falha. Verifique sua conta Stripe.
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   ShoppingBag,
   MessageSquare,
+  MessageCircle,
 } from "lucide-react";
 import { useCart, type CartItem } from "@/contexts/CartContext";
 import { addressService, type Address, type AddressCreateRequest } from "@/services/addressService";
@@ -26,7 +27,9 @@ import Swal from "sweetalert2";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type SellerDeliveryMethod = 'melhor_envio' | 'vendor' | 'both';
+// BUG 5 — 'in_person' is the value emitted by the "Combinar com vendedor"
+// radio card inside mixed-seller quote sections.
+export type SellerDeliveryMethod = 'melhor_envio' | 'vendor' | 'both' | 'in_person';
 
 interface ItemRef {
   listing_id: number;
@@ -551,7 +554,8 @@ export function Checkout() {
   // ── Delivery method selection ──
   const handleSelectDeliveryMethod = useCallback((sellerId: string, method: SellerDeliveryMethod) => {
     setSellerDeliveryMethods(prev => ({ ...prev, [sellerId]: method }));
-    if (method === 'vendor') {
+    // BUG 5 — 'in_person' (Combinar com vendedor) never needs a shipping service_id
+    if (method === 'vendor' || method === 'in_person') {
       setSelectedServices(prev => {
         const next = { ...prev };
         delete next[sellerId];
@@ -582,7 +586,8 @@ export function Checkout() {
       if (quote.in_person_only) return true;
       const method = sellerDeliveryMethods[sid];
       if (!method) return false;
-      if (method === 'vendor') return true;
+      // BUG 5 — 'in_person' (Combinar com vendedor) and 'vendor' need no service_id
+      if (method === 'vendor' || method === 'in_person') return true;
       if (quote.quotes.length === 0) return true;
       return selectedServices[sid] !== undefined;
     });
@@ -594,8 +599,9 @@ export function Checkout() {
       state: {
         shippingAddressId: selectedAddressId,
         selectedServices,
+        // BUG 5 — 'in_person' (Combinar com vendedor) must also appear in inPersonSellers
         inPersonSellers: Object.entries(sellerDeliveryMethods)
-          .filter(([, m]) => m === 'vendor' || m === 'both')
+          .filter(([, m]) => m === 'vendor' || m === 'both' || m === 'in_person')
           .map(([id]) => id),
         sellerDeliveryMethods,
         quotesSnapshot: Object.fromEntries(
@@ -1139,10 +1145,14 @@ export function Checkout() {
                             {!sellerQuote ? (
                               <p className="text-sm text-gray-400 italic pl-1">Aguardando cotações...</p>
                             ) : sellerQuote.in_person_only ? (
-                              // Case 1: vendor-only delivery
-                              <AlertBanner variant="warning">
-                                Este vendedor realiza entrega pessoal. Entre em contato com o vendedor após a compra para combinar a entrega.
-                              </AlertBanner>
+                              // Case 1: vendor-only delivery — BUG 5: amber info card, no selection needed
+                              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                                <p className="text-sm font-medium text-amber-800">Entrega presencial</p>
+                                <p className="text-sm text-amber-700 mt-1">
+                                  Este vendedor realiza apenas entrega presencial.
+                                  Após confirmar o pedido, combine os detalhes pelo chat.
+                                </p>
+                              </div>
                             ) : !sellerQuote.has_in_person ? (
                               // Case 2: ME-only — show quotes directly
                               <div role="radiogroup" aria-label={`Frete para ${sellerName}`} className="space-y-2">
@@ -1322,8 +1332,50 @@ export function Checkout() {
                                   )
                                 )}
 
+                                {/* BUG 5 — "Combinar com vendedor" radio card for mixed sellers
+                                    Shown whenever the seller has in_person_items available.
+                                    Selecting it sets delivery_method: 'in_person' with no service_id. */}
+                                {sellerQuote.in_person_items.length > 0 && (
+                                  <div className="space-y-2 mb-3">
+                                    <label
+                                      className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${
+                                        sellerDeliveryMethods[sellerId] === 'in_person'
+                                          ? 'border-blue-800 bg-blue-50'
+                                          : 'border-gray-200 hover:border-gray-300'
+                                      }`}
+                                    >
+                                      <input
+                                        type="radio"
+                                        className="sr-only"
+                                        name={`delivery-${sellerId}`}
+                                        value="in_person"
+                                        checked={sellerDeliveryMethods[sellerId] === 'in_person'}
+                                        onChange={() => handleSelectDeliveryMethod(sellerId, 'in_person')}
+                                      />
+                                      <MessageCircle size={20} className="text-blue-800 shrink-0" aria-hidden="true" />
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-medium text-gray-900">Combinar com vendedor</p>
+                                        <p className="text-xs text-gray-500">Combine local e horário pelo chat após a compra</p>
+                                      </div>
+                                      <span className="text-sm font-semibold text-green-700">Grátis</span>
+                                    </label>
+
+                                    {/* List of items eligible for in-person delivery */}
+                                    {sellerDeliveryMethods[sellerId] === 'in_person' && (
+                                      <div className="pl-2 space-y-1">
+                                        {sellerQuote.in_person_items.map((item) => (
+                                          <div key={item.listing_id} className="flex items-center gap-2 text-xs text-gray-500">
+                                            <Package size={12} className="text-gray-400 shrink-0" aria-hidden="true" />
+                                            <span>{item.title}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
                                 {/* Contact note when vendor or both selected */}
-                                {(sellerDeliveryMethods[sellerId] === 'vendor' || sellerDeliveryMethods[sellerId] === 'both') && (
+                                {(sellerDeliveryMethods[sellerId] === 'vendor' || sellerDeliveryMethods[sellerId] === 'both' || sellerDeliveryMethods[sellerId] === 'in_person') && (
                                   <AlertBanner variant="warning">
                                     Entre em contato com o vendedor para combinar a entrega dos itens a cargo dele.
                                   </AlertBanner>

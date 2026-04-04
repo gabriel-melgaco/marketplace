@@ -81,6 +81,8 @@ export interface SellerBalanceResponse {
   stripe_available: number | null;
   stripe_pending: number | null;
   stripe_in_transit: number | null;
+  // BUG 4 — total amount already paid out to bank in the last 30 days
+  stripe_total_paid_out: number | null;
   stripe_balance_error: boolean;
   pending_transfers: string;
   dispatched_transfers: string;

@@ -59,9 +59,13 @@ interface OrderCreatePayload {
   items_delivery: ItemDelivery[];
 }
 
+// Backend returns Order[] (array), even for single-seller carts.
+// For multi-seller carts the array will contain one entry per seller.
 interface OrderCreateResponse {
   id: number;
 }
+
+type OrderCreateApiResponse = OrderCreateResponse | OrderCreateResponse[];
 
 interface PaymentIntentResponseData {
   payment_id: number;
@@ -302,11 +306,17 @@ function StripeCardForm({ clientSecret: _clientSecret, stripePaymentIntentId, or
 
 // ─── Main Payment Component ───────────────────────────────────────────────────
 
+// Extended location state — may carry an existingOrderId when the user is
+// redirected back from the pending-payment recovery flow (BUG 3).
+interface PaymentLocationState extends CheckoutNavigationState {
+  existingOrderId?: number;
+}
+
 export function Payment() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const checkoutState = location.state as CheckoutNavigationState | null;
+  const checkoutState = location.state as PaymentLocationState | null;
 
   // Redirect if arrived without checkout state (e.g. direct navigation or refresh)
   useEffect(() => {
@@ -328,6 +338,14 @@ export function Payment() {
   // ── Create order automatically on mount ──
   useEffect(() => {
     if (!checkoutState) return;
+
+    // BUG 3 — if the user was redirected back with an existing pending order,
+    // skip creation entirely and use that order id directly.
+    if (checkoutState.existingOrderId != null) {
+      setOrderId(checkoutState.existingOrderId);
+      setOrderLoading(false);
+      return;
+    }
 
     const controller = new AbortController();
     const { shippingAddressId, selectedServices, sellerDeliveryMethods, quotesSnapshot } = checkoutState;
@@ -384,10 +402,22 @@ export function Payment() {
           items_delivery: itemsDelivery,
         };
 
-        const response = await api.post<OrderCreateResponse>("/orders/create/", payload, {
+        // BUG 2 — The backend returns Order[] (an array), not a single object.
+        // Typing it as the union and normalising to a single entry here.
+        const response = await api.post<OrderCreateApiResponse>("/orders/create/", payload, {
           signal: controller.signal,
         });
-        setOrderId(response.data.id);
+
+        // Normalise: accept both array (backend) and plain object (future-proof)
+        const firstOrder = Array.isArray(response.data)
+          ? response.data[0]
+          : response.data;
+
+        if (!firstOrder?.id) {
+          throw new Error("Resposta inválida do servidor ao criar pedido.");
+        }
+
+        setOrderId(firstOrder.id);
         setOrderLoading(false);
       } catch (err: unknown) {
         // Axios throws a CanceledError when the AbortController signal fires;
@@ -408,11 +438,54 @@ export function Payment() {
         }
 
         if (axios.isAxiosError(err) && err.response?.status === 400) {
-          const msg = (err.response.data as { error?: string })?.error ?? "";
-          if (msg.toLowerCase().includes("cotação") || msg.toLowerCase().includes("expirada")) {
+          const data = err.response.data as { error?: string; detail?: string };
+          const msg = (data?.error ?? data?.detail ?? "").toLowerCase();
+
+          // Expired quote — redirect back to checkout
+          if (msg.includes("cotação") || msg.includes("expirada")) {
             navigate("/checkout", {
               state: { error: "Sua cotação de frete expirou. Por favor, recalcule o frete." },
             });
+            return;
+          }
+
+          // BUG 3 — Existing pending_payment order blocks new order creation
+          if (msg.includes("aguardando pagamento") || msg.includes("pending_payment")) {
+            const orderMatch = msg.match(/ord-\d{4}-\d+/i);
+            const orderNumber = orderMatch ? orderMatch[0].toUpperCase() : null;
+
+            const result = await Swal.fire({
+              icon: "warning",
+              title: "Pedido pendente",
+              html: `Você já possui um pedido aguardando pagamento${orderNumber ? ` (${orderNumber})` : ""}.<br><br>Deseja continuar pagando esse pedido ou cancelá-lo para criar um novo?`,
+              showDenyButton: true,
+              showCancelButton: true,
+              confirmButtonText: "Continuar pagando",
+              denyButtonText: "Cancelar pedido antigo",
+              cancelButtonText: "Voltar",
+            });
+
+            if (result.isConfirmed) {
+              // Resume payment on the existing pending order
+              const ordersRes = await api.get<{ results?: OrderCreateResponse[] }>("/orders/?status=pending_payment");
+              const pendingOrder = ordersRes.data.results?.[0];
+              if (pendingOrder) {
+                navigate("/payment", {
+                  state: { ...checkoutState, existingOrderId: pendingOrder.id },
+                });
+              }
+            } else if (result.isDenied) {
+              // Cancel the old order then retry creation
+              const ordersRes = await api.get<{ results?: OrderCreateResponse[] }>("/orders/?status=pending_payment");
+              const pendingOrder = ordersRes.data.results?.[0];
+              if (pendingOrder) {
+                await api.post(`/orders/${pendingOrder.id}/cancel/`);
+                // Restart the whole page so the useEffect re-runs cleanly
+                navigate("/payment", { state: checkoutState });
+              }
+            }
+
+            setOrderLoading(false);
             return;
           }
         }
