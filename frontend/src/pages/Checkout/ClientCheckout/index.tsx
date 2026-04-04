@@ -420,12 +420,38 @@ export function Checkout() {
           }
         }
 
+        let unavailableCount = 0;
         for (const item of cartItems) {
           if (cancelled) return;
-          await api.post("/orders/cart/add/", {
-            listing: item.listing.id,
-            quantity: item.quantity,
-          });
+          try {
+            await api.post("/orders/cart/add/", {
+              listing: item.listing.id,
+              quantity: item.quantity,
+            });
+          } catch (addErr: unknown) {
+            // 404 = listing no longer exists or is inactive — skip and continue
+            if (axios.isAxiosError(addErr) && addErr.response?.status === 404) {
+              unavailableCount++;
+            } else {
+              throw addErr;
+            }
+          }
+        }
+        if (unavailableCount > 0 && unavailableCount === cartItems.length) {
+          // All items failed — build from listing data and abort sync
+          const fallback: Record<string, SellerQuote> = {};
+          for (const [sellerId, group] of groups.entries()) {
+            fallback[sellerId] = buildQuoteFromItems(group.seller_name, group.items);
+          }
+          const fallbackMethods: Record<string, SellerDeliveryMethod> = {};
+          for (const [sellerId, quote] of Object.entries(fallback)) {
+            if (quote.in_person_only) fallbackMethods[sellerId] = 'vendor';
+            else if (!quote.has_in_person) fallbackMethods[sellerId] = 'melhor_envio';
+          }
+          setQuotesMap(fallback);
+          setSellerDeliveryMethods(fallbackMethods);
+          setShippingError("Não foi possível verificar a disponibilidade dos itens. Confirme com o vendedor antes de prosseguir.");
+          return;
         }
 
         if (cancelled) return;
