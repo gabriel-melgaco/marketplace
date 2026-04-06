@@ -461,6 +461,9 @@ export function Checkout() {
         const response = await shippingService.calculateShipping({ shipping_address_id: addressId });
         if (cancelled) return;
 
+        console.log('[Checkout] calculateShipping response:', response);
+        console.log('[Checkout] quotes_by_seller:', response.quotes_by_seller);
+
         const newQuotes: Record<string, SellerQuote> = {};
         const newInPerson: string[] = [];
 
