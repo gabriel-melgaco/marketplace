@@ -30,6 +30,10 @@ dist-ssr
 *.sw?
 
 .env
+*.md
+*.sh
+
+*.pdf
 .env.local
 .env*.local
 .env.production

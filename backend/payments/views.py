@@ -992,6 +992,8 @@ class ScheduledTransferListView(generics.ListAPIView):
         "stripe_pending: saldo em liquidação na conta Connect (tipicamente 2-7 dias úteis). "
         "stripe_in_transit: valor de payouts já sacados pelo vendedor que ainda estão a caminho do banco "
         "(via stripe.Payout.list(status='in_transit')). Corresponde ao 'Em trânsito para o banco' no Stripe Dashboard. "
+        "LIMITAÇÃO: o filtro status='in_transit' do Stripe é ignorado em test mode (livemode=false), retornando todos os payouts independente do status. "
+        "Este campo só é confiável em ambiente de produção (livemode=true). "
         "stripe_total_paid_out: soma de todos os payouts com status='paid' nos últimos 30 dias "
         "(via stripe.Payout.list(status='paid', created.gte=now-30d)). Representa o total efetivamente pago ao banco do vendedor no período. "
         "pending_transfers: valor de splits aguardando disparo ao Stripe. "
