@@ -13,6 +13,7 @@ import {
   Calendar,
 } from "lucide-react";
 import { authService } from "@/services/authService";
+import { AuthLogo } from "@/components/ui/AuthLogo";
 import {
   validateCPF,
   formatCPF,
@@ -20,6 +21,7 @@ import {
   isPasswordValid,
   validateEmail,
 } from "@/utils/validators";
+import { toISODate } from "@/utils/formatters";
 
 export function Register() {
   const navigate = useNavigate();
@@ -160,7 +162,7 @@ export function Register() {
         password2: formData.password2,
         full_name: formData.fullName,
         cpf: formData.cpf.replace(/[^\d]/g, ""), // Remove formatação
-        birthday: formData.birthday,
+        birthday: toISODate(formData.birthday), // Converter para formato ISO
         picture: formData.picture || "",
       });
 
@@ -199,16 +201,9 @@ export function Register() {
 
   return (
     <div className="min-h-screen bg-linear-to-br from-black via-gray-900 to-blue-600 flex items-center justify-center p-4 py-8">
-      {/* Logo */}
-      <div className="absolute top-4 left-4 md:top-8 md:left-8 flex items-center gap-2 text-white">
-        <div className="w-8 h-8 md:w-10 md:h-10 bg-secundary rounded-full flex items-center justify-center">
-          <span className="text-xs md:text-sm font-bold">CS</span>
-        </div>
-        <span className="font-bold text-lg md:text-2xl">MARKETPLACE</span>
-      </div>
-
+      <AuthLogo />
       {/* Card de Cadastro */}
-      <div className="w-full max-w-md lg:max-w-2xl my-12 md:my-8">
+      <div className="w-full max-w-md lg:max-w-2xl my-10 md:my-15">
         <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
           {/* Header */}
           <div className="bg-linear-to-r from-blue-900 to-gray-900 p-6 md:p-8 text-white text-center">
@@ -313,12 +308,34 @@ export function Register() {
                     size={20}
                   />
                   <input
-                    type="date"
+                    type="text"
                     name="birthday"
+                    inputMode="numeric"
+                    maxLength={10}
+                    placeholder="DD/MM/AAAA"
                     value={formData.birthday}
-                    onChange={handleChange}
+                    onChange={(e) => {
+                      const numbers = e.target.value.replace(/\D/g, "");
+
+                      let formatted = numbers;
+
+                      if (numbers.length > 2 && numbers.length <= 4) {
+                        formatted = `${numbers.slice(0, 2)}/${numbers.slice(2)}`;
+                      } else if (numbers.length > 4) {
+                        formatted = `${numbers.slice(0, 2)}/${numbers.slice(2, 4)}/${numbers.slice(4, 8)}`;
+                      }
+
+                      handleChange({
+                        ...e,
+                        target: {
+                          ...e.target,
+                          name: "birthday",
+                          value: formatted,
+                        },
+                      });
+                    }}
                     onBlur={() => handleBlur("birthday")}
-                    className={`w-full pl-11 pr-4 py-2.5 border-2 rounded-lg focus:outline-none transition text-sm md:text-base ${
+                    className={`w-full box-border max-w-full min-w-0 pl-11 pr-4 py-2.5 border-2 rounded-lg focus:outline-none transition text-sm md:text-base ${
                       touched.birthday && errors.birthday
                         ? "border-red-500 focus:border-red-500"
                         : "border-gray-300 focus:border-blue-500"

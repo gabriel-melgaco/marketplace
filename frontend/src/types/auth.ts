@@ -14,6 +14,7 @@ export interface RegisterCredentials {
 }
 
 export interface PasswordChangeRequest {
+  old_password: string;
   new_password1: string;
   new_password2: string;
 }
@@ -47,8 +48,10 @@ export interface User {
   full_name: string;
   birthday: string;
   cpf: string;
+  /** Empty string ("") means no picture — use truthiness check before rendering. */
   picture: string;
   is_active: boolean;
+  is_seller?: boolean;
 }
 
 export interface LoginResponse {
@@ -77,4 +80,5 @@ export interface AuthContextData {
   isLoading: boolean;
   login: (credentials: LoginCredentials) => Promise<void>;
   logout: () => void;
+  setUser: (user: User) => void;
 }

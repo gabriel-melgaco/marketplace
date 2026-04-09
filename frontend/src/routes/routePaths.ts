@@ -5,15 +5,20 @@ export const ROUTES = {
   HOME: "/",
   PRODUCT_LIST: "/productlist",
   PRODUCT_DETAIL: "/productdetail/:id",
+  CATEGORY_PRODUCTS: "/products",
 
   // Auth
+  GOOGLE_CALLBACK: "/google",
+  MELHOR_ENVIO_CALLBACK: "/auth/melhor-envio/callback",
+  STRIPE_ONBOARDING_COMPLETE: "/seller/onboarding/complete",
   LOGIN: "/login",
   REGISTER: "/register",
   FORGOT_PASSWORD: "/forgotpassword",
-  RESET_PASSWORD: "/resetpassword",
+  RESET_PASSWORD: "/reset-password",
 
   // Dashboard
   DASHBOARD: "/dashboard",
+  CREATE_LISTING: "/create-listing",
   EDIT_AD: "/ad/:id",
   MY_PURCHASES: "/mypurchase",
   MY_SALES: "/mysales",
@@ -23,6 +28,12 @@ export const ROUTES = {
   CHECKOUT: "/checkout",
   PAYMENT: "/payment",
   ORDER_CONFIRMED: "/orderconfirmed",
+
+  // Account
+  ACCOUNT: "/account",
+
+  // Legal
+  COOKIE_POLICY: "/politica-de-cookies",
 } as const;
 
 // Função helper para criar rotas dinâmicas

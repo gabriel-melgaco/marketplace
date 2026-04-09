@@ -6,6 +6,14 @@ import path from "path";
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  server: {
+    allowedHosts: ["marketplace.megdev.com.br"],
+    hmr: {
+      host: "marketplace.megdev.com.br",
+      clientPort: 443,
+      protocol: "wss",
+    },
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -19,5 +27,11 @@ export default defineConfig({
       "@/api": path.resolve(__dirname, "./src/api"),
       "@/assets": path.resolve(__dirname, "./src/assets"),
     },
+  },
+  test: {
+    globals: true,
+    environment: "jsdom",
+    setupFiles: ["./src/test/setup.ts"],
+    exclude: ["e2e/**", "node_modules/**"],
   },
 });

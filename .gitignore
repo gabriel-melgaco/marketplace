@@ -34,3 +34,13 @@ dist-ssr
 *.sh
 
 *.pdf
+.env.local
+.env*.local
+.env.production
+
+.local-docs/
+.claude
+
+# Test artifacts
+playwright-report/
+test-results/
