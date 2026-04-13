@@ -58,7 +58,7 @@ interface SellerQuote {
 
 /**
  * Represents the raw shape returned by the API per seller inside
- * `quotes_by_seller` (SellerQuoteEntry schema).
+ * `quotes_by_listing` (SellerQuoteEntry schema).
  * The canonical field is `services`; `quotes`/`options` are kept as
  * fallbacks for backward compatibility with older API responses.
  */
@@ -462,12 +462,12 @@ export function Checkout() {
         if (cancelled) return;
 
         console.log('[Checkout] calculateShipping response:', response);
-        console.log('[Checkout] quotes_by_seller:', response.quotes_by_seller);
+        console.log('[Checkout] quotes_by_listing:', response.quotes_by_listing);
 
         const newQuotes: Record<string, SellerQuote> = {};
         const newInPerson: string[] = [];
 
-        for (const [sellerId, raw] of Object.entries(response.quotes_by_seller)) {
+        for (const [sellerId, raw] of Object.entries(response.quotes_by_listing)) {
           const rawData = raw as RawSellerQuote;
           const inPersonOnly = rawData.in_person_only === true;
 

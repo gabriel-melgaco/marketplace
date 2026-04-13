@@ -16,7 +16,7 @@ export interface CalculateShippingRequest {
 }
 
 export interface CalculateShippingResponse {
-  quotes_by_seller: Record<string, any>;
+  quotes_by_listing: Record<string, any>;
   shipping_address: any;
   shipping_address_id: number;
   total_items: number;
