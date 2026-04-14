@@ -629,25 +629,36 @@ export function Checkout() {
     }
   }, [selectedAddressId]);
 
-  // ── CEP lookup ──
-  const handleCepBlur = useCallback(async () => {
+  // ── CEP auto-fill: dispara assim que 8 dígitos são digitados ──
+  useEffect(() => {
     const clean = newAddress.zipcode.replace(/\D/g, "");
     if (clean.length !== 8) return;
-    try {
-      setCepLoading(true);
-      const result = await addressService.lookupCEP({ zipcode: clean });
-      setNewAddress((prev) => ({
-        ...prev,
-        street: result.street || prev.street,
-        neighborhood: result.neighborhood || prev.neighborhood,
-        city: result.city || prev.city,
-        state: result.state || prev.state,
-      }));
-    } catch {
-      // fail silently — user fills in manually
-    } finally {
-      setCepLoading(false);
-    }
+
+    let cancelled = false;
+    setCepLoading(true);
+
+    addressService
+      .lookupCEP({ zipcode: clean })
+      .then((result) => {
+        if (cancelled) return;
+        setNewAddress((prev) => ({
+          ...prev,
+          street: result.street || prev.street,
+          neighborhood: result.neighborhood || prev.neighborhood,
+          city: result.city || prev.city,
+          state: result.state || prev.state,
+        }));
+      })
+      .catch(() => {
+        // falha silenciosa — usuário preenche manualmente
+      })
+      .finally(() => {
+        if (!cancelled) setCepLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [newAddress.zipcode]);
 
   // ── Save new address ──
@@ -1154,7 +1165,6 @@ export function Checkout() {
                                   zipcode: applyZipcodeMask(e.target.value),
                                 }))
                               }
-                              onBlur={handleCepBlur}
                               placeholder="00000-000"
                               className={`${inputCls()} pr-9`}
                             />
