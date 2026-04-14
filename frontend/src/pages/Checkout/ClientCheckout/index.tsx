@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   MapPin,
@@ -13,12 +13,12 @@ import {
   CheckCircle2,
   ShoppingBag,
   MessageSquare,
-  MessageCircle,
   Trash2,
 } from "lucide-react";
 import { useCart, type CartItem } from "@/contexts/CartContext";
 import { addressService, type Address, type AddressCreateRequest } from "@/services/addressService";
 import { shippingService } from "@/services/shippingService";
+import { logisticsService } from "@/services/logisticsService";
 import { formatCurrency } from "@/utils/formatters";
 import { BRAZILIAN_STATES } from "@/constants/brazilianStates";
 import { toPublicUrl } from "@/services/storageService";
@@ -357,6 +357,15 @@ export function Checkout() {
   const [inPersonSellers, setInPersonSellers] = useState<string[]>([]);
   const [sellerDeliveryMethods, setSellerDeliveryMethods] = useState<Record<string, SellerDeliveryMethod>>({});
   const [syncingCart, setSyncingCart] = useState(false);
+  const [perSellerLoading, setPerSellerLoading] = useState<Record<string, boolean>>({});
+
+  // Refs for stale-closure-safe access inside async callbacks
+  const addressesRef = useRef<Address[]>([]);
+  useEffect(() => { addressesRef.current = addresses; }, [addresses]);
+  const selectedAddressIdRef = useRef<number | null>(null);
+  useEffect(() => { selectedAddressIdRef.current = selectedAddressId; }, [selectedAddressId]);
+  const quotesMapRef = useRef<Record<string, SellerQuote>>({});
+  useEffect(() => { quotesMapRef.current = quotesMap; }, [quotesMap]);
 
   // ── Load addresses ──
   useEffect(() => {
@@ -467,7 +476,7 @@ export function Checkout() {
         const newQuotes: Record<string, SellerQuote> = {};
         const newInPerson: string[] = [];
 
-        for (const [sellerId, raw] of Object.entries(response.quotes_by_listing)) {
+        for (const [sellerId, raw] of Object.entries(response.quotes_by_listing ?? {})) {
           const rawData = raw as RawSellerQuote;
           const inPersonOnly = rawData.in_person_only === true;
 
@@ -634,15 +643,52 @@ export function Checkout() {
   }, [savingAddress, newAddress]);
 
   // ── Delivery method selection ──
-  const handleSelectDeliveryMethod = useCallback((sellerId: string, method: SellerDeliveryMethod) => {
+  const handleSelectDeliveryMethod = useCallback(async (sellerId: string, method: SellerDeliveryMethod) => {
     setSellerDeliveryMethods(prev => ({ ...prev, [sellerId]: method }));
-    // BUG 5 — 'in_person' (Combinar com vendedor) never needs a shipping service_id
     if (method === 'vendor' || method === 'in_person') {
       setSelectedServices(prev => {
         const next = { ...prev };
         delete next[sellerId];
         return next;
       });
+    }
+
+    // When Melhor Envio is selected and quotes are not yet loaded, fetch them
+    // using the same freight-quote endpoint used in ProductDetail.
+    if (method === 'melhor_envio' || method === 'both') {
+      const currentQuote = quotesMapRef.current[sellerId];
+      if (!currentQuote || currentQuote.quotes.length > 0) return;
+      if (currentQuote.melhor_envio_items.length === 0) return;
+
+      const address = addressesRef.current.find(a => a.id === selectedAddressIdRef.current);
+      if (!address) return;
+
+      const cep = address.zipcode.replace(/\D/g, '');
+      if (cep.length !== 8) return;
+
+      const firstItem = currentQuote.melhor_envio_items[0];
+      setPerSellerLoading(prev => ({ ...prev, [sellerId]: true }));
+      try {
+        const result = await logisticsService.getFreightQuote(firstItem.listing_id, cep);
+        if (result.available && result.options && result.options.length > 0) {
+          const parsedOptions: ShippingOption[] = result.options.map(o => ({
+            service_id: o.service_id,
+            name: o.name,
+            company: o.company,
+            company_picture: toSafeImageUrl(o.company_picture),
+            price: Number(o.price),
+            delivery_time: o.delivery_days,
+          }));
+          setQuotesMap(prev => ({
+            ...prev,
+            [sellerId]: { ...prev[sellerId], quotes: parsedOptions },
+          }));
+        }
+      } catch {
+        // fail silently — user sees empty-state message
+      } finally {
+        setPerSellerLoading(prev => ({ ...prev, [sellerId]: false }));
+      }
     }
   }, []);
 
@@ -1348,7 +1394,9 @@ export function Checkout() {
 
                                 {/* ME quotes when melhor_envio or both selected */}
                                 {(sellerDeliveryMethods[sellerId] === 'melhor_envio' || sellerDeliveryMethods[sellerId] === 'both') && (
-                                  sellerQuote.quotes.length === 0 ? (
+                                  perSellerLoading[sellerId] ? (
+                                    <LoadingRow label="Buscando opções de frete..." />
+                                  ) : sellerQuote.quotes.length === 0 ? (
                                     <p className="text-sm text-gray-500 italic pl-1">Nenhuma opção de frete disponível.</p>
                                   ) : (
                                     <div role="radiogroup" aria-label={`Serviços Melhor Envio para ${sellerName}`} className="space-y-2 mb-3">
@@ -1418,50 +1466,8 @@ export function Checkout() {
                                   )
                                 )}
 
-                                {/* BUG 5 — "Combinar com vendedor" radio card for mixed sellers
-                                    Shown whenever the seller has in_person_items available.
-                                    Selecting it sets delivery_method: 'in_person' with no service_id. */}
-                                {sellerQuote.in_person_items.length > 0 && (
-                                  <div className="space-y-2 mb-3">
-                                    <label
-                                      className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${
-                                        sellerDeliveryMethods[sellerId] === 'in_person'
-                                          ? 'border-blue-800 bg-blue-50'
-                                          : 'border-gray-200 hover:border-gray-300'
-                                      }`}
-                                    >
-                                      <input
-                                        type="radio"
-                                        className="sr-only"
-                                        name={`delivery-${sellerId}`}
-                                        value="in_person"
-                                        checked={sellerDeliveryMethods[sellerId] === 'in_person'}
-                                        onChange={() => handleSelectDeliveryMethod(sellerId, 'in_person')}
-                                      />
-                                      <MessageCircle size={20} className="text-blue-800 shrink-0" aria-hidden="true" />
-                                      <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-medium text-gray-900">Combinar com vendedor</p>
-                                        <p className="text-xs text-gray-500">Combine local e horário pelo chat após a compra</p>
-                                      </div>
-                                      <span className="text-sm font-semibold text-green-700">Grátis</span>
-                                    </label>
-
-                                    {/* List of items eligible for in-person delivery */}
-                                    {sellerDeliveryMethods[sellerId] === 'in_person' && (
-                                      <div className="pl-2 space-y-1">
-                                        {sellerQuote.in_person_items.map((item) => (
-                                          <div key={item.listing_id} className="flex items-center gap-2 text-xs text-gray-500">
-                                            <Package size={12} className="text-gray-400 shrink-0" aria-hidden="true" />
-                                            <span>{item.title}</span>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-
                                 {/* Contact note when vendor or both selected */}
-                                {(sellerDeliveryMethods[sellerId] === 'vendor' || sellerDeliveryMethods[sellerId] === 'both' || sellerDeliveryMethods[sellerId] === 'in_person') && (
+                                {(sellerDeliveryMethods[sellerId] === 'vendor' || sellerDeliveryMethods[sellerId] === 'both') && (
                                   <AlertBanner variant="warning">
                                     Entre em contato com o vendedor para combinar a entrega dos itens a cargo dele.
                                   </AlertBanner>
