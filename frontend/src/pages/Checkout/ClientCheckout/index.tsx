@@ -470,13 +470,10 @@ export function Checkout() {
         const response = await shippingService.calculateShipping({ shipping_address_id: addressId });
         if (cancelled) return;
 
-        console.log('[Checkout] calculateShipping response:', response);
-        console.log('[Checkout] quotes_by_listing:', response.quotes_by_listing);
-
         const newQuotes: Record<string, SellerQuote> = {};
         const newInPerson: string[] = [];
 
-        for (const [sellerId, raw] of Object.entries(response.quotes_by_listing ?? {})) {
+        for (const [sellerId, raw] of Object.entries(response.quotes_by_seller ?? {})) {
           const rawData = raw as RawSellerQuote;
           const inPersonOnly = rawData.in_person_only === true;
 
@@ -517,19 +514,25 @@ export function Checkout() {
         }
 
         const autoMethods: Record<string, SellerDeliveryMethod> = {};
+        const autoServices: Record<string, number> = {};
+
         for (const [sellerId, quote] of Object.entries(newQuotes)) {
           if (quote.in_person_only) {
             autoMethods[sellerId] = 'vendor';
           } else if (!quote.has_in_person) {
             autoMethods[sellerId] = 'melhor_envio';
+            // Auto-seleciona o mais barato (API já retorna ordenado por preço)
+            if (quote.quotes.length > 0) {
+              autoServices[sellerId] = quote.quotes[0].service_id;
+            }
           }
-          // mixed sellers: no auto-selection, user must choose
+          // mixed sellers: sem auto-seleção, usuário escolhe
         }
         setSellerDeliveryMethods(autoMethods);
+        setSelectedServices(autoServices);
 
         setQuotesMap(newQuotes);
         setInPersonSellers(newInPerson);
-        setSelectedServices({});
       } catch (err: unknown) {
         if (cancelled) return;
 
