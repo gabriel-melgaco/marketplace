@@ -358,6 +358,8 @@ export function Checkout() {
   const [inPersonSellers, setInPersonSellers] = useState<string[]>([]);
   const [sellerDeliveryMethods, setSellerDeliveryMethods] = useState<Record<string, SellerDeliveryMethod>>({});
   const [syncingCart, setSyncingCart] = useState(false);
+  // Incrementado sempre que queremos forçar o recálculo do frete (ex: novo endereço salvo)
+  const [shippingKey, setShippingKey] = useState(0);
   const [perSellerLoading, setPerSellerLoading] = useState<Record<string, boolean>>({});
 
   // Refs for stale-closure-safe access inside async callbacks
@@ -593,7 +595,9 @@ export function Checkout() {
 
     syncAndCalculate();
     return () => { cancelled = true; };
-  }, [selectedAddressId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // shippingKey garante re-trigger explícito quando um novo endereço é salvo,
+  // mesmo que selectedAddressId já tenha o valor correto no closure.
+  }, [selectedAddressId, shippingKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Delete address ──
   const handleDeleteAddress = useCallback(async (id: number) => {
@@ -714,6 +718,9 @@ export function Checkout() {
       setSelectedAddressId(created.id);
       setShowAddressForm(false);
       setNewAddress(BLANK_ADDRESS);
+      // Força o efeito de cálculo de frete a re-executar mesmo que
+      // selectedAddressId já tivesse o valor correto no closure anterior.
+      setShippingKey((k) => k + 1);
     } catch (err: unknown) {
       setFormError(getAxiosErrorMessage(err, "Erro ao salvar endereço."));
     } finally {
