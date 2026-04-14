@@ -496,10 +496,19 @@ export function Checkout() {
             shipping_method: item.shipping_method ?? "",
           }));
 
+          // Also derive has_in_person from cart listings' shipping_method so that
+          // sellers with shipping_method 'both' always show the delivery method
+          // selector even when the API returns an empty in_person_items array.
+          const cartGroup = groups.get(sellerId);
+          const hasInPersonFromCart = cartGroup?.items.some((i) => {
+            const m = (i.listing as { shipping_method?: string }).shipping_method;
+            return m === 'in_person' || m === 'both';
+          }) ?? false;
+
           newQuotes[sellerId] = {
             seller_name: rawData.seller_name ?? groups.get(sellerId)?.seller_name ?? sellerId,
             in_person_only: inPersonOnly,
-            has_in_person: inPersonItems.length > 0,
+            has_in_person: inPersonItems.length > 0 || hasInPersonFromCart,
             in_person_items: inPersonItems,
             melhor_envio_items: melhorEnvioItems,
             quotes,
