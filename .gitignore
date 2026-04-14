@@ -34,3 +34,7 @@ dist-ssr
 # Test artifacts
 playwright-report/
 test-results/
+
+# Graphify
+graphify-out/
+.graphifyignore

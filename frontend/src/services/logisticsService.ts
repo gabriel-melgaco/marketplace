@@ -92,7 +92,7 @@ export const logisticsService = {
 
   async lookupCep(cep: string): Promise<CepLookupResponse> {
     const cleanCep = cep.replace(/\D/g, "");
-    const response = await api.post<CepLookupResponse>("/logistics/cep/lookup/", { zipcode: cleanCep });
+    const response = await api.post<CepLookupResponse>("/logistics/cep/lookup/", { params: { zipcode: cleanCep } });
     return response.data;
   },
 
