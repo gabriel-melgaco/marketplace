@@ -342,6 +342,7 @@ export function Checkout() {
   const [addressError, setAddressError] = useState("");
   const [selectedAddressId, setSelectedAddressId] = useState<number | null>(null);
   const [showAddressForm, setShowAddressForm] = useState(false);
+  const [deletingAddressId, setDeletingAddressId] = useState<number | null>(null);
 
   // ── New address form ──
   const [newAddress, setNewAddress] = useState<AddressCreateRequest>(BLANK_ADDRESS);
@@ -594,6 +595,40 @@ export function Checkout() {
     return () => { cancelled = true; };
   }, [selectedAddressId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Delete address ──
+  const handleDeleteAddress = useCallback(async (id: number) => {
+    const { isConfirmed } = await Swal.fire({
+      icon: "warning",
+      title: "Excluir endereço?",
+      text: "Esta ação não pode ser desfeita.",
+      showCancelButton: true,
+      confirmButtonText: "Excluir",
+      cancelButtonText: "Cancelar",
+      confirmButtonColor: "#dc2626",
+    });
+    if (!isConfirmed) return;
+
+    try {
+      setDeletingAddressId(id);
+      await addressService.deleteAddress(id);
+      setAddresses((prev) => {
+        const remaining = prev.filter((a) => a.id !== id);
+        if (selectedAddressId === id) {
+          setSelectedAddressId(remaining[0]?.id ?? null);
+        }
+        return remaining;
+      });
+    } catch (err: unknown) {
+      await Swal.fire({
+        icon: "error",
+        title: "Erro ao excluir",
+        text: getAxiosErrorMessage(err, "Não foi possível excluir o endereço."),
+      });
+    } finally {
+      setDeletingAddressId(null);
+    }
+  }, [selectedAddressId]);
+
   // ── CEP lookup ──
   const handleCepBlur = useCallback(async () => {
     const clean = newAddress.zipcode.replace(/\D/g, "");
@@ -638,9 +673,30 @@ export function Checkout() {
     try {
       setSavingAddress(true);
       setFormError("");
+
+      // ── Validar se o CEP confere com a cidade/estado preenchidos ──
+      const cleanZip = newAddress.zipcode.replace(/\D/g, "");
+      try {
+        const cepResult = await addressService.lookupCEP({ zipcode: cleanZip });
+        const normalize = (s: string) =>
+          s.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        const cityOk = normalize(cepResult.city) === normalize(newAddress.city);
+        const stateOk = cepResult.state.toUpperCase() === newAddress.state.toUpperCase();
+        if (!cityOk || !stateOk) {
+          setFormError(
+            `O CEP ${newAddress.zipcode} corresponde a ${cepResult.city}/${cepResult.state}, ` +
+            `mas o endereço preenchido é ${newAddress.city}/${newAddress.state}. ` +
+            `Corrija o CEP ou os campos Cidade e Estado.`
+          );
+          return;
+        }
+      } catch {
+        // Lookup falhou — prosseguir sem bloquear o salvamento
+      }
+
       const created = await addressService.createAddress({
         ...newAddress,
-        zipcode: newAddress.zipcode.replace(/\D/g, ""),
+        zipcode: cleanZip,
         recipient_phone: newAddress.recipient_phone.replace(/\D/g, ""),
       });
       setAddresses((prev) => [...prev, created]);
@@ -968,13 +1024,32 @@ export function Checkout() {
                               <p className="text-xs text-gray-400 mt-0.5">{addr.zipcode}</p>
                             </div>
 
-                            {isSelected && (
-                              <CheckCircle2
-                                size={18}
-                                className="text-blue-800 shrink-0 mt-0.5"
-                                aria-hidden="true"
-                              />
-                            )}
+                            {/* Actions: check icon + delete button */}
+                            <div className="flex items-start gap-1.5 shrink-0">
+                              {isSelected && (
+                                <CheckCircle2
+                                  size={18}
+                                  className="text-blue-800 mt-0.5"
+                                  aria-hidden="true"
+                                />
+                              )}
+                              <button
+                                type="button"
+                                aria-label={`Excluir endereço de ${addr.recipient_name}`}
+                                disabled={deletingAddressId === addr.id}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteAddress(addr.id);
+                                }}
+                                className="p-1 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {deletingAddressId === addr.id ? (
+                                  <Loader2 size={15} className="animate-spin" aria-hidden="true" />
+                                ) : (
+                                  <Trash2 size={15} aria-hidden="true" />
+                                )}
+                              </button>
+                            </div>
                           </div>
                         );
                       })}
