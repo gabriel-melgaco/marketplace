@@ -1172,12 +1172,14 @@ export function Checkout() {
                               <Loader2
                                 size={15}
                                 className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-blue-800"
-                                aria-label="Buscando CEP..."
+                                aria-label="Buscando endereço..."
                               />
                             )}
                           </div>
                           <p className="mt-1 text-xs text-gray-400">
-                            Preenchido automaticamente ao sair do campo.
+                            {cepLoading
+                              ? "Buscando endereço..."
+                              : "Preenchido automaticamente ao digitar o CEP."}
                           </p>
                         </div>
                         <div>

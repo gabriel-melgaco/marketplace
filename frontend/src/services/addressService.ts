@@ -98,7 +98,7 @@ export const addressService = {
   },
 
   async lookupCEP(data: CEPLookupRequest) {
-    const response = await api.post<CEPLookupResponse>("/logistics/cep/lookup/", { params: { zipcode: data.zipcode } });
+    const response = await api.post<CEPLookupResponse>("/logistics/cep/lookup/", { zipcode: data.zipcode });
     return response.data;
   },
 };
