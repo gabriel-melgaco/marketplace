@@ -60,6 +60,7 @@ urlpatterns = [
     # =================== Per-Seller Melhor Envio OAuth ===================
     path('me/connect/', views.seller_me_connect, name='seller-me-connect'),
     path('me/callback/', views.seller_me_callback, name='seller-me-callback'),
+    path('me/callback/post/', views.seller_me_callback_post, name='seller-me-callback-post'),
     path('me/status/', views.seller_me_status, name='seller-me-status'),
     path('me/disconnect/', views.seller_me_disconnect, name='seller-me-disconnect'),
     path('me/balance/', views.seller_me_balance, name='seller-me-balance'),

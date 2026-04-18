@@ -221,6 +221,204 @@ class TestSellerMECallback(TestCase):
 
 
 # ---------------------------------------------------------------------------
+# TestSellerMECallbackPost
+# ---------------------------------------------------------------------------
+
+class TestSellerMECallbackPost(TestCase):
+    """
+    Tests for POST /api/logistics/me/callback/post/
+
+    This endpoint is the frontend-relay variant of the OAuth callback.
+    The seller is identified via JWT (request.user); the state HMAC is still
+    validated for CSRF protection, and state seller_id must match the
+    authenticated seller.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.seller = _make_seller()
+        self.url = reverse('logistics:seller-me-callback-post')
+
+    # ------------------------------------------------------------------
+    # Authentication guard
+    # ------------------------------------------------------------------
+
+    def test_post_callback_requires_auth(self):
+        """Unauthenticated POST must return 401."""
+        signed_state = MelhorEnvioOAuthService.generate_seller_state(self.seller.id)
+        response = self.client.post(
+            self.url,
+            {'code': 'test_code', 'state': signed_state},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    # ------------------------------------------------------------------
+    # Payload validation
+    # ------------------------------------------------------------------
+
+    def test_post_callback_missing_code_returns_400(self):
+        """POST without 'code' must return 400 (serializer validation)."""
+        self.client.force_authenticate(user=self.seller)
+        signed_state = MelhorEnvioOAuthService.generate_seller_state(self.seller.id)
+        response = self.client.post(
+            self.url,
+            {'state': signed_state},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('code', response.data)
+
+    def test_post_callback_missing_state_returns_400(self):
+        """POST without 'state' must return 400 (serializer validation)."""
+        self.client.force_authenticate(user=self.seller)
+        response = self.client.post(
+            self.url,
+            {'code': 'test_code'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('state', response.data)
+
+    def test_post_callback_empty_body_returns_400(self):
+        """POST with empty body must return 400."""
+        self.client.force_authenticate(user=self.seller)
+        response = self.client.post(self.url, {}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    # ------------------------------------------------------------------
+    # State HMAC validation
+    # ------------------------------------------------------------------
+
+    def test_post_callback_invalid_state_returns_400(self):
+        """POST with a non-HMAC state must return 400."""
+        self.client.force_authenticate(user=self.seller)
+        response = self.client.post(
+            self.url,
+            {'code': 'test_code', 'state': 'not-a-valid-hmac-state'},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.data)
+
+    def test_post_callback_state_for_different_seller_returns_400(self):
+        """
+        POST where state was signed for a different seller than the authenticated
+        one must return 400 — prevents CSRF / token-swap attacks.
+        """
+        other_seller = _make_seller(email='other2@test.com', cpf='333.444.555-17')
+        # State signed for 'other_seller' but request authenticated as 'self.seller'
+        state_for_other = MelhorEnvioOAuthService.generate_seller_state(other_seller.id)
+
+        self.client.force_authenticate(user=self.seller)
+        response = self.client.post(
+            self.url,
+            {'code': 'test_code', 'state': state_for_other},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.data)
+
+    # ------------------------------------------------------------------
+    # Success path
+    # ------------------------------------------------------------------
+
+    @patch(
+        'logistics.services.melhor_envio_oauth_service.MelhorEnvioOAuthService'
+        '.exchange_seller_code_for_token'
+    )
+    def test_post_callback_success_returns_200_with_detail(self, mock_exchange):
+        """Valid authenticated POST with matching state returns 200 and 'detail' key."""
+        mock_token = MagicMock()
+        mock_token.me_email = 'seller@me.com'
+        mock_token.environment = 'sandbox'
+        mock_exchange.return_value = mock_token
+
+        signed_state = MelhorEnvioOAuthService.generate_seller_state(self.seller.id)
+        self.client.force_authenticate(user=self.seller)
+
+        response = self.client.post(
+            self.url,
+            {'code': 'test_code', 'state': signed_state},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('detail', response.data)
+
+    @patch(
+        'logistics.services.melhor_envio_oauth_service.MelhorEnvioOAuthService'
+        '.exchange_seller_code_for_token'
+    )
+    def test_post_callback_success_calls_exchange_with_correct_seller(self, mock_exchange):
+        """exchange_seller_code_for_token must be called with request.user as seller."""
+        mock_token = MagicMock()
+        mock_token.me_email = 'seller@me.com'
+        mock_token.environment = 'sandbox'
+        mock_exchange.return_value = mock_token
+
+        signed_state = MelhorEnvioOAuthService.generate_seller_state(self.seller.id)
+        self.client.force_authenticate(user=self.seller)
+
+        self.client.post(
+            self.url,
+            {'code': 'test_code', 'state': signed_state},
+            format='json',
+        )
+
+        mock_exchange.assert_called_once_with(code='test_code', seller=self.seller)
+
+    @patch(
+        'logistics.services.melhor_envio_oauth_service.MelhorEnvioOAuthService'
+        '.exchange_seller_code_for_token'
+    )
+    def test_post_callback_response_includes_me_email_and_environment(self, mock_exchange):
+        """Successful POST response must contain me_email and environment."""
+        mock_token = MagicMock()
+        mock_token.me_email = 'seller@me.com'
+        mock_token.environment = 'sandbox'
+        mock_exchange.return_value = mock_token
+
+        signed_state = MelhorEnvioOAuthService.generate_seller_state(self.seller.id)
+        self.client.force_authenticate(user=self.seller)
+
+        response = self.client.post(
+            self.url,
+            {'code': 'test_code', 'state': signed_state},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data.get('me_email'), 'seller@me.com')
+        self.assertEqual(response.data.get('environment'), 'sandbox')
+
+    # ------------------------------------------------------------------
+    # Exchange failure
+    # ------------------------------------------------------------------
+
+    @patch(
+        'logistics.services.melhor_envio_oauth_service.MelhorEnvioOAuthService'
+        '.exchange_seller_code_for_token'
+    )
+    def test_post_callback_exchange_failure_returns_500(self, mock_exchange):
+        """When exchange_seller_code_for_token raises, POST must return 500."""
+        from logistics.services.melhor_envio_oauth_service import MelhorEnvioOAuthError
+        mock_exchange.side_effect = MelhorEnvioOAuthError('ME API returned 400')
+
+        signed_state = MelhorEnvioOAuthService.generate_seller_state(self.seller.id)
+        self.client.force_authenticate(user=self.seller)
+
+        response = self.client.post(
+            self.url,
+            {'code': 'test_code', 'state': signed_state},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        self.assertIn('error', response.data)
+
+
+# ---------------------------------------------------------------------------
 # TestSellerMEStatus
 # ---------------------------------------------------------------------------
 

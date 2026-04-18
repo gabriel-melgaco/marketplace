@@ -479,6 +479,25 @@ class DeliveryStatusLogSerializer(serializers.ModelSerializer):
 
 # =================== Listing Freight Quote Serializers ===================
 
+class MelhorEnvioCallbackSerializer(serializers.Serializer):
+    """
+    Payload de entrada para o callback OAuth2 do Melhor Envio via POST (frontend).
+
+    Utilizado pelo endpoint POST /api/logistics/me/callback/
+    quando o frontend recebe o redirecionamento do Melhor Envio e repassa
+    o code e state ao backend via chamada autenticada.
+    """
+    code = serializers.CharField(
+        help_text="Código de autorização retornado pelo Melhor Envio."
+    )
+    state = serializers.CharField(
+        help_text=(
+            "Token de state HMAC gerado pelo backend ao criar a URL de autorização. "
+            "Utilizado para validação CSRF e extração do seller_id."
+        )
+    )
+
+
 class ListingFreightQuoteRequestSerializer(serializers.Serializer):
     """
     Payload de entrada para calcular frete de um listing específico.
