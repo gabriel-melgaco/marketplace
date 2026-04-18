@@ -1,14 +1,19 @@
-import { Link } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 import { Home } from "lucide-react";
 
 export function NavHome() {
   return (
-    <Link
+    <NavLink
       to="/"
-      className="flex flex-col items-center gap-1 text-white hover:text-blue-800 transition"
+      end
+      className={({ isActive }) =>
+        `flex flex-col items-center gap-[3px] text-[10.5px] font-medium p-1 transition-colors duration-150 ${
+          isActive ? "text-ink-1" : "text-ink-3 hover:text-ink-2"
+        }`
+      }
     >
-      <Home size={24} />
-      <span className="text-xs font-semibold">Início</span>
-    </Link>
+      <Home size={20} strokeWidth={2} />
+      <span>Início</span>
+    </NavLink>
   );
 }

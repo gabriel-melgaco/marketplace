@@ -1,27 +1,19 @@
-import { useNavigate } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 import { Plus } from "lucide-react";
 
 export function NavCreate() {
-  const navigate = useNavigate();
-
   return (
-    <button
-      onClick={() => navigate("/create-listing")}
-      className="group flex flex-col items-center gap-1 text-white transition cursor-pointer"
+    <NavLink
+      to="/create-listing"
+      className="relative flex flex-col items-center gap-[3px] text-[10.5px] font-medium text-ink-1 p-1"
     >
       <div
-        className="w-12 h-12 bg-white transition rounded-full flex items-center justify-center -mt-6 shadow-lg
-            group-hover:bg-blue-900"
+        className="absolute -top-[26px] w-[52px] h-[52px] rounded-full bg-gold flex items-center justify-center text-gold-deep ring-[6px] ring-bg-0"
+        style={{ boxShadow: 'var(--shadow-gold-glow)' }}
       >
-        <Plus
-          size={28}
-          className="text-blue-900 transition group-hover:text-white"
-        />
+        <Plus size={22} strokeWidth={2.5} />
       </div>
-
-      <span className="text-xs transition group-hover:text-blue-900">
-        Anunciar
-      </span>
-    </button>
+      <span className="mt-[30px]">Anunciar</span>
+    </NavLink>
   );
 }

@@ -14,7 +14,7 @@ function Header(props: HeaderProps) {
   const { totalUnread } = useChatContext();
 
   return (
-    <header className="flex-shrink-0 sticky top-0 left-0 w-full z-50 bg-header shadow-lg">
+    <header className="flex-shrink-0 sticky top-0 left-0 w-full z-50 bg-bg-1 border-b border-white/10 shadow-[0_1px_0_rgba(245,158,11,0.08)]">
       <nav
         {...props}
         className={`max-w-7xl mx-auto h-14 md:h-16 flex items-center justify-between px-4 sm:px-6 ${props.className ?? ""}`}
@@ -34,7 +34,7 @@ function Header(props: HeaderProps) {
             <Link
               to="/conversations"
               aria-label={`Mensagens${totalUnread > 0 ? ` — ${totalUnread} não lidas` : ''}`}
-              className="relative text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-transparent rounded-lg"
+              className="relative p-2 rounded-xl hover:bg-bg-2 border border-transparent hover:border-white/[0.12] text-ink-2 hover:text-ink-1 transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-transparent"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -54,7 +54,7 @@ function Header(props: HeaderProps) {
               {totalUnread > 0 && (
                 <span
                   aria-hidden="true"
-                  className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold leading-none"
+                  className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-gold text-gold-deep ring-2 ring-bg-0 text-[10px] font-bold leading-none"
                 >
                   {totalUnread > 99 ? '99+' : totalUnread}
                 </span>
@@ -67,14 +67,14 @@ function Header(props: HeaderProps) {
           <div className="flex items-center gap-3 md:gap-4">
             <Link
               to="/login"
-              className="hidden md:inline-flex text-sm font-medium text-text-primary hover:text-secundary transition-colors"
+              className="hidden md:inline-flex text-sm font-medium text-ink-2 hover:text-ink-1 transition-colors"
             >
               Entrar
             </Link>
 
             <Link
               to="/register"
-              className="hidden md:inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-secundary rounded-lg hover:bg-secundary/80 transition-colors"
+              className="hidden md:inline-flex items-center px-4 py-2 text-sm font-semibold bg-gold text-gold-deep rounded-lg hover:bg-gold/90 transition-colors"
             >
               Cadastrar
             </Link>
