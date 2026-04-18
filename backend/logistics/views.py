@@ -34,6 +34,7 @@ from .serializers import (
     InPersonDeliverySerializer, InPersonDeliveryCreateSerializer,
     InPersonDeliveryUpdateSerializer, DeliveryMethodChoiceSerializer,
     ListingFreightQuoteRequestSerializer, ListingFreightQuoteResponseSerializer,
+    MelhorEnvioCallbackSerializer,
 )
 from .services import (
     MelhorEnvioService,
@@ -2626,26 +2627,39 @@ def seller_me_connect(request):
         )
 
 
+_CALLBACK_SUCCESS_RESPONSE_FIELDS = {
+    'message': rf_serializers.CharField(),
+    'me_email': rf_serializers.EmailField(allow_null=True),
+    'environment': rf_serializers.CharField(),
+}
+
+_CALLBACK_GET_DESCRIPTION = (
+    'Endpoint de callback OAuth2 do Melhor Envio para vendedores.\n\n'
+    '**Modo GET (legado / dev local):** O Melhor Envio redireciona o browser diretamente '
+    'para esta URL com `code` e `state` como query params. Não requer autenticação — '
+    'o vendedor é identificado pelo HMAC contido no `state`.\n\n'
+    'Parâmetros de query:\n'
+    '- `code`: Código de autorização\n'
+    '- `state`: Token HMAC assinado contendo o seller_id\n\n'
+    '**Modo POST (produção / frontend):** O Melhor Envio redireciona para o frontend, '
+    'que então chama este endpoint via POST com JWT de autenticação. '
+    'O `seller` é extraído do token JWT; o `state` ainda é validado para prevenção de CSRF.\n\n'
+    'Corpo JSON (POST):\n'
+    '```json\n{"code": "...", "state": "..."}\n```\n\n'
+    'Requer autenticação JWT apenas no modo POST.'
+)
+
+
 @extend_schema(
     tags=['Logistics - Seller ME OAuth'],
-    summary='Melhor Envio OAuth callback for seller',
-    description=(
-        'Endpoint de callback OAuth2 do Melhor Envio para vendedores.\n\n'
-        'O Melhor Envio redireciona para este endpoint após o vendedor autorizar o aplicativo.\n\n'
-        'Parâmetros de query:\n'
-        '- `code`: Código de autorização\n'
-        '- `state`: ID do vendedor (definido ao gerar a URL de autorização)\n\n'
-        'Não requer autenticação — o Melhor Envio redireciona sem cookie de sessão.'
-    ),
+    operation_id='seller_me_callback_get',
+    summary='Melhor Envio OAuth callback for seller (GET — browser redirect)',
+    description=_CALLBACK_GET_DESCRIPTION,
     request=None,
     responses={
         200: inline_serializer(
-            name='SellerMECallbackResponse',
-            fields={
-                'message': rf_serializers.CharField(),
-                'me_email': rf_serializers.EmailField(allow_null=True),
-                'environment': rf_serializers.CharField(),
-            }
+            name='SellerMECallbackGetResponse',
+            fields=_CALLBACK_SUCCESS_RESPONSE_FIELDS,
         ),
         400: OpenApiResponse(description='Parâmetros inválidos ou vendedor não encontrado'),
         500: OpenApiResponse(description='Falha ao trocar código OAuth'),
@@ -2655,10 +2669,13 @@ def seller_me_connect(request):
 @permission_classes([AllowAny])
 def seller_me_callback(request):
     """
-    Callback OAuth2 do Melhor Envio para vendedores.
+    Callback OAuth2 do Melhor Envio para vendedores — fluxo GET (browser redirect).
 
-    Recebe o código de autorização e o state (seller.id), troca pelos tokens
-    e persiste em SellerMelhorEnvioToken.
+    Recebe o código de autorização e o state HMAC via query params, valida a assinatura,
+    identifica o vendedor e troca o código pelo token de acesso.
+
+    Mantido para compatibilidade com redirecionamento direto do Melhor Envio em
+    ambientes de desenvolvimento / local onde o frontend não intercepta o redirect.
     """
     from .services.melhor_envio_oauth_service import MelhorEnvioOAuthService, MelhorEnvioOAuthError
     from authentication.models import CustomUser
@@ -2667,7 +2684,7 @@ def seller_me_callback(request):
     state = request.query_params.get('state')
 
     if not code:
-        logger.info('seller_me_callback: requisição sem código (teste de conexão)')
+        logger.info('seller_me_callback (GET): requisição sem código (teste de conexão)')
         return Response({
             'message': 'Callback ativo. Aguardando código de autorização.',
         })
@@ -2683,7 +2700,7 @@ def seller_me_callback(request):
     try:
         seller_id = MelhorEnvioOAuthService.verify_seller_state(state)
     except MelhorEnvioOAuthError as exc:
-        logger.warning(f'seller_me_callback: state inválido ou expirado — {exc}')
+        logger.warning(f'seller_me_callback (GET): state inválido ou expirado — {exc}')
         return Response(
             {'error': 'State OAuth inválido ou expirado. Solicite uma nova URL de autorização.'},
             status=status.HTTP_400_BAD_REQUEST
@@ -2693,14 +2710,14 @@ def seller_me_callback(request):
     try:
         seller = CustomUser.objects.get(id=seller_id)
     except CustomUser.DoesNotExist:
-        logger.error(f'seller_me_callback: vendedor não encontrado para seller_id={seller_id}')
+        logger.error(f'seller_me_callback (GET): vendedor não encontrado para seller_id={seller_id}')
         return Response(
             {'error': f'Vendedor não encontrado (id={seller_id})'},
             status=status.HTTP_400_BAD_REQUEST
         )
 
     logger.info(
-        f'seller_me_callback: recebendo código para vendedor {seller.email} '
+        f'seller_me_callback (GET): recebendo código para vendedor {seller.email} '
         f'(code={code[:10]}...)'
     )
 
@@ -2709,17 +2726,104 @@ def seller_me_callback(request):
         token_record = oauth_service.exchange_seller_code_for_token(code=code, seller=seller)
 
         return Response({
-            'message': (
-                f'Conta Melhor Envio conectada com sucesso para {seller.email}. '
-                'A integração de frete está ativa.'
-            ),
+            'message': 'Conta Melhor Envio conectada com sucesso.',
             'me_email': token_record.me_email or None,
             'environment': token_record.environment,
         })
 
     except MelhorEnvioOAuthError as e:
         logger.error(
-            f'seller_me_callback: erro ao trocar código OAuth para {seller.email}: {e}'
+            f'seller_me_callback (GET): erro ao trocar código OAuth para {seller.email}: {e}'
+        )
+        return Response(
+            {
+                'error': 'Falha ao processar autorização OAuth do vendedor',
+                'detail': str(e),
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@extend_schema(
+    tags=['Logistics - Seller ME OAuth'],
+    operation_id='seller_me_callback_post',
+    summary='Melhor Envio OAuth callback for seller (POST — frontend relay)',
+    description=_CALLBACK_GET_DESCRIPTION,
+    request=MelhorEnvioCallbackSerializer,
+    responses={
+        200: inline_serializer(
+            name='SellerMECallbackPostResponse',
+            fields=_CALLBACK_SUCCESS_RESPONSE_FIELDS,
+        ),
+        400: OpenApiResponse(description='Payload inválido ou state HMAC inválido/expirado'),
+        401: OpenApiResponse(description='Autenticação JWT ausente ou inválida'),
+        500: OpenApiResponse(description='Falha ao trocar código OAuth'),
+    }
+)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def seller_me_callback_post(request):
+    """
+    Callback OAuth2 do Melhor Envio para vendedores — fluxo POST (frontend relay).
+
+    O frontend recebe o redirecionamento do Melhor Envio (com code + state) e os
+    repassa ao backend via POST autenticado com JWT. O vendedor é identificado pelo
+    token JWT (request.user); o state HMAC ainda é validado para proteção CSRF.
+
+    O seller_id embutido no state deve corresponder ao vendedor autenticado —
+    se divergirem, a requisição é rejeitada para prevenir ataques de troca de token.
+    """
+    from .services.melhor_envio_oauth_service import MelhorEnvioOAuthService, MelhorEnvioOAuthError
+
+    serializer = MelhorEnvioCallbackSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    code: str = serializer.validated_data['code']
+    state: str = serializer.validated_data['state']
+    seller = request.user
+
+    # Validar assinatura HMAC do state (proteção CSRF).
+    # O seller_id extraído do state deve bater com o vendedor autenticado.
+    try:
+        state_seller_id = MelhorEnvioOAuthService.verify_seller_state(state)
+    except MelhorEnvioOAuthError as exc:
+        logger.warning(
+            f'seller_me_callback (POST): state inválido ou expirado para {seller.email} — {exc}'
+        )
+        return Response(
+            {'error': 'State OAuth inválido ou expirado. Solicite uma nova URL de autorização.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    if state_seller_id != seller.id:
+        logger.warning(
+            f'seller_me_callback (POST): state seller_id={state_seller_id} diverge do '
+            f'vendedor autenticado id={seller.id} ({seller.email})'
+        )
+        return Response(
+            {'error': 'State OAuth não pertence ao vendedor autenticado.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    logger.info(
+        f'seller_me_callback (POST): recebendo código para vendedor {seller.email} '
+        f'(code={code[:10]}...)'
+    )
+
+    try:
+        oauth_service = MelhorEnvioOAuthService()
+        token_record = oauth_service.exchange_seller_code_for_token(code=code, seller=seller)
+
+        return Response({
+            'detail': 'Conta Melhor Envio conectada com sucesso.',
+            'me_email': token_record.me_email or None,
+            'environment': token_record.environment,
+        })
+
+    except MelhorEnvioOAuthError as e:
+        logger.error(
+            f'seller_me_callback (POST): erro ao trocar código OAuth para {seller.email}: {e}'
         )
         return Response(
             {
