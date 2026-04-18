@@ -796,7 +796,7 @@ def create_shipments_for_order(request):
         "order_id": "uuid-do-pedido"
     }
 
-    Requisito: Order deve estar com status 'paid' (pagamento confirmado).
+    Requisito: Order deve estar com status 'paid' ou 'processing' (pagamento confirmado).
     """
     order_id = request.data.get('order_id')
 

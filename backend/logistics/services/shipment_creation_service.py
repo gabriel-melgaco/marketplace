@@ -190,7 +190,11 @@ class ShipmentCreationService:
             ShipmentCreationError: se validação falhar ou checkout falhar
         """
         # Validar status do pedido
-        if order.status != OrderStateMachine.PAID:
+        # Permitir 'paid' (pagamento recém-confirmado) e 'processing' (shipments já em andamento)
+        # Ambos os status são pós-pagamento; 'processing' ocorre quando o checkout de shipments
+        # já foi realizado e o pedido avançou de estado.
+        allowed_statuses = {OrderStateMachine.PAID, OrderStateMachine.PROCESSING}
+        if order.status not in allowed_statuses:
             raise ShipmentCreationError('Pedido precisa ter pagamento confirmado')
 
         # Buscar shipments existentes com status 'pending' (aguardando checkout)
@@ -276,12 +280,13 @@ class ShipmentCreationService:
                 f'após checkout. melhorenvio_order_id={shipment.melhorenvio_order_id}'
             )
 
-        # Atualizar status do pedido para PROCESSING
-        OrderStateMachine.transition_to(
-            order=order,
-            new_status=OrderStateMachine.PROCESSING,
-            notes='Checkout de shipments realizado com sucesso no Melhor Envio'
-        )
+        # Atualizar status do pedido para PROCESSING (apenas se ainda não estiver nesse estado)
+        if OrderStateMachine.can_transition(order.status, OrderStateMachine.PROCESSING):
+            OrderStateMachine.transition_to(
+                order=order,
+                new_status=OrderStateMachine.PROCESSING,
+                notes='Checkout de shipments realizado com sucesso no Melhor Envio'
+            )
 
         logger.info(
             f"Checkout realizado para pedido {order.order_number}: "
