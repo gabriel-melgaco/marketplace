@@ -13,13 +13,13 @@ function SearchSkeleton() {
       {Array.from({ length: 6 }).map((_, i) => (
         <div
           key={i}
-          className="bg-white rounded-xl shadow-md overflow-hidden animate-pulse"
+          className="bg-bg-1 border border-white/10 rounded-xl overflow-hidden animate-pulse"
         >
-          <div className="aspect-4/3 bg-gray-200" />
+          <div className="aspect-4/3 bg-white/5" />
           <div className="p-3 space-y-2">
-            <div className="h-4 bg-gray-200 rounded w-3/4" />
-            <div className="h-5 bg-gray-200 rounded w-1/2" />
-            <div className="h-3 bg-gray-200 rounded w-2/3" />
+            <div className="h-4 bg-white/5 rounded w-3/4" />
+            <div className="h-5 bg-white/5 rounded w-1/2" />
+            <div className="h-3 bg-white/5 rounded w-2/3" />
           </div>
         </div>
       ))}
@@ -73,8 +73,7 @@ export function ProductList() {
     };
   }, [searchTerm]);
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleSearch = () => {
     const normalized = query.trim();
     if (!normalized) {
       setSearchParams({});
@@ -84,74 +83,76 @@ export function ProductList() {
   };
 
   return (
-    <div className="min-h-screen bg-blue-900 pb-24">
+    <div className="min-h-screen bg-bg-0 pb-24">
       <div className="px-4 py-6 max-w-6xl mx-auto">
-      <h1 className="text-2xl font-bold text-white mb-4">
-        Buscar Produtos
-      </h1>
+        <h1 className="font-display text-2xl md:text-3xl font-bold text-ink-1 tracking-[-0.02em] mb-4">
+          Buscar Produtos
+        </h1>
 
-      <form onSubmit={handleSubmit} className="flex gap-3 mb-6">
-        <div className="relative flex-1">
-          <Search
-            size={18}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-          />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Buscar produto por palavra-chave..."
-            className="w-full h-11 rounded-lg pl-10 pr-3 bg-white text-gray-900 border-2 border-gray-800 focus:border-blue-700 focus:ring-2 focus:ring-blue-200 outline-none transition-colors"
-          />
-        </div>
-        <button
-          type="submit"
-          className="h-11 px-5 rounded-lg bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white font-semibold transition-colors shadow-md"
-        >
-          Buscar
-        </button>
-      </form>
-
-      {!searchTerm && (
-        <div className="text-center py-16">
-          <Search size={48} className="mx-auto text-white/40 mb-4" />
-          <p className="text-white/70 text-lg">
-            Digite uma palavra-chave para buscar produtos.
-          </p>
-        </div>
-      )}
-
-      {isLoading && <SearchSkeleton />}
-
-      {error && (
-        <div className="text-center py-12">
-          <p className="text-red-200 text-lg">{error}</p>
-        </div>
-      )}
-
-      {!isLoading && !error && searchTerm && products.length === 0 && (
-        <div className="text-center py-16">
-          <SearchX size={48} className="mx-auto text-white/40 mb-4" />
-          <p className="text-white/70 text-lg">
-            Nenhum produto encontrado para "<strong>{searchTerm}</strong>".
-          </p>
-          <p className="text-white/50 text-sm mt-2">
-            Tente buscar com outras palavras-chave.
-          </p>
-        </div>
-      )}
-
-      {!isLoading && !error && products.length > 0 && (
-        <>
-          <p className="text-white/70 text-sm mb-4">
-            {products.length} {products.length === 1 ? "resultado" : "resultados"} para "<strong>{searchTerm}</strong>"
-          </p>
-          <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
-            {products.map((listing) => (
-              <ProductCard key={listing.id} listing={listing} />
-            ))}
+        <div className="flex gap-3 mb-6">
+          <div className="relative flex-1">
+            <Search
+              size={18}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none"
+            />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
+              placeholder="Buscar produto por palavra-chave..."
+              className="w-full h-11 rounded-lg pl-10 pr-3 bg-bg-2 border border-white/10 text-ink-1 placeholder:text-ink-3 focus:border-gold/50 focus:ring-2 focus:ring-gold/20 outline-none transition-colors"
+            />
           </div>
-        </>
-      )}
+          <button
+            type="button"
+            onClick={handleSearch}
+            className="h-11 px-5 rounded-lg bg-gold text-gold-deep font-semibold hover:bg-gold/90 active:bg-gold/80 transition-colors focus:outline-none focus:ring-2 focus:ring-gold/40 focus:ring-offset-2 focus:ring-offset-bg-0"
+          >
+            Buscar
+          </button>
+        </div>
+
+        {!searchTerm && (
+          <div className="text-center py-16">
+            <Search size={48} className="mx-auto text-ink-3 mb-4" />
+            <p className="text-ink-2 text-lg">
+              Digite uma palavra-chave para buscar produtos.
+            </p>
+          </div>
+        )}
+
+        {isLoading && <SearchSkeleton />}
+
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 max-w-md mx-auto text-center py-12">
+            <p className="text-red-400 text-lg">{error}</p>
+          </div>
+        )}
+
+        {!isLoading && !error && searchTerm && products.length === 0 && (
+          <div className="text-center py-16">
+            <SearchX size={48} className="mx-auto text-ink-3 mb-4" />
+            <p className="text-ink-2 text-lg">
+              Nenhum produto encontrado para "<strong>{searchTerm}</strong>".
+            </p>
+            <p className="text-ink-3 text-sm mt-2">
+              Tente buscar com outras palavras-chave.
+            </p>
+          </div>
+        )}
+
+        {!isLoading && !error && products.length > 0 && (
+          <>
+            <p className="text-ink-2 text-sm mb-4">
+              {products.length} {products.length === 1 ? "resultado" : "resultados"} para "<strong>{searchTerm}</strong>"
+            </p>
+            <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+              {products.map((listing) => (
+                <ProductCard key={listing.id} listing={listing} />
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
