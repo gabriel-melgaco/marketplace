@@ -15,7 +15,7 @@ from django.db.models import Q
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.exceptions import ValidationError
-from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiParameter, OpenApiResponse, OpenApiTypes
+from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer, OpenApiParameter, OpenApiResponse, OpenApiTypes
 from rest_framework import serializers as rf_serializers
 
 
@@ -52,22 +52,37 @@ logger = logging.getLogger(__name__)
 
 
 # =================== Address Views ===================
-@extend_schema(
-    tags=['Logistics - Addresses'],
-    summary='List and create user addresses',
-    description="""
-    List all active addresses for the authenticated user (GET) or create a new address (POST).
-
-    Address Types:
-    - 'home': Residential
-    - 'work': Commercial
-    - 'other': Other
-
-    **Note:** Addresses of type `shipping` are managed exclusively by the Melhor Envio
-    integration. They are created and updated automatically when the seller connects their
-    ME account via `GET /api/logistics/me/connect/`. Manual creation or modification of
-    shipping addresses is not allowed.
-    """
+@extend_schema_view(
+    get=extend_schema(
+        tags=['Logistics - Addresses'],
+        summary='List user addresses',
+        description=(
+            'List all active addresses for the authenticated user.\n\n'
+            'Address Types:\n'
+            "- `home`: Residential\n"
+            "- `work`: Commercial\n"
+            "- `other`: Other\n\n"
+            '**Note:** Addresses of type `shipping` are managed exclusively by the Melhor Envio '
+            'integration and will not appear here.'
+        ),
+        responses={200: AddressSerializer(many=True)},
+    ),
+    post=extend_schema(
+        tags=['Logistics - Addresses'],
+        summary='Create a new address',
+        description=(
+            'Create a new address for the authenticated user.\n\n'
+            'Address Types:\n'
+            "- `home`: Residential\n"
+            "- `work`: Commercial\n"
+            "- `other`: Other\n\n"
+            '**Note:** Addresses of type `shipping` are managed exclusively by the Melhor Envio '
+            'integration. Manual creation is not allowed.\n\n'
+            'Returns the created address including its `id`.'
+        ),
+        request=AddressCreateSerializer,
+        responses={201: AddressCreateSerializer},
+    ),
 )
 class AddressListView(generics.ListCreateAPIView):
     """
