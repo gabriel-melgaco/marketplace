@@ -29,11 +29,12 @@ class AddressCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Address
         fields = [
-            'address_type', 'nickname', 'recipient_name',
+            'id', 'address_type', 'nickname', 'recipient_name',
             'recipient_phone', 'zipcode', 'street', 'number',
             'complement', 'neighborhood', 'city', 'state',
             'is_default', 'is_shipping_address'
         ]
+        read_only_fields = ['id']
 
     def validate(self, data):
         user = self.context['request'].user
