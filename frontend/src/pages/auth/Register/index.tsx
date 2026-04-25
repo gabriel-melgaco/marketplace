@@ -1,5 +1,5 @@
-import React, { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { useNavigate, Link } from "react-router-dom";
 import {
   Eye,
   EyeOff,
@@ -8,7 +8,7 @@ import {
   User,
   CreditCard,
   AlertCircle,
-  CheckCircle,
+  CheckCircle2,
   X,
   Calendar,
 } from "lucide-react";
@@ -22,6 +22,21 @@ import {
   validateEmail,
 } from "@/utils/validators";
 import { toISODate } from "@/utils/formatters";
+
+// Local fallback while the shared `getAxiosErrorMessage` helper
+// is not centralized. Mirrors the pattern used in Login/index.tsx.
+function getAxiosErrorMessage(err: unknown, fallback: string): string {
+  const responseData = (err as { response?: { data?: unknown } })?.response
+    ?.data;
+  if (responseData && typeof responseData === "object") {
+    return (
+      (Object.values(responseData).flat() as string[]).join(" ") || fallback
+    );
+  }
+  if (typeof responseData === "string" && responseData) return responseData;
+  if (err instanceof Error) return err.message;
+  return fallback;
+}
 
 export function Register() {
   const navigate = useNavigate();
@@ -42,13 +57,12 @@ export function Register() {
   const [isLoading, setIsLoading] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
 
-  // Validação em tempo real da senha
+  // Real-time password validation
   const passwordReqs = validatePasswordRequirements(formData.password1);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
 
-    // Formatar CPF automaticamente
     if (name === "cpf") {
       const formatted = formatCPF(value);
       setFormData((prev) => ({ ...prev, [name]: formatted }));
@@ -56,7 +70,6 @@ export function Register() {
       setFormData((prev) => ({ ...prev, [name]: value }));
     }
 
-    // Limpar erro do campo
     if (errors[name]) {
       setErrors((prev) => ({ ...prev, [name]: "" }));
     }
@@ -135,10 +148,7 @@ export function Register() {
     return validations.every((v) => v === true);
   };
 
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-
-    // Marcar todos os campos como touched
+  const handleRegister = async () => {
     setTouched({
       fullName: true,
       cpf: true,
@@ -155,26 +165,25 @@ export function Register() {
     setIsLoading(true);
 
     try {
-      // Chamar API de registro
       await authService.register({
         email: formData.email,
         password1: formData.password1,
         password2: formData.password2,
         full_name: formData.fullName,
-        cpf: formData.cpf.replace(/[^\d]/g, ""), // Remove formatação
-        birthday: toISODate(formData.birthday), // Converter para formato ISO
+        cpf: formData.cpf.replace(/[^\d]/g, ""),
+        birthday: toISODate(formData.birthday),
         picture: formData.picture || "",
       });
 
-      // Redirecionar para login com mensagem de sucesso
       navigate("/email-sent", {
         state: {
-          email: formData.email, // ← ADICIONAR ISSO
+          email: formData.email,
         },
       });
-    } catch (error: any) {
-      setErrors({ submit: error.message || "Erro ao realizar cadastro" });
-      console.log(error);
+    } catch (err: unknown) {
+      setErrors({
+        submit: getAxiosErrorMessage(err, "Erro ao realizar cadastro"),
+      });
     } finally {
       setIsLoading(false);
     }
@@ -188,93 +197,121 @@ export function Register() {
     text: string;
   }) => (
     <div
-      className={`flex items-center gap-2 text-xs md:text-sm ${met ? "text-green-600" : "text-gray-500"}`}
+      className={`flex items-center gap-2 text-xs ${
+        met ? "text-gold" : "text-ink-3"
+      }`}
     >
       {met ? (
-        <CheckCircle size={14} className="md:w-4 md:h-4" />
+        <CheckCircle2 size={14} aria-hidden="true" />
       ) : (
-        <X size={14} className="md:w-4 md:h-4" />
+        <X size={14} aria-hidden="true" />
       )}
       <span>{text}</span>
     </div>
   );
 
+  // Helper: input className with dark V1 tokens and validation states
+  const inputClass = (hasError: boolean, hasSuccess = false) => {
+    const base =
+      "w-full pl-10 pr-4 py-2.5 bg-bg-2 rounded-xl text-ink-1 placeholder:text-ink-3 text-sm focus:ring-2 focus:outline-none transition-colors disabled:opacity-50";
+    if (hasError) {
+      return `${base} border border-red-500/50 focus:border-red-500 focus:ring-red-500/20`;
+    }
+    if (hasSuccess) {
+      return `${base} border border-green-500/50 focus:border-green-500 focus:ring-green-500/20`;
+    }
+    return `${base} border border-white/10 focus:border-gold/50 focus:ring-gold/20`;
+  };
+
   return (
-    <div className="min-h-screen bg-linear-to-br from-black via-gray-900 to-blue-600 flex items-center justify-center p-4 py-8">
+    <div className="min-h-screen bg-bg-0 flex items-center justify-center p-4 py-8 relative">
+      {/* AuthLogo is hidden on lg+ by its own lg:hidden class (shared across auth pages). */}
       <AuthLogo />
-      {/* Card de Cadastro */}
-      <div className="w-full max-w-md lg:max-w-2xl my-10 md:my-15">
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
+
+      {/* Card */}
+      <div className="w-full max-w-xl my-10 md:my-12">
+        <div className="bg-bg-1 border border-white/10 rounded-2xl overflow-hidden shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)]">
           {/* Header */}
-          <div className="bg-linear-to-r from-blue-900 to-gray-900 p-6 md:p-8 text-white text-center">
-            <div className="w-16 h-16 md:w-20 md:h-20 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3 md:mb-4 backdrop-blur-sm">
-              <User size={32} className="md:w-10 md:h-10" />
+          <div className="bg-bg-2 p-6 md:p-8 border-b border-white/10 text-center">
+            <div className="w-16 h-16 bg-gold/10 border border-gold/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <User size={28} className="text-gold" aria-hidden="true" />
             </div>
-            <h1 className="text-2xl md:text-3xl font-bold mb-2">Criar Conta</h1>
-            <p className="text-sm md:text-base text-blue-100">
+            <h1 className="font-display text-2xl md:text-3xl font-bold text-ink-1 tracking-[-0.02em] mb-1">
+              Criar Conta
+            </h1>
+            <p className="text-ink-2 text-sm">
               Preencha seus dados para começar
             </p>
           </div>
 
-          {/* Formulário */}
-          <form
-            onSubmit={handleSubmit}
-            className="p-6 md:p-8 space-y-4 md:space-y-6"
-          >
-            {/* Mensagem de Erro */}
+          {/* Body */}
+          <div className="p-6 md:p-8 space-y-5">
+            {/* Submit error */}
             {errors.submit && (
-              <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
+              <div
+                role="alert"
+                className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start gap-3"
+              >
                 <AlertCircle
-                  className="text-red-600 shrink-0 mt-0.5"
-                  size={20}
+                  className="text-red-400 shrink-0 mt-0.5"
+                  size={18}
+                  aria-hidden="true"
                 />
-                <p className="text-sm text-red-800">{errors.submit}</p>
+                <p className="text-sm text-red-400">{errors.submit}</p>
               </div>
             )}
 
             {/* Nome Completo */}
             <div>
-              <label className="block text-gray-700 font-semibold mb-1.5 text-sm md:text-base">
+              <label
+                htmlFor="reg-fullName"
+                className="block text-sm font-semibold text-ink-1 mb-2"
+              >
                 Nome Completo
               </label>
               <div className="relative">
                 <User
-                  className="absolute left-3 top-3.5 text-gray-400"
-                  size={20}
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none"
+                  size={18}
+                  aria-hidden="true"
                 />
                 <input
+                  id="reg-fullName"
                   type="text"
                   name="fullName"
                   value={formData.fullName}
                   onChange={handleChange}
                   onBlur={() => handleBlur("fullName")}
                   placeholder="João Silva"
-                  className={`w-full pl-11 pr-4 py-2.5 border-2 rounded-lg focus:outline-none transition text-sm md:text-base ${
-                    touched.fullName && errors.fullName
-                      ? "border-red-500 focus:border-red-500"
-                      : "border-gray-300 focus:border-blue-500"
-                  }`}
+                  className={inputClass(
+                    !!(touched.fullName && errors.fullName),
+                  )}
                   disabled={isLoading}
                 />
               </div>
               {touched.fullName && errors.fullName && (
-                <p className="mt-1 text-sm text-red-600">{errors.fullName}</p>
+                <p className="mt-1.5 text-xs text-red-400">{errors.fullName}</p>
               )}
             </div>
 
-            {/* CPF e Data de Nascimento */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+            {/* CPF + Data de Nascimento */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* CPF */}
               <div>
-                <label className="block text-gray-700 font-semibold mb-1.5 text-sm md:text-base">
+                <label
+                  htmlFor="reg-cpf"
+                  className="block text-sm font-semibold text-ink-1 mb-2"
+                >
                   CPF
                 </label>
                 <div className="relative">
                   <CreditCard
-                    className="absolute left-3 top-3.5 text-gray-400"
-                    size={20}
+                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none"
+                    size={18}
+                    aria-hidden="true"
                   />
                   <input
+                    id="reg-cpf"
                     type="text"
                     name="cpf"
                     value={formData.cpf}
@@ -282,32 +319,38 @@ export function Register() {
                     onBlur={() => handleBlur("cpf")}
                     placeholder="000.000.000-00"
                     maxLength={14}
-                    className={`w-full pl-11 pr-4 py-2.5 border-2 rounded-lg focus:outline-none transition text-sm md:text-base ${
-                      touched.cpf && errors.cpf
-                        ? "border-red-500 focus:border-red-500"
-                        : touched.cpf && validateCPF(formData.cpf)
-                          ? "border-green-500 focus:border-green-500"
-                          : "border-gray-300 focus:border-blue-500"
-                    }`}
+                    className={inputClass(
+                      !!(touched.cpf && errors.cpf),
+                      !!(
+                        touched.cpf &&
+                        !errors.cpf &&
+                        validateCPF(formData.cpf)
+                      ),
+                    )}
                     disabled={isLoading}
                   />
                 </div>
                 {touched.cpf && errors.cpf && (
-                  <p className="mt-1 text-sm text-red-600">{errors.cpf}</p>
+                  <p className="mt-1.5 text-xs text-red-400">{errors.cpf}</p>
                 )}
               </div>
 
               {/* Data de Nascimento */}
               <div>
-                <label className="block text-gray-700 font-semibold mb-1.5 text-sm md:text-base">
+                <label
+                  htmlFor="reg-birthday"
+                  className="block text-sm font-semibold text-ink-1 mb-2"
+                >
                   Data de Nascimento
                 </label>
                 <div className="relative">
                   <Calendar
-                    className="absolute left-3 top-3.5 text-gray-400"
-                    size={20}
+                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none"
+                    size={18}
+                    aria-hidden="true"
                   />
                   <input
+                    id="reg-birthday"
                     type="text"
                     name="birthday"
                     inputMode="numeric"
@@ -335,88 +378,93 @@ export function Register() {
                       });
                     }}
                     onBlur={() => handleBlur("birthday")}
-                    className={`w-full box-border max-w-full min-w-0 pl-11 pr-4 py-2.5 border-2 rounded-lg focus:outline-none transition text-sm md:text-base ${
-                      touched.birthday && errors.birthday
-                        ? "border-red-500 focus:border-red-500"
-                        : "border-gray-300 focus:border-blue-500"
-                    }`}
+                    className={inputClass(
+                      !!(touched.birthday && errors.birthday),
+                    )}
                     disabled={isLoading}
                   />
                 </div>
                 {touched.birthday && errors.birthday && (
-                  <p className="mt-1 text-sm text-red-600">{errors.birthday}</p>
+                  <p className="mt-1.5 text-xs text-red-400">
+                    {errors.birthday}
+                  </p>
                 )}
               </div>
             </div>
 
             {/* Email */}
             <div>
-              <label className="block text-gray-700 font-semibold mb-1.5 text-sm md:text-base">
+              <label
+                htmlFor="reg-email"
+                className="block text-sm font-semibold text-ink-1 mb-2"
+              >
                 Email
               </label>
               <div className="relative">
                 <Mail
-                  className="absolute left-3 top-3.5 text-gray-400"
-                  size={20}
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none"
+                  size={18}
+                  aria-hidden="true"
                 />
                 <input
+                  id="reg-email"
                   type="email"
                   name="email"
                   value={formData.email}
                   onChange={handleChange}
                   onBlur={() => handleBlur("email")}
                   placeholder="seu@email.com"
-                  className={`w-full pl-11 pr-4 py-2.5 border-2 rounded-lg focus:outline-none transition text-sm md:text-base ${
-                    touched.email && errors.email
-                      ? "border-red-500 focus:border-red-500"
-                      : "border-gray-300 focus:border-blue-500"
-                  }`}
+                  className={inputClass(!!(touched.email && errors.email))}
                   disabled={isLoading}
                 />
               </div>
               {touched.email && errors.email && (
-                <p className="mt-1 text-sm text-red-600">{errors.email}</p>
+                <p className="mt-1.5 text-xs text-red-400">{errors.email}</p>
               )}
             </div>
 
             {/* Senha */}
             <div>
-              <label className="block text-gray-700 font-semibold mb-1.5 text-sm md:text-base">
+              <label
+                htmlFor="reg-password1"
+                className="block text-sm font-semibold text-ink-1 mb-2"
+              >
                 Senha
               </label>
               <div className="relative">
                 <Lock
-                  className="absolute left-3 top-3.5 text-gray-400"
-                  size={20}
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none"
+                  size={18}
+                  aria-hidden="true"
                 />
                 <input
+                  id="reg-password1"
                   type={showPassword ? "text" : "password"}
                   name="password1"
                   value={formData.password1}
                   onChange={handleChange}
                   onBlur={() => handleBlur("password1")}
                   placeholder="••••••••"
-                  className={`w-full pl-11 pr-12 py-2.5 border-2 rounded-lg focus:outline-none transition text-sm md:text-base ${
-                    touched.password1 && errors.password1
-                      ? "border-red-500 focus:border-red-500"
-                      : "border-gray-300 focus:border-blue-500"
-                  }`}
+                  className={`${inputClass(
+                    !!(touched.password1 && errors.password1),
+                  )} pr-12`}
                   disabled={isLoading}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-3.5 text-gray-400 hover:text-gray-600 transition"
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-ink-3 hover:text-ink-1 transition-colors"
                   disabled={isLoading}
+                  aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
                 >
-                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
 
               {/* Requisitos da Senha */}
               {formData.password1 && (
-                <div className="mt-2 p-3 bg-gray-50 rounded-lg space-y-1.5">
-                  <p className="text-xs md:text-sm font-semibold text-gray-700 mb-1.5">
+                <div className="mt-3 p-3 bg-bg-2 border border-white/10 rounded-xl space-y-1.5">
+                  <p className="text-xs font-semibold text-ink-2 mb-1.5">
                     Requisitos da senha:
                   </p>
                   <PasswordRequirement
@@ -445,67 +493,79 @@ export function Register() {
 
             {/* Confirmar Senha */}
             <div>
-              <label className="block text-gray-700 font-semibold mb-1.5 text-sm md:text-base">
+              <label
+                htmlFor="reg-password2"
+                className="block text-sm font-semibold text-ink-1 mb-2"
+              >
                 Confirmar Senha
               </label>
               <div className="relative">
                 <Lock
-                  className="absolute left-3 top-3.5 text-gray-400"
-                  size={20}
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none"
+                  size={18}
+                  aria-hidden="true"
                 />
                 <input
+                  id="reg-password2"
                   type={showConfirmPassword ? "text" : "password"}
                   name="password2"
                   value={formData.password2}
                   onChange={handleChange}
                   onBlur={() => handleBlur("password2")}
                   placeholder="••••••••"
-                  className={`w-full pl-11 pr-12 py-2.5 border-2 rounded-lg focus:outline-none transition text-sm md:text-base ${
-                    touched.password2 && errors.password2
-                      ? "border-red-500 focus:border-red-500"
-                      : touched.password2 &&
-                          formData.password1 === formData.password2 &&
-                          formData.password2
-                        ? "border-green-500 focus:border-green-500"
-                        : "border-gray-300 focus:border-blue-500"
-                  }`}
+                  className={`${inputClass(
+                    !!(touched.password2 && errors.password2),
+                    !!(
+                      touched.password2 &&
+                      !errors.password2 &&
+                      formData.password1 === formData.password2 &&
+                      formData.password2
+                    ),
+                  )} pr-12`}
                   disabled={isLoading}
                 />
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-3.5 text-gray-400 hover:text-gray-600 transition"
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-ink-3 hover:text-ink-1 transition-colors"
                   disabled={isLoading}
+                  aria-label={
+                    showConfirmPassword ? "Ocultar senha" : "Mostrar senha"
+                  }
                 >
                   {showConfirmPassword ? (
-                    <EyeOff size={20} />
+                    <EyeOff size={18} />
                   ) : (
-                    <Eye size={20} />
+                    <Eye size={18} />
                   )}
                 </button>
               </div>
               {touched.password2 && errors.password2 && (
-                <p className="mt-1 text-sm text-red-600">{errors.password2}</p>
+                <p className="mt-1.5 text-xs text-red-400">
+                  {errors.password2}
+                </p>
               )}
               {touched.password2 &&
                 !errors.password2 &&
                 formData.password1 === formData.password2 &&
                 formData.password2 && (
-                  <p className="mt-1 text-sm text-green-600">
-                    Senhas coincidem ✓
+                  <p className="mt-1.5 text-xs text-green-400 flex items-center gap-1">
+                    <CheckCircle2 size={14} aria-hidden="true" />
+                    Senhas coincidem
                   </p>
                 )}
             </div>
 
             {/* Botão de Cadastro */}
             <button
-              type="submit"
+              type="button"
+              onClick={() => void handleRegister()}
               disabled={isLoading}
-              className="w-full bg-linear-to-r from-blue-900 to-blue-700 text-white py-2.5 md:py-3 rounded-lg font-bold hover:from-blue-600 hover:to-blue-500 transition shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none text-sm md:text-base cursor-pointer"
+              className="w-full bg-gold text-gold-deep py-3 rounded-xl font-semibold text-sm hover:bg-gold/90 active:bg-gold/80 transition-colors focus:outline-none focus:ring-2 focus:ring-gold/40 focus:ring-offset-2 focus:ring-offset-bg-1 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isLoading ? (
                 <span className="flex items-center justify-center gap-2">
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                  <span className="w-4 h-4 rounded-full border-2 border-gold-deep/30 border-t-gold-deep animate-spin" />
                   Cadastrando...
                 </span>
               ) : (
@@ -514,33 +574,35 @@ export function Register() {
             </button>
 
             {/* Link para Login */}
-            <div className="mt-4 md:mt-6 text-center">
-              <p className="text-sm md:text-base text-gray-600">
-                Já tem uma conta?{" "}
-                <a
-                  href="/login"
-                  className="text-blue-900 hover:text-blue-700 font-bold"
-                >
-                  Faça login
-                </a>
-              </p>
-            </div>
-          </form>
+            <p className="text-center text-sm text-ink-2 pt-1">
+              Já tem uma conta?{" "}
+              <Link
+                to="/login"
+                className="text-gold hover:text-gold/80 font-semibold transition-colors"
+              >
+                Faça login
+              </Link>
+            </p>
+          </div>
         </div>
 
         {/* Footer */}
-        <div className="mt-4 md:mt-8 text-center text-white text-xs md:text-sm">
-          <p className="mb-2">
-            © 2025 Marketplace. Todos os direitos reservados.
-          </p>
+        <div className="mt-6 text-center text-ink-3 text-xs space-y-1">
+          <p>© 2026 megdev. Todos os direitos reservados.</p>
           <div className="flex justify-center gap-4">
-            <a href="#" className="hover:underline">
+            <Link
+              to="/politica-de-cookies"
+              className="hover:text-ink-2 transition-colors"
+            >
               Termos de Uso
-            </a>
+            </Link>
             <span>•</span>
-            <a href="#" className="hover:underline">
+            <Link
+              to="/politica-de-cookies"
+              className="hover:text-ink-2 transition-colors"
+            >
               Política de Privacidade
-            </a>
+            </Link>
           </div>
         </div>
       </div>
