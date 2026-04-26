@@ -1035,10 +1035,10 @@ export function Checkout() {
           ════════════════════════════════════════ */}
           <div className="flex-1 min-w-0 space-y-4 sm:space-y-5">
             {/* ── STEP 1: Itens do carrinho ── */}
-            <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 sm:p-6">
+            <section className="bg-bg-1 rounded-2xl border border-white/10 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] p-5 sm:p-6">
               <StepHeader
                 step={1}
-                icon={<ShoppingBag size={17} className="text-blue-800" />}
+                icon={<ShoppingBag size={17} className="text-gold" />}
                 title="Itens do pedido"
                 complete
               />
@@ -1047,23 +1047,23 @@ export function Checkout() {
                 {Array.from(sellerGroups.entries()).map(([sellerId, group]) => (
                   <div key={sellerId}>
                     {/* Seller identifier row */}
-                    <div className="flex items-center gap-1.5 mb-3 pb-2 border-b border-gray-100">
+                    <div className="flex items-center gap-1.5 mb-3 pb-2 border-b border-white/10">
                       <User
                         size={13}
-                        className="text-gray-400 shrink-0"
+                        className="text-ink-3 shrink-0"
                         aria-hidden="true"
                       />
-                      <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                      <span className="text-xs font-semibold text-ink-3 uppercase tracking-wide">
                         Vendedor
                       </span>
-                      <span className="text-sm font-semibold text-gray-700">
+                      <span className="text-sm font-semibold text-ink-1">
                         {group.seller_name}
                       </span>
                     </div>
 
                     {/* Item list */}
                     <ul
-                      className="divide-y divide-gray-50"
+                      className="divide-y divide-white/5"
                       aria-label={`Itens de ${group.seller_name}`}
                     >
                       {group.items.map((item) => {
@@ -1083,7 +1083,7 @@ export function Checkout() {
                             className="flex gap-3 sm:gap-4 py-3"
                           >
                             {/* Thumbnail */}
-                            <div className="w-14 h-14 sm:w-16 sm:h-16 bg-gray-100 rounded-lg overflow-hidden shrink-0">
+                            <div className="w-14 h-14 sm:w-16 sm:h-16 bg-bg-2 rounded-xl overflow-hidden shrink-0">
                               {imgSrc ? (
                                 <img
                                   src={imgSrc}
@@ -1096,34 +1096,31 @@ export function Checkout() {
                                   className="w-full h-full flex items-center justify-center"
                                   aria-hidden="true"
                                 >
-                                  <Package
-                                    size={20}
-                                    className="text-gray-300"
-                                  />
+                                  <Package size={20} className="text-ink-3" />
                                 </div>
                               )}
                             </div>
 
                             {/* Info */}
                             <div className="flex-1 min-w-0 self-center">
-                              <p className="text-sm font-semibold text-gray-800 leading-snug line-clamp-2">
+                              <p className="text-sm font-semibold text-ink-1 leading-snug line-clamp-2">
                                 {productName}
                               </p>
-                              <p className="text-xs text-gray-500 mt-1">
+                              <p className="text-xs text-ink-2 mt-1">
                                 {item.quantity} × {formatCurrency(unitPrice)}
                               </p>
                             </div>
 
                             {/* Line total + remove */}
                             <div className="shrink-0 self-center text-right flex flex-col items-end gap-2">
-                              <p className="text-sm font-bold text-blue-800">
+                              <p className="text-sm font-bold text-gold">
                                 {formatCurrency(unitPrice * item.quantity)}
                               </p>
                               <button
                                 type="button"
                                 onClick={() => removeFromCart(item.listing.id)}
                                 aria-label={`Remover ${productName} do carrinho`}
-                                className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-red-500 border border-red-200 hover:bg-red-50 hover:border-red-400 hover:text-red-600 active:bg-red-100 transition-colors"
+                                className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-red-400 border border-red-500/30 hover:bg-red-500/10 hover:border-red-500/50 hover:text-red-300 active:bg-red-500/20 transition-colors"
                               >
                                 <Trash2 size={11} aria-hidden="true" />
                                 Remover
@@ -1135,10 +1132,10 @@ export function Checkout() {
                     </ul>
 
                     {/* Per-seller subtotal */}
-                    <div className="flex justify-end pt-2 mt-1 border-t border-gray-100">
-                      <p className="text-xs text-gray-500">
+                    <div className="flex justify-end pt-2 mt-1 border-t border-white/10">
+                      <p className="text-xs text-ink-3">
                         Subtotal:{" "}
-                        <span className="font-semibold text-gray-700">
+                        <span className="font-semibold text-ink-1">
                           {formatCurrency(sellerSubtotal(group.items))}
                         </span>
                       </p>
@@ -1149,10 +1146,10 @@ export function Checkout() {
             </section>
 
             {/* ── STEP 2: Endereço de entrega ── */}
-            <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 sm:p-6">
+            <section className="bg-bg-1 rounded-2xl border border-white/10 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] p-5 sm:p-6">
               <StepHeader
                 step={2}
-                icon={<MapPin size={17} className="text-blue-800" />}
+                icon={<MapPin size={17} className="text-gold" />}
                 title="Endereço de entrega"
                 complete={step2Complete}
               />
@@ -1194,44 +1191,42 @@ export function Checkout() {
                                 setShowAddressForm(false);
                               }
                             }}
-                            className={`flex items-start gap-3 p-4 rounded-xl border-2 cursor-pointer transition-colors min-h-[60px] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-800/50 ${
+                            className={`flex items-start gap-3 p-4 rounded-xl border-2 cursor-pointer transition-colors min-h-[60px] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 ${
                               isSelected
-                                ? "border-blue-800 bg-blue-50"
-                                : "border-gray-200 hover:border-blue-300 hover:bg-gray-50"
+                                ? "border-gold bg-gold/10"
+                                : "border-white/10 hover:border-gold/30 hover:bg-bg-2"
                             }`}
                           >
                             {/* Custom radio dot */}
                             <div
                               aria-hidden="true"
                               className={`mt-1 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
-                                isSelected
-                                  ? "border-blue-800"
-                                  : "border-gray-300"
+                                isSelected ? "border-gold" : "border-ink-3"
                               }`}
                             >
                               {isSelected && (
-                                <div className="w-2 h-2 rounded-full bg-blue-800" />
+                                <div className="w-2 h-2 rounded-full bg-gold" />
                               )}
                             </div>
 
                             {/* Address text */}
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-gray-800">
+                              <p className="text-sm font-semibold text-ink-1">
                                 {addr.recipient_name}
                                 {addr.is_default && (
-                                  <span className="ml-2 text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-medium">
+                                  <span className="ml-2 text-xs bg-gold/15 text-gold border border-gold/30 px-2 py-0.5 rounded-full font-medium">
                                     Padrão
                                   </span>
                                 )}
                               </p>
-                              <p className="text-sm text-gray-600 mt-0.5">
+                              <p className="text-sm text-ink-2 mt-0.5">
                                 {addr.street}, {addr.number}
                                 {addr.complement ? `, ${addr.complement}` : ""}
                               </p>
-                              <p className="text-sm text-gray-600">
+                              <p className="text-sm text-ink-2">
                                 {addr.neighborhood} — {addr.city}/{addr.state}
                               </p>
-                              <p className="text-xs text-gray-400 mt-0.5">
+                              <p className="text-xs text-ink-3 mt-0.5">
                                 {addr.zipcode}
                               </p>
                             </div>
@@ -1241,7 +1236,7 @@ export function Checkout() {
                               {isSelected && (
                                 <CheckCircle2
                                   size={18}
-                                  className="text-blue-800 mt-0.5"
+                                  className="text-gold mt-0.5"
                                   aria-hidden="true"
                                 />
                               )}
@@ -1253,7 +1248,7 @@ export function Checkout() {
                                   e.stopPropagation();
                                   handleDeleteAddress(addr.id);
                                 }}
-                                className="p-1 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="p-1 rounded-lg text-ink-3 hover:text-red-400 hover:bg-red-500/10 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/40 disabled:opacity-50 disabled:cursor-not-allowed"
                               >
                                 {deletingAddressId === addr.id ? (
                                   <Loader2
@@ -1280,7 +1275,7 @@ export function Checkout() {
                       setFormError("");
                     }}
                     aria-expanded={showAddressForm}
-                    className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-800 hover:text-blue-900 hover:underline underline-offset-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-800/40 rounded"
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-gold hover:text-gold/80 hover:underline underline-offset-2 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 rounded"
                   >
                     {showAddressForm ? (
                       <>
@@ -1297,14 +1292,14 @@ export function Checkout() {
 
                   {/* ── Inline address form ── */}
                   {showAddressForm && (
-                    <div className="mt-5 pt-5 border-t border-gray-100 space-y-4">
+                    <div className="mt-5 pt-5 border-t border-white/10 space-y-4">
                       {/* Section label + required field hint */}
                       <div className="flex items-center justify-between">
-                        <p className="text-sm font-semibold text-gray-800">
+                        <p className="text-sm font-semibold text-ink-1">
                           Novo endereço
                         </p>
-                        <p className="text-xs text-gray-400">
-                          <span className="text-red-500" aria-hidden="true">
+                        <p className="text-xs text-ink-3">
+                          <span className="text-red-400" aria-hidden="true">
                             *
                           </span>{" "}
                           Campos obrigatórios
@@ -1382,12 +1377,12 @@ export function Checkout() {
                             {cepLoading && (
                               <Loader2
                                 size={15}
-                                className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-blue-800"
+                                className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-gold"
                                 aria-label="Buscando endereço..."
                               />
                             )}
                           </div>
-                          <p className="mt-1 text-xs text-gray-400">
+                          <p className="mt-1 text-xs text-ink-3">
                             {cepLoading
                               ? "Buscando endereço..."
                               : "Preenchido automaticamente ao digitar o CEP."}
@@ -1528,14 +1523,14 @@ export function Checkout() {
                       </div>
 
                       {/* Form actions: stacked on mobile, inline on sm+ */}
-                      <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 pt-3 border-t border-gray-100">
+                      <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 pt-3 border-t border-white/10">
                         <button
                           type="button"
                           onClick={() => {
                             setShowAddressForm(false);
                             setFormError("");
                           }}
-                          className="w-full sm:w-auto px-5 py-2.5 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 active:bg-gray-100 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400/40"
+                          className="w-full sm:w-auto px-5 py-2.5 text-sm font-medium text-ink-1 bg-bg-2 border border-white/10 rounded-xl hover:bg-bg-3 hover:border-white/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus:ring-offset-2 focus:ring-offset-bg-1"
                         >
                           Cancelar
                         </button>
@@ -1543,7 +1538,7 @@ export function Checkout() {
                           type="button"
                           onClick={handleSaveAddress}
                           disabled={savingAddress}
-                          className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-blue-900 rounded-lg hover:bg-blue-800 active:bg-blue-950 disabled:opacity-60 disabled:cursor-not-allowed transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
+                          className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-gold-deep bg-gold rounded-xl hover:bg-gold/90 active:bg-gold/80 disabled:opacity-60 disabled:cursor-not-allowed transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus:ring-offset-2 focus:ring-offset-bg-1"
                         >
                           {savingAddress && (
                             <Loader2
@@ -1565,17 +1560,17 @@ export function Checkout() {
                 Always rendered so the layout does not jump; dimmed + pointer-
                 events blocked until an address is selected.
             ── */}
-            <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 sm:p-6">
+            <section className="bg-bg-1 rounded-2xl border border-white/10 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] p-5 sm:p-6">
               <StepHeader
                 step={3}
-                icon={<Truck size={17} className="text-blue-800" />}
+                icon={<Truck size={17} className="text-gold" />}
                 title="Opções de frete"
                 complete={step3Complete}
               />
 
               {/* Locked state hint */}
               {!selectedAddressId && (
-                <p className="text-sm text-gray-400 italic">
+                <p className="text-sm text-ink-3 italic">
                   Selecione um endereço acima para calcular o frete.
                 </p>
               )}
@@ -1606,26 +1601,26 @@ export function Checkout() {
                         return (
                           <div key={sellerId}>
                             {/* Seller label inside shipping section */}
-                            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2.5 flex items-center gap-1.5">
+                            <p className="text-xs font-semibold text-ink-3 uppercase tracking-wide mb-2.5 flex items-center gap-1.5">
                               <User
                                 size={12}
-                                className="text-gray-400 shrink-0"
+                                className="text-ink-3 shrink-0"
                                 aria-hidden="true"
                               />
                               {sellerName}
                             </p>
 
                             {!sellerQuote ? (
-                              <p className="text-sm text-gray-400 italic pl-1">
+                              <p className="text-sm text-ink-3 italic pl-1">
                                 Aguardando cotações...
                               </p>
                             ) : sellerQuote.in_person_only ? (
-                              // Case 1: vendor-only delivery — BUG 5: amber info card, no selection needed
-                              <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
-                                <p className="text-sm font-medium text-amber-800">
+                              // Case 1: vendor-only delivery — gold info card, no selection needed
+                              <div className="p-4 bg-gold/10 border border-gold/30 rounded-xl">
+                                <p className="text-sm font-medium text-gold">
                                   Entrega presencial
                                 </p>
-                                <p className="text-sm text-amber-700 mt-1">
+                                <p className="text-sm text-ink-2 mt-1">
                                   Este vendedor realiza apenas entrega
                                   presencial. Após confirmar o pedido, combine
                                   os detalhes pelo chat.
@@ -1639,7 +1634,7 @@ export function Checkout() {
                                 className="space-y-2"
                               >
                                 {sellerQuote.quotes.length === 0 ? (
-                                  <p className="text-sm text-gray-500 italic pl-1">
+                                  <p className="text-sm text-ink-3 italic pl-1">
                                     Nenhuma opção de frete disponível.
                                   </p>
                                 ) : (
@@ -1671,22 +1666,22 @@ export function Checkout() {
                                             }));
                                           }
                                         }}
-                                        className={`flex items-center gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-colors min-h-[56px] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-800/50 ${
+                                        className={`flex items-center gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-colors min-h-[56px] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 ${
                                           isSelected
-                                            ? "border-blue-800 bg-blue-50"
-                                            : "border-gray-200 hover:border-blue-300 hover:bg-gray-50"
+                                            ? "border-gold bg-gold/10"
+                                            : "border-white/10 hover:border-gold/30 hover:bg-bg-2"
                                         }`}
                                       >
                                         <div
                                           aria-hidden="true"
                                           className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
                                             isSelected
-                                              ? "border-blue-800"
-                                              : "border-gray-300"
+                                              ? "border-gold"
+                                              : "border-ink-3"
                                           }`}
                                         >
                                           {isSelected && (
-                                            <div className="w-2 h-2 rounded-full bg-blue-800" />
+                                            <div className="w-2 h-2 rounded-full bg-gold" />
                                           )}
                                         </div>
                                         {option.company_picture && (
@@ -1697,10 +1692,10 @@ export function Checkout() {
                                           />
                                         )}
                                         <div className="flex-1 min-w-0">
-                                          <p className="text-sm font-semibold text-gray-800 leading-tight">
+                                          <p className="text-sm font-semibold text-ink-1 leading-tight">
                                             {option.name}
                                           </p>
-                                          <p className="text-xs text-gray-500 mt-0.5">
+                                          <p className="text-xs text-ink-3 mt-0.5">
                                             {option.company} &middot;{" "}
                                             {option.delivery_time}{" "}
                                             {option.delivery_time === 1
@@ -1711,8 +1706,8 @@ export function Checkout() {
                                         <span
                                           className={`text-sm font-bold shrink-0 ${
                                             isSelected
-                                              ? "text-blue-800"
-                                              : "text-gray-700"
+                                              ? "text-gold"
+                                              : "text-ink-1"
                                           }`}
                                         >
                                           {formatCurrency(option.price)}
@@ -1769,10 +1764,10 @@ export function Checkout() {
                                             value,
                                           )
                                         }
-                                        className={`flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border-2 font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-800/50 ${
+                                        className={`flex items-center gap-1.5 px-3 py-2 text-sm rounded-xl border-2 font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 ${
                                           sel
-                                            ? "border-blue-800 bg-blue-50 text-blue-800"
-                                            : "border-gray-200 text-gray-600 hover:border-blue-300 hover:bg-gray-50"
+                                            ? "border-gold bg-gold/10 text-gold"
+                                            : "border-white/10 text-ink-2 hover:border-gold/30 hover:bg-bg-2"
                                         }`}
                                       >
                                         {icon}
@@ -1789,7 +1784,7 @@ export function Checkout() {
                                   (perSellerLoading[sellerId] ? (
                                     <LoadingRow label="Buscando opções de frete..." />
                                   ) : sellerQuote.quotes.length === 0 ? (
-                                    <p className="text-sm text-gray-500 italic pl-1">
+                                    <p className="text-sm text-ink-3 italic pl-1">
                                       Nenhuma opção de frete disponível.
                                     </p>
                                   ) : (
@@ -1826,22 +1821,22 @@ export function Checkout() {
                                                 }));
                                               }
                                             }}
-                                            className={`flex items-center gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-colors min-h-[56px] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-800/50 ${
+                                            className={`flex items-center gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-colors min-h-[56px] focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 ${
                                               isSelected
-                                                ? "border-blue-800 bg-blue-50"
-                                                : "border-gray-200 hover:border-blue-300 hover:bg-gray-50"
+                                                ? "border-gold bg-gold/10"
+                                                : "border-white/10 hover:border-gold/30 hover:bg-bg-2"
                                             }`}
                                           >
                                             <div
                                               aria-hidden="true"
                                               className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
                                                 isSelected
-                                                  ? "border-blue-800"
-                                                  : "border-gray-300"
+                                                  ? "border-gold"
+                                                  : "border-ink-3"
                                               }`}
                                             >
                                               {isSelected && (
-                                                <div className="w-2 h-2 rounded-full bg-blue-800" />
+                                                <div className="w-2 h-2 rounded-full bg-gold" />
                                               )}
                                             </div>
                                             {option.company_picture && (
@@ -1852,10 +1847,10 @@ export function Checkout() {
                                               />
                                             )}
                                             <div className="flex-1 min-w-0">
-                                              <p className="text-sm font-semibold text-gray-800 leading-tight">
+                                              <p className="text-sm font-semibold text-ink-1 leading-tight">
                                                 {option.name}
                                               </p>
-                                              <p className="text-xs text-gray-500 mt-0.5">
+                                              <p className="text-xs text-ink-3 mt-0.5">
                                                 {option.company} &middot;{" "}
                                                 {option.delivery_time}{" "}
                                                 {option.delivery_time === 1
@@ -1866,8 +1861,8 @@ export function Checkout() {
                                             <span
                                               className={`text-sm font-bold shrink-0 ${
                                                 isSelected
-                                                  ? "text-blue-800"
-                                                  : "text-gray-700"
+                                                  ? "text-gold"
+                                                  : "text-ink-1"
                                               }`}
                                             >
                                               {formatCurrency(option.price)}
@@ -1891,7 +1886,7 @@ export function Checkout() {
 
                                 {/* No method selected yet */}
                                 {!sellerDeliveryMethods[sellerId] && (
-                                  <p className="text-sm text-gray-400 italic pl-1">
+                                  <p className="text-sm text-ink-3 italic pl-1">
                                     Selecione o método de entrega acima.
                                   </p>
                                 )}
@@ -1912,27 +1907,27 @@ export function Checkout() {
               Sticky on lg, stacked below on mobile
           ════════════════════════════════════════ */}
           <aside className="w-full lg:w-80 shrink-0">
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 sm:p-6 lg:sticky lg:top-6">
-              <h2 className="text-base font-semibold text-gray-900 mb-4 pb-3 border-b border-gray-100">
+            <div className="bg-bg-1 rounded-2xl border border-white/10 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] p-5 sm:p-6 lg:sticky lg:top-6">
+              <h2 className="text-base font-semibold text-ink-1 mb-4 pb-3 border-b border-white/10">
                 Resumo do pedido
               </h2>
 
               {/* Line items */}
               <div className="space-y-2.5 text-sm">
-                <div className="flex justify-between text-gray-600">
+                <div className="flex justify-between text-ink-2">
                   <span>Produtos</span>
-                  <span className="font-medium text-gray-800">
+                  <span className="font-medium text-ink-1">
                     {formatCurrency(productSubtotal)}
                   </span>
                 </div>
 
-                <div className="flex justify-between text-gray-600">
+                <div className="flex justify-between text-ink-2">
                   <span>Frete</span>
                   <span
                     className={`font-medium ${
                       shippingLoading || shippingTotal === 0
-                        ? "text-gray-400"
-                        : "text-gray-800"
+                        ? "text-ink-3"
+                        : "text-ink-1"
                     }`}
                   >
                     {shippingLoading
@@ -1944,9 +1939,9 @@ export function Checkout() {
                 </div>
 
                 {/* Total row */}
-                <div className="flex justify-between items-baseline pt-3 mt-1 border-t border-gray-200">
-                  <span className="font-semibold text-gray-900">Total</span>
-                  <span className="font-bold text-lg text-blue-800">
+                <div className="flex justify-between items-baseline pt-3 mt-1 border-t border-white/10">
+                  <span className="font-semibold text-ink-1">Total</span>
+                  <span className="font-bold text-lg text-gold">
                     {formatCurrency(productSubtotal + shippingTotal)}
                   </span>
                 </div>
@@ -1954,11 +1949,11 @@ export function Checkout() {
 
               {/* Address preview chip */}
               {selectedAddress && (
-                <div className="mt-4 pt-4 border-t border-gray-100">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">
+                <div className="mt-4 pt-4 border-t border-white/10">
+                  <p className="text-xs font-semibold text-ink-3 uppercase tracking-wide mb-1">
                     Entregando em
                   </p>
-                  <p className="text-sm text-gray-700 leading-relaxed">
+                  <p className="text-sm text-ink-2 leading-relaxed">
                     {selectedAddress.street}, {selectedAddress.number}
                     {selectedAddress.complement
                       ? `, ${selectedAddress.complement}`
@@ -1974,22 +1969,22 @@ export function Checkout() {
                 onClick={handleProceedToPayment}
                 disabled={!allServicesSelected}
                 aria-disabled={!allServicesSelected}
-                className="mt-5 w-full flex items-center justify-center gap-2 px-4 py-3.5 bg-blue-900 text-white text-sm font-semibold rounded-xl hover:bg-blue-800 active:bg-blue-950 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
+                className="mt-5 w-full flex items-center justify-center gap-2 px-4 py-3.5 bg-gold text-gold-deep text-sm font-semibold rounded-xl hover:bg-gold/90 active:bg-gold/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus:ring-offset-2 focus:ring-offset-bg-1"
               >
                 Ir para pagamento
                 <ChevronRight size={17} aria-hidden="true" />
               </button>
 
-              {/* Contextual guidance — improved contrast (text-gray-500 instead of 400) */}
+              {/* Contextual guidance */}
               {!selectedAddressId && !addressesLoading && (
-                <p className="mt-3 text-xs text-center text-gray-500">
+                <p className="mt-3 text-xs text-center text-ink-3">
                   Selecione um endereço de entrega para continuar.
                 </p>
               )}
               {selectedAddressId &&
                 !allServicesSelected &&
                 !shippingLoading && (
-                  <p className="mt-3 text-xs text-center text-gray-500">
+                  <p className="mt-3 text-xs text-center text-ink-3">
                     Selecione o frete de cada vendedor para continuar.
                   </p>
                 )}
