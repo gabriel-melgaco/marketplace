@@ -18,7 +18,8 @@ import type { PaginatedSaleList, PaginatedSaleListItem } from "@/types/orders";
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function getAxiosErrorMessage(err: unknown, fallback: string): string {
-  const responseData = (err as { response?: { data?: unknown } })?.response?.data;
+  const responseData = (err as { response?: { data?: unknown } })?.response
+    ?.data;
   if (responseData && typeof responseData === "object") {
     const messages = (
       Object.values(responseData as Record<string, unknown>).flat() as unknown[]
@@ -39,17 +40,6 @@ const SWAL_TOAST_CONFIG = {
   position: "top-end" as const,
   showConfirmButton: false,
   timer: 3000,
-};
-
-const ORDER_STATUS_LABELS: Record<string, string> = {
-  pending_payment: "Aguardando Pagamento",
-  paid: "Pago",
-  processing: "Em Processamento",
-  shipped: "Enviado",
-  delivered: "Entregue",
-  completed: "Concluído",
-  cancelled: "Cancelado",
-  failed: "Falhou",
 };
 
 const ORDER_STATUS_COLORS: Record<string, string> = {
@@ -86,8 +76,11 @@ const FILTER_TABS: { value: StatusFilter; label: string }[] = [
 
 // ─── Card Action Logic ────────────────────────────────────────────────────────
 
-function getCardAction(sale: PaginatedSaleListItem): "generate_tickets" | "view_details" {
-  if (sale.status === "paid" || sale.status === "processing") return "generate_tickets";
+function getCardAction(
+  sale: PaginatedSaleListItem,
+): "generate_tickets" | "view_details" {
+  if (sale.status === "paid" || sale.status === "processing")
+    return "generate_tickets";
   return "view_details";
 }
 
@@ -127,7 +120,9 @@ export function MySales() {
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [generatingForOrder, setGeneratingForOrder] = useState<string | null>(null);
+  const [generatingForOrder, setGeneratingForOrder] = useState<string | null>(
+    null,
+  );
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
 
   const isGeneratingRef = useRef(false);
@@ -326,7 +321,7 @@ export function MySales() {
                     <span
                       className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${ORDER_STATUS_COLORS[sale.status] ?? "bg-gray-100 text-gray-700"}`}
                     >
-                      {ORDER_STATUS_LABELS[sale.status] ?? sale.status}
+                      {sale.status_display}
                     </span>
                   </div>
 
@@ -336,12 +331,11 @@ export function MySales() {
                     {items.length > 0 ? (
                       <div className="flex items-center gap-2 mb-4">
                         {visibleItems.map((item) => {
-                          const imgSrc =
-                            item.listing.primary_image
-                              ? toPublicUrl(item.listing.primary_image)
-                              : item.listing.images?.[0]?.image_url
-                                ? toPublicUrl(item.listing.images[0].image_url)
-                                : null;
+                          const imgSrc = item.listing.primary_image
+                            ? toPublicUrl(item.listing.primary_image)
+                            : item.listing.images?.[0]?.image_url
+                              ? toPublicUrl(item.listing.images[0].image_url)
+                              : null;
 
                           return (
                             <div

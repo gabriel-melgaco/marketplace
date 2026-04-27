@@ -52,18 +52,6 @@ interface DashboardStats {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const ORDER_STATUS_LABELS: Record<string, string> = {
-  pending_payment: "Aguardando Pagamento",
-  paid: "Pago",
-  pending: "Pendente",
-  processing: "Em Processamento",
-  shipped: "Enviado",
-  delivered: "Entregue",
-  completed: "Concluído",
-  cancelled: "Cancelado",
-  failed: "Falhou",
-};
-
 const ORDER_STATUS_COLORS: Record<string, string> = {
   pending_payment: "bg-yellow-100 text-yellow-800",
   paid: "bg-blue-100 text-blue-800",
@@ -114,14 +102,19 @@ function StatCard({
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const label = ORDER_STATUS_LABELS[status] ?? status;
+function StatusBadge({
+  status,
+  statusDisplay,
+}: {
+  status: string;
+  statusDisplay: string;
+}) {
   const colorClass = ORDER_STATUS_COLORS[status] ?? "bg-gray-100 text-gray-700";
   return (
     <span
       className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${colorClass}`}
     >
-      {label}
+      {statusDisplay}
     </span>
   );
 }
@@ -522,7 +515,10 @@ function SalesSection() {
                   minimumFractionDigits: 2,
                 })}
               </p>
-              <StatusBadge status={sale.status} />
+              <StatusBadge
+                status={sale.status}
+                statusDisplay={sale.status_display}
+              />
               <ChevronRight size={16} className="text-gray-300" />
             </div>
           </div>
@@ -623,7 +619,10 @@ function PurchasesSection() {
                   minimumFractionDigits: 2,
                 })}
               </p>
-              <StatusBadge status={order.status} />
+              <StatusBadge
+                status={order.status}
+                statusDisplay={order.status_display}
+              />
               <ChevronRight size={16} className="text-gray-300" />
             </div>
           </div>
@@ -794,8 +793,12 @@ function ReviewsSection({ stats }: { stats: ReviewStats | null }) {
 // ─── Payouts Widget ───────────────────────────────────────────────────────────
 
 function PayoutsWidget() {
-  const [payouts, setPayouts] = useState<import("@/services/paymentService").PaymentSplit[]>([]);
-  const [scheduled, setScheduled] = useState<import("@/services/paymentService").ScheduledPayout[]>([]);
+  const [payouts, setPayouts] = useState<
+    import("@/services/paymentService").PaymentSplit[]
+  >([]);
+  const [scheduled, setScheduled] = useState<
+    import("@/services/paymentService").ScheduledPayout[]
+  >([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -812,7 +815,9 @@ function PayoutsWidget() {
       setLoading(false);
     }
     fetchPayouts();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   function formatBRL(value: string | number | null | undefined): string {
@@ -854,19 +859,28 @@ function PayoutsWidget() {
       <div className="space-y-4">
         {scheduled.length > 0 && (
           <div>
-            <p className="text-xs font-semibold text-gray-500 mb-2">Agendados</p>
+            <p className="text-xs font-semibold text-gray-500 mb-2">
+              Agendados
+            </p>
             <div className="space-y-2">
               {scheduled.slice(0, 3).map((s) => (
-                <div key={s.id} className="flex items-center justify-between p-3 bg-yellow-50 border border-yellow-100 rounded-lg">
+                <div
+                  key={s.id}
+                  className="flex items-center justify-between p-3 bg-yellow-50 border border-yellow-100 rounded-lg"
+                >
                   <div>
-                    <p className="text-xs font-semibold text-gray-700">#{s.order_number}</p>
+                    <p className="text-xs font-semibold text-gray-700">
+                      #{s.order_number}
+                    </p>
                     <p className="text-xs text-gray-400">
                       {s.scheduled_date
                         ? new Date(s.scheduled_date).toLocaleDateString("pt-BR")
                         : "Data a confirmar"}
                     </p>
                   </div>
-                  <p className="text-sm font-bold text-yellow-700">{formatBRL(s.net_amount)}</p>
+                  <p className="text-sm font-bold text-yellow-700">
+                    {formatBRL(s.net_amount)}
+                  </p>
                 </div>
               ))}
             </div>
@@ -874,17 +888,29 @@ function PayoutsWidget() {
         )}
         {payouts.length > 0 && (
           <div>
-            <p className="text-xs font-semibold text-gray-500 mb-2">Histórico</p>
+            <p className="text-xs font-semibold text-gray-500 mb-2">
+              Histórico
+            </p>
             <div className="space-y-2">
               {payouts.slice(0, 5).map((p) => (
-                <div key={p.id} className="flex items-center justify-between p-3 bg-gray-50 border border-gray-100 rounded-lg">
+                <div
+                  key={p.id}
+                  className="flex items-center justify-between p-3 bg-gray-50 border border-gray-100 rounded-lg"
+                >
                   <div>
-                    <p className="text-xs font-semibold text-gray-700">#{p.order_number}</p>
-                    <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${TRANSFER_STATUS_COLORS[p.transfer_status] ?? "bg-gray-100 text-gray-600"}`}>
-                      {TRANSFER_STATUS_LABELS[p.transfer_status] ?? p.transfer_status}
+                    <p className="text-xs font-semibold text-gray-700">
+                      #{p.order_number}
+                    </p>
+                    <span
+                      className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${TRANSFER_STATUS_COLORS[p.transfer_status] ?? "bg-gray-100 text-gray-600"}`}
+                    >
+                      {TRANSFER_STATUS_LABELS[p.transfer_status] ??
+                        p.transfer_status}
                     </span>
                   </div>
-                  <p className="text-sm font-bold text-gray-800">{formatBRL(p.net_amount)}</p>
+                  <p className="text-sm font-bold text-gray-800">
+                    {formatBRL(p.net_amount)}
+                  </p>
                 </div>
               ))}
             </div>
@@ -898,8 +924,11 @@ function PayoutsWidget() {
 // ─── Balance Widget ───────────────────────────────────────────────────────────
 
 function BalanceWidget() {
-  const [meBalance, setMeBalance] = useState<SellerMEBalanceResponse | null>(null);
-  const [stripeBalance, setStripeBalance] = useState<SellerBalanceResponse | null>(null);
+  const [meBalance, setMeBalance] = useState<SellerMEBalanceResponse | null>(
+    null,
+  );
+  const [stripeBalance, setStripeBalance] =
+    useState<SellerBalanceResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -916,7 +945,9 @@ function BalanceWidget() {
       setLoading(false);
     }
     fetchBalances();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   function formatBRL(value: number | string | null | undefined): string {
@@ -937,14 +968,20 @@ function BalanceWidget() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {/* Melhor Envio */}
-          <div className={`flex items-start gap-3 p-4 border rounded-xl ${
-            meBalance && Number(meBalance.balance) === 0
-              ? "bg-yellow-50 border-yellow-200"
-              : "bg-blue-50 border-blue-100"
-          }`}>
-            <div className={`p-2 rounded-lg shrink-0 ${
-              meBalance && Number(meBalance.balance) === 0 ? "bg-yellow-500" : "bg-blue-900"
-            }`}>
+          <div
+            className={`flex items-start gap-3 p-4 border rounded-xl ${
+              meBalance && Number(meBalance.balance) === 0
+                ? "bg-yellow-50 border-yellow-200"
+                : "bg-blue-50 border-blue-100"
+            }`}
+          >
+            <div
+              className={`p-2 rounded-lg shrink-0 ${
+                meBalance && Number(meBalance.balance) === 0
+                  ? "bg-yellow-500"
+                  : "bg-blue-900"
+              }`}
+            >
               <Truck size={16} className="text-white" />
             </div>
             <div className="min-w-0">
@@ -953,14 +990,19 @@ function BalanceWidget() {
               </p>
               {meBalance ? (
                 <>
-                  <p className={`text-lg font-extrabold leading-tight mt-0.5 ${
-                    Number(meBalance.balance) === 0 ? "text-yellow-700" : "text-gray-900"
-                  }`}>
+                  <p
+                    className={`text-lg font-extrabold leading-tight mt-0.5 ${
+                      Number(meBalance.balance) === 0
+                        ? "text-yellow-700"
+                        : "text-gray-900"
+                    }`}
+                  >
                     {formatBRL(meBalance.balance)}
                   </p>
                   {Number(meBalance.balance) === 0 ? (
                     <p className="text-xs text-yellow-700 mt-1 leading-snug">
-                      Saldo insuficiente para envios. Adicione créditos no Melhor Envio para realizar vendas na plataforma.
+                      Saldo insuficiente para envios. Adicione créditos no
+                      Melhor Envio para realizar vendas na plataforma.
                     </p>
                   ) : (
                     <p className="text-xs text-gray-400 mt-0.5">Carteira</p>
@@ -986,13 +1028,17 @@ function BalanceWidget() {
             </div>
 
             {!stripeBalance && (
-              <p className="text-sm text-gray-400 italic">Conta não configurada</p>
+              <p className="text-sm text-gray-400 italic">
+                Conta não configurada
+              </p>
             )}
 
             {stripeBalance && stripeBalance.stripe_balance_error && (
               <div className="flex items-start gap-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
                 <AlertCircle size={13} className="shrink-0 mt-0.5" />
-                <span>Erro ao carregar saldo. Verifique a conexão com o Stripe.</span>
+                <span>
+                  Erro ao carregar saldo. Verifique a conexão com o Stripe.
+                </span>
               </div>
             )}
 
@@ -1005,7 +1051,10 @@ function BalanceWidget() {
                   </p>
                   <p className="text-sm font-extrabold text-green-700 shrink-0">
                     {stripeBalance.stripe_total_paid_out != null
-                      ? stripeBalance.stripe_total_paid_out.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+                      ? stripeBalance.stripe_total_paid_out.toLocaleString(
+                          "pt-BR",
+                          { style: "currency", currency: "BRL" },
+                        )
                       : "—"}
                   </p>
                 </div>
@@ -1013,7 +1062,9 @@ function BalanceWidget() {
                 {/* 2 — Disponível para saque */}
                 <div className="flex items-baseline justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="text-xs text-gray-500 leading-snug">Disponível para saque</p>
+                    <p className="text-xs text-gray-500 leading-snug">
+                      Disponível para saque
+                    </p>
                     {stripeBalance.stripe_available === 0 && (
                       <p className="text-xs text-gray-400 leading-snug">
                         Payout automático diário ativo
@@ -1022,27 +1073,40 @@ function BalanceWidget() {
                   </div>
                   <p className="text-sm font-bold text-gray-800 shrink-0">
                     {stripeBalance.stripe_available != null
-                      ? stripeBalance.stripe_available.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+                      ? stripeBalance.stripe_available.toLocaleString("pt-BR", {
+                          style: "currency",
+                          currency: "BRL",
+                        })
                       : "—"}
                   </p>
                 </div>
 
                 {/* 3 — A caminho do banco */}
                 <div className="flex items-baseline justify-between gap-2">
-                  <p className="text-xs text-gray-500 leading-snug">A caminho do banco</p>
+                  <p className="text-xs text-gray-500 leading-snug">
+                    A caminho do banco
+                  </p>
                   <p className="text-sm font-bold text-gray-800 shrink-0">
                     {stripeBalance.stripe_in_transit != null
-                      ? stripeBalance.stripe_in_transit.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+                      ? stripeBalance.stripe_in_transit.toLocaleString(
+                          "pt-BR",
+                          { style: "currency", currency: "BRL" },
+                        )
                       : "—"}
                   </p>
                 </div>
 
                 {/* 4 — Aguardando liberação */}
                 <div className="flex items-baseline justify-between gap-2">
-                  <p className="text-xs text-gray-500 leading-snug">Aguardando liberação</p>
+                  <p className="text-xs text-gray-500 leading-snug">
+                    Aguardando liberação
+                  </p>
                   <p className="text-sm font-bold text-gray-800 shrink-0">
                     {stripeBalance.stripe_pending != null
-                      ? stripeBalance.stripe_pending.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+                      ? stripeBalance.stripe_pending.toLocaleString("pt-BR", {
+                          style: "currency",
+                          currency: "BRL",
+                        })
                       : "—"}
                   </p>
                 </div>
@@ -1057,7 +1121,12 @@ function BalanceWidget() {
                   </div>
                   <p className="text-sm font-bold text-gray-800 shrink-0">
                     {stripeBalance.dispatched_transfers
-                      ? Number(stripeBalance.dispatched_transfers).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+                      ? Number(
+                          stripeBalance.dispatched_transfers,
+                        ).toLocaleString("pt-BR", {
+                          style: "currency",
+                          currency: "BRL",
+                        })
                       : "—"}
                   </p>
                 </div>
@@ -1067,7 +1136,11 @@ function BalanceWidget() {
                   <div className="flex items-start gap-2 p-2.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 mt-1">
                     <AlertCircle size={13} className="shrink-0 mt-0.5" />
                     <span>
-                      {Number(stripeBalance.failed_transfers).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} em repasses com falha. Verifique sua conta Stripe.
+                      {Number(stripeBalance.failed_transfers).toLocaleString(
+                        "pt-BR",
+                        { style: "currency", currency: "BRL" },
+                      )}{" "}
+                      em repasses com falha. Verifique sua conta Stripe.
                     </span>
                   </div>
                 )}
