@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { loadStripe } from "@stripe/stripe-js";
+import { loadStripe, type Appearance } from "@stripe/stripe-js";
 import {
   Elements,
   PaymentElement,
@@ -28,6 +28,59 @@ if (!STRIPE_PUBLIC_KEY) {
   throw new Error("VITE_STRIPE_PUBLIC_KEY is not defined. Check your .env file.");
 }
 const stripePromise = loadStripe(STRIPE_PUBLIC_KEY);
+
+// ─── Stripe Elements appearance (V1 Dark Gold) ────────────────────────────────
+// These hex values mirror the CSS variables defined in src/index.css.
+// Stripe Elements renders inside an iframe and cannot read Tailwind utilities,
+// so we pass colors explicitly here.
+const stripeAppearance: Appearance = {
+  theme: "night",
+  variables: {
+    colorPrimary: "#f59e0b",           // gold
+    colorBackground: "#17171c",         // bg-bg-2
+    colorText: "#f5f5f7",              // ink-1
+    colorTextSecondary: "#a1a1aa",     // ink-2
+    colorTextPlaceholder: "#6b6b74",   // ink-3
+    colorDanger: "#f87171",            // red-400
+    fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+    borderRadius: "12px",
+    spacingUnit: "4px",
+  },
+  rules: {
+    ".Input": {
+      backgroundColor: "#17171c",
+      border: "1px solid rgba(255, 255, 255, 0.1)",
+      color: "#f5f5f7",
+    },
+    ".Input:focus": {
+      border: "1px solid #f59e0b",
+      boxShadow: "0 0 0 3px rgba(245, 158, 11, 0.2)",
+    },
+    ".Input--invalid": {
+      border: "1px solid rgba(248, 113, 113, 0.5)",
+      color: "#f87171",
+    },
+    ".Label": {
+      color: "#f5f5f7",
+      fontWeight: "500",
+      fontSize: "14px",
+    },
+    ".Tab": {
+      backgroundColor: "#17171c",
+      border: "1px solid rgba(255, 255, 255, 0.1)",
+      color: "#a1a1aa",
+    },
+    ".Tab:hover": {
+      border: "1px solid rgba(245, 158, 11, 0.3)",
+      color: "#f5f5f7",
+    },
+    ".Tab--selected": {
+      border: "1px solid #f59e0b",
+      backgroundColor: "rgba(245, 158, 11, 0.1)",
+      color: "#f59e0b",
+    },
+  },
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -138,7 +191,6 @@ async function pollPaymentStatus(
 }
 
 // ─── Shared: Step header (matches checkout page visual language) ──────────────
-
 function StepHeader({
   step,
   icon,
@@ -154,13 +206,15 @@ function StepHeader({
     <div className="flex items-center gap-3 mb-5">
       <div
         className={`flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold shrink-0 transition-colors ${
-          complete ? "bg-green-100 text-green-700" : "bg-blue-900 text-white"
+          complete
+            ? "bg-gold/10 border border-gold/30 text-gold"
+            : "bg-gold text-gold-deep"
         }`}
         aria-hidden="true"
       >
         {complete ? <CheckCircle2 size={15} /> : step}
       </div>
-      <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+      <h2 className="text-base font-semibold text-ink-1 flex items-center gap-2">
         {icon}
         {title}
       </h2>
@@ -247,12 +301,20 @@ function StripeCardForm({ clientSecret: _clientSecret, stripePaymentIntentId, or
         aria-live="polite"
         aria-label="Processando pagamento"
       >
-        <div className="w-16 h-16 rounded-full bg-blue-50 flex items-center justify-center">
-          <Loader2 size={32} className="animate-spin text-blue-800" aria-hidden="true" />
+        <div className="w-16 h-16 rounded-2xl bg-gold/10 border border-gold/30 flex items-center justify-center">
+          <Loader2
+            size={32}
+            className="animate-spin text-gold"
+            aria-hidden="true"
+          />
         </div>
         <div className="text-center space-y-1">
-          <p className="text-base font-semibold text-gray-800">Processando pagamento...</p>
-          <p className="text-sm text-gray-500">Aguarde enquanto confirmamos sua transação.</p>
+          <p className="text-base font-semibold text-ink-1">
+            Processando pagamento...
+          </p>
+          <p className="text-sm text-ink-2">
+            Aguarde enquanto confirmamos sua transação.
+          </p>
         </div>
       </div>
     );
@@ -261,7 +323,7 @@ function StripeCardForm({ clientSecret: _clientSecret, stripePaymentIntentId, or
   return (
     <div className="space-y-5">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+        <label className="block text-sm font-medium text-ink-1 mb-1.5">
           Dados do pagamento
         </label>
         <PaymentElement />
@@ -270,18 +332,23 @@ function StripeCardForm({ clientSecret: _clientSecret, stripePaymentIntentId, or
       {stripeError && (
         <div
           role="alert"
-          className="flex items-start gap-2.5 text-red-700 text-sm bg-red-50 border border-red-200 rounded-xl p-3.5"
+          className="flex items-start gap-2.5 text-red-400 text-sm bg-red-500/10 border border-red-500/30 rounded-xl p-3.5"
         >
-          <AlertCircle size={16} className="shrink-0 mt-0.5" aria-hidden="true" />
+          <AlertCircle
+            size={16}
+            className="shrink-0 mt-0.5"
+            aria-hidden="true"
+          />
           <span>{stripeError}</span>
         </div>
       )}
 
       <button
+        type="button"
         onClick={handleConfirmPayment}
         disabled={confirming || !stripe}
         aria-disabled={confirming || !stripe}
-        className="w-full flex items-center justify-center gap-2 px-4 py-3.5 bg-blue-900 text-white font-semibold rounded-xl hover:bg-blue-800 active:bg-blue-950 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
+        className="w-full flex items-center justify-center gap-2 px-4 py-3.5 bg-gold text-gold-deep font-semibold rounded-xl hover:bg-gold/90 active:bg-gold/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-gold/40 focus:ring-offset-2 focus:ring-offset-bg-1"
       >
         {confirming ? (
           <>
@@ -296,7 +363,7 @@ function StripeCardForm({ clientSecret: _clientSecret, stripePaymentIntentId, or
         )}
       </button>
 
-      <p className="text-center text-xs text-gray-400 flex items-center justify-center gap-1.5 pt-1">
+      <p className="text-center text-xs text-ink-3 flex items-center justify-center gap-1.5 pt-1">
         <ShieldCheck size={12} aria-hidden="true" />
         Seus dados são criptografados e nunca armazenados neste site
       </p>
@@ -536,23 +603,24 @@ export function Payment() {
 
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-bg-0">
       <div className="max-w-lg mx-auto px-4 py-8 sm:py-10">
-
         {/* Back navigation */}
         <button
+          type="button"
           onClick={() => navigate("/checkout")}
-          className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-800 mb-6 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 rounded-md px-1 -ml-1"
+          className="inline-flex items-center gap-1.5 text-sm text-ink-2 hover:text-ink-1 mb-6 transition-colors focus:outline-none focus:ring-2 focus:ring-gold/40 focus:ring-offset-2 focus:ring-offset-bg-0 rounded-md px-1 -ml-1"
           aria-label="Voltar ao checkout"
         >
           <ArrowLeft size={16} aria-hidden="true" />
           Voltar ao checkout
         </button>
-
         {/* Page heading */}
         <div className="mb-8">
-          <h1 className="text-2xl font-bold text-gray-900">Pagamento</h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <h1 className="font-display text-2xl md:text-3xl font-bold text-ink-1 tracking-[-0.02em]">
+            Pagamento
+          </h1>
+          <p className="text-sm text-ink-2 mt-1.5">
             {cardFormReady
               ? "Informe os dados do seu cartão para concluir a compra."
               : "Selecione o método de pagamento e prossiga."}
@@ -565,12 +633,20 @@ export function Payment() {
             role="status"
             aria-live="polite"
             aria-label="Criando pedido"
-            className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-6 flex items-center gap-3"
+            className="bg-bg-1 rounded-2xl border border-white/10 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] p-4 mb-6 flex items-center gap-3"
           >
-            <Loader2 size={18} className="animate-spin text-blue-800 shrink-0" aria-hidden="true" />
+            <Loader2
+              size={18}
+              className="animate-spin text-gold shrink-0"
+              aria-hidden="true"
+            />
             <div>
-              <p className="text-sm font-medium text-gray-700">Criando seu pedido...</p>
-              <p className="text-xs text-gray-400 mt-0.5">Isso levará apenas alguns segundos.</p>
+              <p className="text-sm font-medium text-ink-1">
+                Criando seu pedido...
+              </p>
+              <p className="text-xs text-ink-3 mt-0.5">
+                Isso levará apenas alguns segundos.
+              </p>
             </div>
           </div>
         )}
@@ -580,10 +656,16 @@ export function Payment() {
           <div
             role="status"
             aria-live="polite"
-            className="bg-green-50 border border-green-200 rounded-xl p-3.5 mb-6 flex items-center gap-3"
+            className="bg-green-500/10 border border-green-500/30 rounded-xl p-3.5 mb-6 flex items-center gap-3"
           >
-            <CheckCircle2 size={18} className="text-green-600 shrink-0" aria-hidden="true" />
-            <p className="text-sm text-green-700 font-medium">Pedido criado. Escolha como pagar.</p>
+            <CheckCircle2
+              size={18}
+              className="text-green-400 shrink-0"
+              aria-hidden="true"
+            />
+            <p className="text-sm text-green-400 font-medium">
+              Pedido criado. Escolha como pagar.
+            </p>
           </div>
         )}
 
@@ -591,15 +673,20 @@ export function Payment() {
         {orderError && (
           <div
             role="alert"
-            className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 mb-6"
+            className="bg-bg-1 rounded-2xl border border-white/10 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] p-6 mb-6"
           >
-            <div className="flex items-start gap-2.5 text-red-700 mb-4">
-              <AlertCircle size={18} className="shrink-0 mt-0.5" aria-hidden="true" />
+            <div className="flex items-start gap-2.5 text-red-400 mb-4">
+              <AlertCircle
+                size={18}
+                className="shrink-0 mt-0.5"
+                aria-hidden="true"
+              />
               <p className="text-sm font-medium leading-snug">{orderError}</p>
             </div>
             <button
+              type="button"
               onClick={() => navigate("/checkout")}
-              className="text-sm font-medium text-blue-800 hover:text-blue-900 hover:underline focus:outline-none focus:underline"
+              className="text-sm font-medium text-gold hover:text-gold/80 hover:underline focus:outline-none focus:underline"
             >
               Voltar ao checkout
             </button>
@@ -608,11 +695,17 @@ export function Payment() {
 
         {/* ── STEP 1: Payment method selector (hidden after card form appears) ── */}
         {!cardFormReady && !orderError && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+          <div className="bg-bg-1 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] border border-white/10 p-6 mb-6">
             <StepHeader
               step={1}
               complete={false}
-              icon={<CreditCard size={18} className="text-blue-800" aria-hidden="true" />}
+              icon={
+                <CreditCard
+                  size={18}
+                  className="text-gold"
+                  aria-hidden="true"
+                />
+              }
               title="Método de pagamento"
             />
 
@@ -650,26 +743,30 @@ export function Payment() {
                         setPaymentMethod(option.value);
                       }
                     }}
-                    className={`flex items-center gap-3.5 p-4 rounded-xl border-2 cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${
+                    className={`flex items-center gap-3.5 p-4 rounded-xl border-2 cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1 ${
                       isSelected
-                        ? "border-blue-800 bg-blue-50"
-                        : "border-gray-200 bg-white hover:border-blue-300 hover:bg-gray-50"
+                        ? "border-gold bg-gold/10"
+                        : "border-white/10 bg-bg-2 hover:border-gold/30 hover:bg-bg-3"
                     }`}
                   >
                     {/* Custom radio dot */}
                     <div
                       aria-hidden="true"
                       className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${
-                        isSelected ? "border-blue-800" : "border-gray-300"
+                        isSelected ? "border-gold" : "border-ink-3"
                       }`}
                     >
-                      {isSelected && <div className="w-2 h-2 rounded-full bg-blue-800" />}
+                      {isSelected && (
+                        <div className="w-2 h-2 rounded-full bg-gold" />
+                      )}
                     </div>
 
                     {/* Card icon */}
                     <CreditCard
                       size={18}
-                      className={`shrink-0 transition-colors ${isSelected ? "text-blue-800" : "text-gray-400"}`}
+                      className={`shrink-0 transition-colors ${
+                        isSelected ? "text-gold" : "text-ink-3"
+                      }`}
                       aria-hidden="true"
                     />
 
@@ -677,19 +774,21 @@ export function Payment() {
                     <div className="flex-1 min-w-0">
                       <p
                         className={`text-sm font-semibold leading-tight ${
-                          isSelected ? "text-blue-900" : "text-gray-800"
+                          isSelected ? "text-ink-1" : "text-ink-1"
                         }`}
                       >
                         {option.label}
                       </p>
-                      <p className="text-xs text-gray-500 mt-0.5">{option.description}</p>
+                      <p className="text-xs text-ink-3 mt-0.5">
+                        {option.description}
+                      </p>
                     </div>
 
                     {/* Selected indicator */}
                     {isSelected && (
                       <CheckCircle2
                         size={16}
-                        className="text-blue-800 shrink-0"
+                        className="text-gold shrink-0"
                         aria-hidden="true"
                       />
                     )}
@@ -701,18 +800,23 @@ export function Payment() {
             {intentError && (
               <div
                 role="alert"
-                className="flex items-start gap-2.5 text-red-700 text-sm bg-red-50 border border-red-200 rounded-xl p-3.5 mb-4"
+                className="flex items-start gap-2.5 text-red-400 text-sm bg-red-500/10 border border-red-500/30 rounded-xl p-3.5 mb-4"
               >
-                <AlertCircle size={16} className="shrink-0 mt-0.5" aria-hidden="true" />
+                <AlertCircle
+                  size={16}
+                  className="shrink-0 mt-0.5"
+                  aria-hidden="true"
+                />
                 <span>{intentError}</span>
               </div>
             )}
 
             <button
+              type="button"
               onClick={handleConfirmMethod}
               disabled={!orderId || orderLoading || intentLoading}
               aria-disabled={!orderId || orderLoading || intentLoading}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3.5 bg-blue-900 text-white font-semibold rounded-xl hover:bg-blue-800 active:bg-blue-950 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
+              className="w-full flex items-center justify-center gap-2 px-4 py-3.5 bg-gold text-gold-deep font-semibold rounded-xl hover:bg-gold/90 active:bg-gold/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-gold/40 focus:ring-offset-2 focus:ring-offset-bg-1"
             >
               {intentLoading ? (
                 <>
@@ -723,9 +827,11 @@ export function Payment() {
                 "Continuar para pagamento"
               )}
             </button>
-
             {orderLoading && (
-              <p className="mt-3 text-xs text-center text-gray-400" aria-live="polite">
+              <p
+                className="mt-3 text-xs text-center text-ink-3"
+                aria-live="polite"
+              >
                 Aguardando a criação do pedido para prosseguir...
               </p>
             )}
@@ -734,33 +840,40 @@ export function Payment() {
 
         {/* ── STEP 2: Stripe card form (inside Elements) ── */}
         {cardFormReady && paymentIntent && orderId !== null && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="bg-bg-1 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] border border-white/10 p-6">
             <StepHeader
               step={2}
               complete={false}
-              icon={<Lock size={18} className="text-blue-800" aria-hidden="true" />}
+              icon={
+                <Lock size={18} className="text-gold" aria-hidden="true" />
+              }
               title="Dados do cartão"
             />
-
             {/* Security context row */}
-            <div className="flex items-center gap-2 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2.5 mb-5">
-              <ShieldCheck size={15} className="text-blue-700 shrink-0" aria-hidden="true" />
-              <p className="text-xs text-blue-700 leading-snug">
-                Conexão segura — seus dados de cartão são processados diretamente pelo{" "}
-                <span className="font-semibold">Stripe</span> e nunca passam pelos nossos servidores.
+            <div className="flex items-center gap-2 bg-gold/10 border border-gold/30 rounded-xl px-3 py-2.5 mb-5">
+              <ShieldCheck
+                size={15}
+                className="text-gold shrink-0"
+                aria-hidden="true"
+              />
+              <p className="text-xs text-ink-1 leading-snug">
+                <span className="text-ink-2">
+                  Conexão segura — seus dados de cartão são processados
+                  diretamente pelo
+                </span>{" "}
+                <span className="font-semibold text-gold">Stripe</span>
+                <span className="text-ink-2">
+                  {" "}
+                  e nunca passam pelos nossos servidores.
+                </span>
               </p>
             </div>
-
+            
             <Elements
               stripe={stripePromise}
               options={{
                 clientSecret: paymentIntent.clientSecret,
-                appearance: {
-                  theme: 'stripe',
-                  variables: {
-                    colorPrimary: '#1e3a5f',
-                  },
-                },
+                appearance: stripeAppearance,
               }}
             >
               <StripeCardForm
@@ -773,12 +886,12 @@ export function Payment() {
         )}
 
         {/* ── Trust footer ── */}
-        <div className="mt-6 flex items-center justify-center gap-4 text-xs text-gray-400">
+        <div className="mt-6 flex items-center justify-center gap-4 text-xs text-ink-3">
           <span className="flex items-center gap-1.5">
             <Lock size={11} aria-hidden="true" />
             Pagamento seguro
           </span>
-          <span aria-hidden="true" className="text-gray-300">|</span>
+          <span aria-hidden="true" className="text-white/10">|</span>
           <span className="flex items-center gap-1.5">
             <ShieldCheck size={11} aria-hidden="true" />
             Processado pelo Stripe
