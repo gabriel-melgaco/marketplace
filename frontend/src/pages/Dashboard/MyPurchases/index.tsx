@@ -1,22 +1,16 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { ShoppingBag, ShoppingCart, AlertCircle, RefreshCw } from "lucide-react";
+import {
+  ShoppingBag,
+  ShoppingCart,
+  AlertCircle,
+  RefreshCw,
+} from "lucide-react";
 import { orderService } from "@/services/orderService";
 import { BuyerOrderModal } from "@/components/ui/BuyerOrderModal";
 import type { OrderList } from "@/services/orderService";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-
-const ORDER_STATUS_LABELS: Record<string, string> = {
-  pending_payment: "Aguardando Pagamento",
-  paid: "Pago",
-  processing: "Em Processamento",
-  shipped: "Enviado",
-  delivered: "Entregue",
-  completed: "Concluído",
-  cancelled: "Cancelado",
-  failed: "Falhou",
-};
 
 const ORDER_STATUS_COLORS: Record<string, string> = {
   pending_payment: "bg-yellow-100 text-yellow-800",
@@ -43,15 +37,19 @@ const PAGE_SIZE = 10;
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: string }) {
-  const label = ORDER_STATUS_LABELS[status] ?? status;
-  const colorClass =
-    ORDER_STATUS_COLORS[status] ?? "bg-gray-100 text-gray-700";
+function StatusBadge({
+  status,
+  statusDisplay,
+}: {
+  status: string;
+  statusDisplay: string;
+}) {
+  const colorClass = ORDER_STATUS_COLORS[status] ?? "bg-gray-100 text-gray-700";
   return (
     <span
       className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${colorClass}`}
     >
-      {label}
+      {statusDisplay}
     </span>
   );
 }
@@ -142,7 +140,11 @@ export function MyPurchase() {
       <div className="max-w-3xl mx-auto px-4 sm:px-6 mt-6 space-y-4">
         {/* Status filter tabs */}
         <div className="overflow-x-auto no-scrollbar">
-          <div className="flex gap-2 pb-1" role="tablist" aria-label="Filtrar por status">
+          <div
+            className="flex gap-2 pb-1"
+            role="tablist"
+            aria-label="Filtrar por status"
+          >
             {STATUS_FILTERS.map((filter) => {
               const isActive = statusFilter === filter.value;
               return (
@@ -252,7 +254,10 @@ export function MyPurchase() {
 
                 {/* Row 2: status badge */}
                 <div className="mb-3">
-                  <StatusBadge status={order.status} />
+                  <StatusBadge
+                    status={order.status}
+                    statusDisplay={order.status_display}
+                  />
                 </div>
 
                 {/* Row 3: total + contextual button */}
