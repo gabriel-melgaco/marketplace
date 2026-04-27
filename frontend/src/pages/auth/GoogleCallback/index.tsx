@@ -1,10 +1,12 @@
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { Loader2 } from "lucide-react";
 import { socialAuthService } from "@/services/socialAuthService";
 import { tokenStorage } from "@/utils/tokenStorage";
 import { useAuth } from "@/contexts/AuthContext";
 import { userService } from "@/services/userService";
 import type { User } from "@/types/auth";
+import { AuthLogo } from "@/components/ui/AuthLogo";
 
 export function GoogleCallback() {
   const navigate = useNavigate();
@@ -62,10 +64,39 @@ export function GoogleCallback() {
   }, [navigate, setUser]);
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
-      <div className="text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4" />
-        <p className="text-white text-lg">Autenticando com Google...</p>
+    <div className="min-h-screen bg-bg-0 flex items-center justify-center p-4 relative">
+      <AuthLogo />
+
+      {/* Card */}
+      <div className="w-full max-w-md">
+        <div className="bg-bg-1 border border-white/10 rounded-2xl overflow-hidden shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)]">
+          <div
+            className="bg-bg-2 p-6 md:p-8 border-b border-white/10 text-center"
+            role="status"
+            aria-live="polite"
+          >
+            <div className="w-16 h-16 bg-gold/10 border border-gold/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Loader2
+                size={28}
+                className="animate-spin text-gold"
+                aria-hidden="true"
+              />
+            </div>
+            <h1 className="font-display text-2xl md:text-3xl font-bold text-ink-1 tracking-[-0.02em] mb-2">
+              Autenticando com Google
+            </h1>
+            <p className="text-ink-2 text-sm leading-relaxed">
+              Aguarde um momento
+            </p>
+          </div>
+
+          <div className="p-6 md:p-8 text-center">
+            <p className="text-ink-2 text-sm leading-relaxed">
+              Estamos validando suas credenciais. Você será redirecionado em
+              instantes.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );
