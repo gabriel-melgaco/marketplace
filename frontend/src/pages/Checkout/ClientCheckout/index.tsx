@@ -594,6 +594,15 @@ export function Checkout() {
               return m === "in_person" || m === "both";
             }) ?? false;
 
+          // BUG FIX — When the backend returns empty in_person_items but the cart
+          // contains items with shipping_method 'in_person' or 'both' (typical for
+          // in_person_only sellers), rebuild the items list from the cart so /payment
+          // can construct a valid items_delivery payload.
+          const fallbackQuote =
+            inPersonItems.length === 0 && hasInPersonFromCart && cartGroup
+              ? buildQuoteFromItems(cartGroup.seller_name, cartGroup.items)
+              : null;
+
           newQuotes[sellerId] = {
             seller_name:
               rawData.seller_name ??
@@ -601,8 +610,9 @@ export function Checkout() {
               sellerId,
             in_person_only: inPersonOnly,
             has_in_person: inPersonItems.length > 0 || hasInPersonFromCart,
-            in_person_items: inPersonItems,
-            melhor_envio_items: melhorEnvioItems,
+            in_person_items: fallbackQuote?.in_person_items ?? inPersonItems,
+            melhor_envio_items:
+              fallbackQuote?.melhor_envio_items ?? melhorEnvioItems,
             quotes,
           };
         }
