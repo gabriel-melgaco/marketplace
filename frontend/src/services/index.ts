@@ -20,7 +20,6 @@ export { stripeConnectService } from "./stripeConnectService";
 export { addressService } from "./addressService";
 export { shippingService } from "./shippingService";
 export { deliveryService } from "./deliveryService";
-export { inPersonDeliveryService } from "./inPersonDeliveryService";
 
 // Storage
 export { storageService } from "./storageService";
@@ -35,7 +34,6 @@ export type * from "./stripeConnectService";
 export type * from "./addressService";
 export type * from "./shippingService";
 export type * from "./deliveryService";
-export type * from "./inPersonDeliveryService";
 export type * from "./catalogService";
 export type * from "./socialAuthService";
 export type * from "./userService";
