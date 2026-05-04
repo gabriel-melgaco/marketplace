@@ -264,6 +264,7 @@ class InPersonDeliverySerializer(serializers.ModelSerializer):
     buyer_name = serializers.CharField(source='buyer.get_full_name', read_only=True)
     is_fully_confirmed = serializers.BooleanField(read_only=True)
     is_fully_completed = serializers.BooleanField(read_only=True)
+    meeting_address = serializers.SerializerMethodField()
 
     class Meta:
         model = InPersonDelivery
@@ -285,6 +286,26 @@ class InPersonDeliverySerializer(serializers.ModelSerializer):
             'seller_completed_at', 'buyer_completed_at',
             'completed_at', 'created_at', 'updated_at'
         ]
+
+    @extend_schema_field(serializers.CharField(allow_blank=True))
+    def get_meeting_address(self, obj) -> str:
+        """Normalizes meeting_address to a string.
+
+        The field is a JSONField that may contain a dict (set at order creation
+        from shipping_services) or a plain string (set via the seller edit form).
+        The frontend always expects a string.
+        """
+        addr = obj.meeting_address
+        if isinstance(addr, dict):
+            parts = filter(None, [
+                addr.get('street', ''),
+                addr.get('number', ''),
+                addr.get('neighborhood', ''),
+                f"{addr['city']}/{addr['state']}" if addr.get('city') and addr.get('state') else addr.get('city', ''),
+                f"CEP {addr['zipcode']}" if addr.get('zipcode') else '',
+            ])
+            return ', '.join(p for p in parts if p)
+        return addr or ''
 
 
 class InPersonDeliveryCreateSerializer(serializers.ModelSerializer):
@@ -321,6 +342,10 @@ class InPersonDeliveryCreateSerializer(serializers.ModelSerializer):
 
 class InPersonDeliveryUpdateSerializer(serializers.ModelSerializer):
     """Serializer para atualizar entrega presencial"""
+
+    # Frontend sends meeting_address as a free-text string; accept it explicitly
+    # so Django's JSONField validator doesn't reject a plain string value.
+    meeting_address = serializers.CharField(required=False, allow_blank=True)
 
     class Meta:
         model = InPersonDelivery
