@@ -58,7 +58,7 @@ class CartSerializer(serializers.ModelSerializer):
 class OrderItemSerializer(serializers.ModelSerializer):
     """Serializer de item do pedido"""
     seller_name = serializers.CharField(source='seller.get_full_name', read_only=True)
-    
+
     class Meta:
         model = OrderItem
         fields = [
@@ -68,6 +68,14 @@ class OrderItemSerializer(serializers.ModelSerializer):
             'seller_address'
         ]
         read_only_fields = ['subtotal']
+
+
+def _order_has_in_person(shipping_services: dict) -> bool:
+    """True se qualquer vendedor do pedido tem entrega presencial (in_person ou split)."""
+    for seller_data in (shipping_services or {}).values():
+        if seller_data.get('delivery_method') in ('in_person', 'split'):
+            return True
+    return False
 
 
 # =================== Order Status History Serializers ===================
@@ -88,7 +96,8 @@ class OrderSerializer(serializers.ModelSerializer):
     buyer_name = serializers.CharField(source='buyer.get_full_name', read_only=True)
     buyer_email = serializers.EmailField(source='buyer.email', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
-    
+    has_in_person = serializers.SerializerMethodField()
+
     class Meta:
         model = Order
         fields = [
@@ -97,12 +106,17 @@ class OrderSerializer(serializers.ModelSerializer):
             'shipping_address', 'shipping_services', 'payment_method',
             'buyer_notes', 'internal_notes',
             'created_at', 'updated_at', 'cancelled_at',
+            'has_in_person',
             'items', 'status_history'
         ]
         read_only_fields = [
-            'id', 'order_number', 'buyer', 'created_at', 
+            'id', 'order_number', 'buyer', 'created_at',
             'updated_at', 'cancelled_at'
         ]
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_has_in_person(self, obj):
+        return _order_has_in_person(obj.shipping_services)
 
 
 class OrderCreateSerializer(serializers.Serializer):
@@ -505,12 +519,13 @@ class OrderListSerializer(serializers.ModelSerializer):
     buyer_name = serializers.CharField(source='buyer.get_full_name', read_only=True)
     seller_name = serializers.SerializerMethodField()
     status_display = serializers.CharField(source='get_status_display', read_only=True)
+    has_in_person = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
         fields = [
             'id', 'order_number', 'buyer_name', 'seller_name', 'status', 'status_display',
-            'total', 'items_count', 'created_at'
+            'total', 'items_count', 'has_in_person', 'created_at'
         ]
 
     @extend_schema_field(serializers.IntegerField())
@@ -526,3 +541,7 @@ class OrderListSerializer(serializers.ModelSerializer):
         if first_item:
             return first_item.seller.get_full_name()
         return None
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_has_in_person(self, obj):
+        return _order_has_in_person(obj.shipping_services)
