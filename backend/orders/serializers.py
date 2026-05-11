@@ -78,6 +78,15 @@ def _order_has_in_person(shipping_services: dict) -> bool:
     return False
 
 
+def _order_has_melhor_envio(shipping_services: dict) -> bool:
+    """True se qualquer vendedor do pedido usa entrega via integração Melhor Envio."""
+    for seller_data in (shipping_services or {}).values():
+        delivery_method = seller_data.get('delivery_method')
+        if delivery_method in ('shipping', 'split', 'melhor_envio'):
+            return True
+    return False
+
+
 # =================== Order Status History Serializers ===================
 class OrderStatusHistorySerializer(serializers.ModelSerializer):
     """Serializer de histórico de status"""
@@ -97,6 +106,7 @@ class OrderSerializer(serializers.ModelSerializer):
     buyer_email = serializers.EmailField(source='buyer.email', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     has_in_person = serializers.SerializerMethodField()
+    has_melhor_envio = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
@@ -106,7 +116,7 @@ class OrderSerializer(serializers.ModelSerializer):
             'shipping_address', 'shipping_services', 'payment_method',
             'buyer_notes', 'internal_notes',
             'created_at', 'updated_at', 'cancelled_at',
-            'has_in_person',
+            'has_in_person', 'has_melhor_envio',
             'items', 'status_history'
         ]
         read_only_fields = [
@@ -117,6 +127,10 @@ class OrderSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.BooleanField())
     def get_has_in_person(self, obj):
         return _order_has_in_person(obj.shipping_services)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_has_melhor_envio(self, obj):
+        return _order_has_melhor_envio(obj.shipping_services)
 
 
 class OrderCreateSerializer(serializers.Serializer):
@@ -520,12 +534,13 @@ class OrderListSerializer(serializers.ModelSerializer):
     seller_name = serializers.SerializerMethodField()
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     has_in_person = serializers.SerializerMethodField()
+    has_melhor_envio = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
         fields = [
             'id', 'order_number', 'buyer_name', 'seller_name', 'status', 'status_display',
-            'total', 'items_count', 'has_in_person', 'created_at'
+            'total', 'items_count', 'has_in_person', 'has_melhor_envio', 'created_at'
         ]
 
     @extend_schema_field(serializers.IntegerField())
@@ -545,3 +560,7 @@ class OrderListSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.BooleanField())
     def get_has_in_person(self, obj):
         return _order_has_in_person(obj.shipping_services)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_has_melhor_envio(self, obj):
+        return _order_has_melhor_envio(obj.shipping_services)
