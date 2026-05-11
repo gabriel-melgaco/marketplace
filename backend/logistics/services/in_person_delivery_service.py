@@ -55,12 +55,18 @@ class InPersonDeliveryService:
         """
 
         # Validar se já existe entrega presencial para este pedido/seller/buyer
-        existing = InPersonDelivery.objects.filter(
-            order=order,
+        existing_qs = InPersonDelivery.objects.filter(
             seller=seller,
             buyer=buyer,
             meeting_status__in=['pending_schedule', 'scheduled', 'confirmed']
-        ).first()
+        )
+        # InPersonDelivery não possui FK direta para Order; o vínculo ocorre via
+        # OrderDelivery.in_person_delivery (OneToOne reversa: order_delivery).
+        # Assim, para deduplicar por pedido, filtramos pela relação reversa.
+        if order is not None:
+            existing_qs = existing_qs.filter(order_delivery__order=order)
+
+        existing = existing_qs.first()
 
         if existing:
             raise ValueError(
