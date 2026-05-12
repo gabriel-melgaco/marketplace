@@ -216,6 +216,13 @@ class OrderCreationService:
                 shipping_by_seller=shipping_by_seller
             )
 
+            # In-person deliveries must be visible immediately after checkout,
+            # while shipping deliveries continue to be created after payment.
+            cls._create_in_person_delivery_records(
+                order=order,
+                shipping_services_data=seller_shipping_services,
+            )
+
             # Create initial status history
             from orders.models import OrderStatusHistory
             OrderStatusHistory.objects.create(

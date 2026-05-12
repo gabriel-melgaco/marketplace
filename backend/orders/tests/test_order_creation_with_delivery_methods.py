@@ -22,7 +22,7 @@ from orders.models import Order, Cart, CartItem, OrderItem
 from orders.services.order_creation_service import OrderCreationService, OrderCreationError
 from products.models import MarketplaceListing, Products, Brand, Condition, Category, Series
 from authentication.models import CustomUser
-from logistics.models import Address, ShippingQuote
+from logistics.models import Address, InPersonDelivery, OrderDelivery, ShippingQuote
 
 
 class OrderCreateSerializerTestCase(TestCase):
@@ -1174,6 +1174,47 @@ class OrderCreationServiceTestCase(TestCase):
         self.assertEqual(shipping_data['total_shipping'], Decimal('0.00'))
         self.assertEqual(shipping_data['shipping_by_seller'][self.seller1.id], Decimal('0.00'))
         self.assertEqual(shipping_data['shipping_by_seller'][self.seller2.id], Decimal('0.00'))
+
+    def test_create_order_from_cart_creates_in_person_delivery_immediately(self):
+        """In-person deliveries are created when checkout creates the pending order."""
+        shipping_services_input = {
+            self.seller1.id: {
+                'delivery_method': 'in_person',
+                'meeting_location_name': 'Loja Seller 1',
+                'meeting_address': {'street': 'Rua A', 'city': 'Sao Paulo', 'state': 'SP'},
+                'seller_contact_phone': '11999999999',
+                'buyer_contact_phone': '11888888888',
+            },
+            self.seller2.id: {
+                'delivery_method': 'in_person',
+                'meeting_location_name': 'Loja Seller 2',
+                'meeting_address': {'street': 'Rua B', 'city': 'Sao Paulo', 'state': 'SP'},
+                'seller_contact_phone': '11777777777',
+                'buyer_contact_phone': '11666666666',
+            },
+        }
+
+        orders = OrderCreationService.create_order_from_cart(
+            user=self.buyer,
+            cart=self.cart,
+            shipping_address=self.buyer_address,
+            shipping_services_input=shipping_services_input,
+            payment_method='pix',
+        )
+
+        self.assertEqual(len(orders), 2)
+        self.assertEqual(OrderDelivery.objects.count(), 2)
+        self.assertEqual(InPersonDelivery.objects.count(), 2)
+
+        for order in orders:
+            delivery = OrderDelivery.objects.get(order=order, seller=order.seller)
+            self.assertEqual(delivery.delivery_method, 'in_person')
+            self.assertEqual(delivery.status, 'pending')
+            self.assertIsNotNone(delivery.in_person_delivery)
+            self.assertEqual(
+                delivery.in_person_delivery.meeting_status,
+                'pending_schedule',
+            )
 
     def test_mixed_order_totals_shipping_correctly(self):
         """Test that mixed order (shipping + in-person) calculates total correctly.
