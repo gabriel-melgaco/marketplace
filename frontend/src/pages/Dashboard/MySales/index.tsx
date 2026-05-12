@@ -76,12 +76,17 @@ const FILTER_TABS: { value: StatusFilter; label: string }[] = [
 
 // ─── Card Action Logic ────────────────────────────────────────────────────────
 
-function getCardAction(
-  sale: PaginatedSaleListItem,
-): "generate_tickets" | "view_details" {
-  if (sale.status === "paid" || sale.status === "processing")
-    return "generate_tickets";
-  return "view_details";
+interface SaleCardActions {
+  generateTickets: boolean;
+  combineInPerson: boolean;
+}
+
+function getCardActions(sale: PaginatedSaleListItem): SaleCardActions {
+  const isActive = sale.status === "paid" || sale.status === "processing";
+  return {
+    generateTickets: isActive && sale.has_melhor_envio,
+    combineInPerson: isActive && sale.has_in_person,
+  };
 }
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
@@ -293,7 +298,7 @@ export function MySales() {
         {!loading && !error && sales.length > 0 && (
           <div className="space-y-4">
             {sales.map((sale) => {
-              const action = getCardAction(sale);
+              const actions = getCardActions(sale);
               const isGenerating = generatingForOrder === sale.id;
               const items = sale.items ?? [];
               const visibleItems = items.slice(0, 3);
@@ -382,8 +387,9 @@ export function MySales() {
                       </p>
 
                       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                        {action === "generate_tickets" && (
+                        {actions.generateTickets && (
                           <button
+                            type="button"
                             onClick={() => handleGenerateTickets(sale.id)}
                             disabled={isGenerating}
                             className="flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-900 text-white rounded-xl text-xs font-semibold hover:bg-blue-800 transition-colors disabled:opacity-60"
@@ -392,6 +398,16 @@ export function MySales() {
                               <Loader2 size={13} className="animate-spin" />
                             ) : null}
                             {isGenerating ? "Gerando…" : "Gerar Tickets"}
+                          </button>
+                        )}
+
+                        {actions.combineInPerson && (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedOrderId(sale.id)}
+                            className="flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-900 text-white rounded-xl text-xs font-semibold hover:bg-blue-800 transition-colors"
+                          >
+                            Combinar Entrega
                           </button>
                         )}
 

@@ -92,9 +92,14 @@ export interface SellerOrderDetail {
 export interface PaginatedSaleListItem {
   id: string;
   order_number: string;
+  buyer_name: string;
+  seller_name: string;
   total: string;
   status: OrderStatus;
   status_display: string;
+  items_count: number;
+  has_in_person: boolean;
+  has_melhor_envio: boolean;
   created_at: string;
   items?: SellerOrderItem[];
 }
