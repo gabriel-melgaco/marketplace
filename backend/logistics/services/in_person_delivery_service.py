@@ -60,11 +60,8 @@ class InPersonDeliveryService:
             buyer=buyer,
             meeting_status__in=['pending_schedule', 'scheduled', 'confirmed']
         )
-        # InPersonDelivery não possui FK direta para Order; o vínculo ocorre via
-        # OrderDelivery.in_person_delivery (OneToOne reversa: order_delivery).
-        # Assim, para deduplicar por pedido, filtramos pela relação reversa.
         if order is not None:
-            existing_qs = existing_qs.filter(order_delivery__order=order)
+            existing_qs = existing_qs.filter(order=order)
 
         existing = existing_qs.first()
 
@@ -80,6 +77,7 @@ class InPersonDeliveryService:
 
         # Criar entrega presencial
         in_person_delivery = InPersonDelivery.objects.create(
+            order=order,
             seller=seller,
             buyer=buyer,
             meeting_status=initial_status,

@@ -1148,6 +1148,7 @@ class InPersonDeliveryAPITest(InPersonDeliveryTestMixin, TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['deliveries'][0]['order_id'], str(self.order.id))
 
     def test_list_in_person_deliveries_buyer(self):
         """GET /api/logistics/in-person/ - comprador ve suas entregas."""

@@ -260,6 +260,7 @@ class CEPLookupSerializer(serializers.Serializer):
 class InPersonDeliverySerializer(serializers.ModelSerializer):
     """Serializer completo para entrega presencial"""
 
+    order_id = serializers.UUIDField(source='order.id', read_only=True)
     seller_name = serializers.CharField(source='seller.get_full_name', read_only=True)
     buyer_name = serializers.CharField(source='buyer.get_full_name', read_only=True)
     is_fully_confirmed = serializers.BooleanField(read_only=True)
@@ -269,7 +270,7 @@ class InPersonDeliverySerializer(serializers.ModelSerializer):
     class Meta:
         model = InPersonDelivery
         fields = [
-            'id', 'seller', 'seller_name', 'buyer', 'buyer_name',
+            'id', 'order', 'order_id', 'seller', 'seller_name', 'buyer', 'buyer_name',
             'meeting_status', 'meeting_location_name', 'meeting_address',
             'meeting_notes', 'scheduled_date', 'scheduled_time',
             'seller_contact_phone', 'buyer_contact_phone',
@@ -282,7 +283,7 @@ class InPersonDeliverySerializer(serializers.ModelSerializer):
             'created_at', 'updated_at', 'completed_at'
         ]
         read_only_fields = [
-            'seller', 'buyer', 'seller_confirmed_at', 'buyer_confirmed_at',
+            'order', 'seller', 'buyer', 'seller_confirmed_at', 'buyer_confirmed_at',
             'seller_completed_at', 'buyer_completed_at',
             'completed_at', 'created_at', 'updated_at'
         ]

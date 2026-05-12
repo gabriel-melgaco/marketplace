@@ -1175,8 +1175,8 @@ class OrderCreationServiceTestCase(TestCase):
         self.assertEqual(shipping_data['shipping_by_seller'][self.seller1.id], Decimal('0.00'))
         self.assertEqual(shipping_data['shipping_by_seller'][self.seller2.id], Decimal('0.00'))
 
-    def test_create_order_from_cart_creates_in_person_delivery_immediately(self):
-        """In-person deliveries are created when checkout creates the pending order."""
+    def test_create_order_from_cart_does_not_create_in_person_delivery_before_payment(self):
+        """In-person deliveries are created only after the order is paid."""
         shipping_services_input = {
             self.seller1.id: {
                 'delivery_method': 'in_person',
@@ -1203,18 +1203,13 @@ class OrderCreationServiceTestCase(TestCase):
         )
 
         self.assertEqual(len(orders), 2)
-        self.assertEqual(OrderDelivery.objects.count(), 2)
-        self.assertEqual(InPersonDelivery.objects.count(), 2)
+        self.assertEqual(OrderDelivery.objects.count(), 0)
+        self.assertEqual(InPersonDelivery.objects.count(), 0)
 
         for order in orders:
-            delivery = OrderDelivery.objects.get(order=order, seller=order.seller)
-            self.assertEqual(delivery.delivery_method, 'in_person')
-            self.assertEqual(delivery.status, 'pending')
-            self.assertIsNotNone(delivery.in_person_delivery)
-            self.assertEqual(
-                delivery.in_person_delivery.meeting_status,
-                'pending_schedule',
-            )
+            self.assertEqual(order.status, 'pending_payment')
+            self.assertFalse(OrderDelivery.objects.filter(order=order).exists())
+            self.assertFalse(InPersonDelivery.objects.filter(order=order).exists())
 
     def test_mixed_order_totals_shipping_correctly(self):
         """Test that mixed order (shipping + in-person) calculates total correctly.
