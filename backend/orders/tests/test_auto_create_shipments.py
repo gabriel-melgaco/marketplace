@@ -385,6 +385,13 @@ class TestAutoCreateShipments(TestCase):
         # One InPersonDelivery must have been created and linked to the OrderDelivery
         self.assertEqual(after_ip, before_ip + 1)
         self.assertIsNotNone(order_delivery.in_person_delivery_id)
+        self.assertEqual(order_delivery.in_person_delivery.order, order)
+        self.assertEqual(order_delivery.in_person_delivery.seller, self.seller)
+        self.assertEqual(order_delivery.in_person_delivery.buyer, self.buyer)
+        self.assertEqual(
+            order_delivery.in_person_delivery.meeting_status,
+            'pending_schedule',
+        )
 
     @override_settings(AUTO_CREATE_SHIPMENTS=True)
     def test_mixed_order_two_sellers_both_deliveries_created(self):
@@ -483,6 +490,10 @@ class TestAutoCreateShipments(TestCase):
 
         # The in_person seller must have an InPersonDelivery
         self.assertEqual(after_ip, before_ip + 1, 'Expected 1 new InPersonDelivery')
+        in_person_delivery = InPersonDelivery.objects.get(order=order)
+        self.assertEqual(in_person_delivery.seller, self.seller)
+        self.assertEqual(in_person_delivery.buyer, self.buyer)
+        self.assertEqual(in_person_delivery.meeting_status, 'pending_schedule')
 
         methods = set(
             OrderDelivery.objects.filter(order=order).values_list('delivery_method', flat=True)

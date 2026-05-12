@@ -463,7 +463,16 @@ class InPersonDelivery(models.Model):
         ('no_show', 'Não Compareceu'),
     ]
 
-    # Relacionamento com Order (através de OrderDelivery)
+    # Relacionamentos
+    order = models.ForeignKey(
+        Order,
+        on_delete=models.CASCADE,
+        related_name='in_person_deliveries',
+        null=True,
+        blank=True,
+        help_text='Pedido associado à entrega presencial'
+    )
+
     seller = models.ForeignKey(
         CustomUser,
         on_delete=models.PROTECT,
@@ -557,6 +566,7 @@ class InPersonDelivery(models.Model):
         verbose_name_plural = 'Entregas Presenciais'
         ordering = ['-created_at']
         indexes = [
+            models.Index(fields=['order']),
             models.Index(fields=['seller', 'buyer']),
             models.Index(fields=['meeting_status']),
             models.Index(fields=['scheduled_date', 'scheduled_time']),
@@ -840,5 +850,4 @@ class MelhorEnvioOAuthToken(models.Model):
         if not self.refresh_token_expires_at:
             return False
         return timezone.now() >= self.refresh_token_expires_at
-
 
