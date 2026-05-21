@@ -85,6 +85,8 @@ export interface SellerOrderDetail {
   shipping_address: SellerOrderAddress | null;
   shipping_cost?: string;
   buyer_notes?: string;
+  has_in_person: boolean;
+  has_melhor_envio: boolean;
   created_at: string;
   updated_at: string;
 }
