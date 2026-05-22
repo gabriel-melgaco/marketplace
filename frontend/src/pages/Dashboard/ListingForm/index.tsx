@@ -173,10 +173,14 @@ export function ListingForm() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [hasDraft, setHasDraft] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [platformFeePercentage, setPlatformFeePercentage] = useState<number | null>(null);
+  const [platformFeePercentage, setPlatformFeePercentage] = useState<
+    number | null
+  >(null);
   const [packages, setPackages] = useState<PackageEntry[]>([]);
   const [showPackageModal, setShowPackageModal] = useState(false);
-  const [editingPackageIndex, setEditingPackageIndex] = useState<number | null>(null);
+  const [editingPackageIndex, setEditingPackageIndex] = useState<number | null>(
+    null,
+  );
   const [packageDraft, setPackageDraft] = useState<ListingPackageRequest>({
     weight_kg: "",
     height_cm: "",
@@ -184,7 +188,9 @@ export function ListingForm() {
     length_cm: "",
     description: "",
   });
-  const [packageDraftErrors, setPackageDraftErrors] = useState<Record<string, string>>({});
+  const [packageDraftErrors, setPackageDraftErrors] = useState<
+    Record<string, string>
+  >({});
 
   const draftKey = isEditMode ? `listing_draft_${id}` : "listing_draft";
 
@@ -222,7 +228,9 @@ export function ListingForm() {
       setStripeCheckError(false);
       try {
         const status = await stripeConnectService.getAccountStatus();
-        setStripeConnected(status.has_account && status.ready_to_receive_payments);
+        setStripeConnected(
+          status.has_account && status.ready_to_receive_payments,
+        );
       } catch {
         setStripeCheckError(true);
       } finally {
@@ -349,7 +357,7 @@ export function ListingForm() {
             draft.packages.map((pkg) => ({
               ...pkg,
               _key: (pkg as PackageEntry)._key ?? crypto.randomUUID(),
-            }))
+            })),
           );
         }
       }
@@ -480,7 +488,8 @@ export function ListingForm() {
           description: listing.description,
           price: listing.price,
           quantity: String(listing.quantity),
-          shipping_method: (listing.shipping_method || "both") as ShippingMethod,
+          shipping_method: (listing.shipping_method ||
+            "both") as ShippingMethod,
         });
         if (listing.packages && listing.packages.length > 0) {
           setPackages(
@@ -491,17 +500,19 @@ export function ListingForm() {
               length_cm: pkg.length_cm || "",
               description: pkg.description || "",
               _key: crypto.randomUUID(),
-            }))
+            })),
           );
         } else if (listing.weight_kg) {
-          setPackages([{
-            weight_kg: listing.weight_kg || "",
-            height_cm: listing.height_cm || "",
-            width_cm: listing.width_cm || "",
-            length_cm: listing.length_cm || "",
-            description: "",
-            _key: crypto.randomUUID(),
-          }]);
+          setPackages([
+            {
+              weight_kg: listing.weight_kg || "",
+              height_cm: listing.height_cm || "",
+              width_cm: listing.width_cm || "",
+              length_cm: listing.length_cm || "",
+              description: "",
+              _key: crypto.randomUUID(),
+            },
+          ]);
         }
         setSelectedProduct({
           id: listing.product.id,
@@ -640,7 +651,11 @@ export function ListingForm() {
   }, [loadingMoreProducts, hasMoreProducts, productsPage]);
 
   const validateCurrentStep = (step: number): boolean => {
-    const newErrors = validateStepHelper(step, formData, step === 6 ? packages : undefined);
+    const newErrors = validateStepHelper(
+      step,
+      formData,
+      step === 6 ? packages : undefined,
+    );
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -842,10 +857,11 @@ export function ListingForm() {
   );
 
   const buildListingData = useCallback(
-    () => buildListingDataHelper(
-      formData,
-      packages.map(({ _key: _, ...pkg }) => pkg)
-    ),
+    () =>
+      buildListingDataHelper(
+        formData,
+        packages.map(({ _key: _, ...pkg }) => pkg),
+      ),
     [formData, packages],
   );
 
@@ -887,7 +903,12 @@ export function ListingForm() {
         setErrors({});
         setUploadError(null);
       } catch (err: unknown) {
-        const e = err as { response?: { data?: { detail?: string; non_field_errors?: string[] } }; message?: string };
+        const e = err as {
+          response?: {
+            data?: { detail?: string; non_field_errors?: string[] };
+          };
+          message?: string;
+        };
         const message =
           e.response?.data?.detail ||
           e.response?.data?.non_field_errors?.[0] ||
@@ -944,7 +965,11 @@ export function ListingForm() {
         // ── Edit mode ────────────────────────────────────────────────────
         const allErrors: Record<string, string> = {};
         for (let step = 1; step <= 6; step++) {
-          const stepErrors = validateStepHelper(step, formData, step === 6 ? packages : undefined);
+          const stepErrors = validateStepHelper(
+            step,
+            formData,
+            step === 6 ? packages : undefined,
+          );
           Object.assign(allErrors, stepErrors);
         }
         if (Object.keys(allErrors).length > 0) {
@@ -1056,7 +1081,10 @@ export function ListingForm() {
       navigate("/dashboard");
     } catch (err: unknown) {
       console.error("Erro ao salvar anúncio:", err);
-      const e = err as { response?: { data?: { detail?: string; non_field_errors?: string[] } }; message?: string };
+      const e = err as {
+        response?: { data?: { detail?: string; non_field_errors?: string[] } };
+        message?: string;
+      };
       const message =
         e.response?.data?.detail ||
         e.response?.data?.non_field_errors?.[0] ||
@@ -1079,15 +1107,23 @@ export function ListingForm() {
 
   if (meCheckLoading) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl p-10 max-w-sm w-full text-center">
-          <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
-            <Loader2 className="h-8 w-8 animate-spin text-blue-900" />
+      <div className="min-h-screen bg-bg-0 flex items-center justify-center p-4">
+        <div
+          className="bg-bg-1 border border-white/10 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] p-10 max-w-sm w-full text-center"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="w-16 h-16 bg-gold/10 border border-gold/30 rounded-2xl flex items-center justify-center mx-auto mb-5">
+            <Loader2
+              size={28}
+              className="animate-spin text-gold"
+              aria-hidden="true"
+            />
           </div>
-          <h2 className="text-lg font-bold text-gray-900 mb-1">
+          <h2 className="font-display text-xl font-bold text-ink-1 tracking-[-0.02em] mb-2">
             Verificando conexão
           </h2>
-          <p className="text-sm text-gray-500">
+          <p className="text-ink-2 text-sm leading-relaxed">
             Aguarde enquanto verificamos sua conta Melhor Envio…
           </p>
         </div>
@@ -1097,29 +1133,40 @@ export function ListingForm() {
 
   if (meCheckError) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden max-w-sm w-full">
-          <div className="bg-linear-to-r from-blue-900 to-gray-900 p-8 text-white text-center">
-            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
-              <AlertCircle size={32} className="text-white" />
+      <div className="min-h-screen bg-bg-0 flex items-center justify-center p-4">
+        <div
+          className="bg-bg-1 border border-white/10 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] overflow-hidden max-w-sm w-full"
+          role="alert"
+        >
+          <div className="bg-bg-2 p-6 md:p-8 border-b border-white/10 text-center">
+            <div className="w-16 h-16 bg-red-500/10 border border-red-500/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <AlertCircle
+                size={28}
+                className="text-red-400"
+                aria-hidden="true"
+              />
             </div>
-            <h2 className="text-xl font-bold mb-1">Erro de conexão</h2>
-            <p className="text-blue-100 text-sm">Melhor Envio</p>
+            <h2 className="font-display text-xl md:text-2xl font-bold text-ink-1 tracking-[-0.02em] mb-1">
+              Erro de conexão
+            </h2>
+            <p className="text-ink-2 text-sm">Melhor Envio</p>
           </div>
-          <div className="p-8 text-center">
-            <p className="text-gray-600 text-sm mb-6">
+          <div className="p-6 md:p-8 text-center space-y-3">
+            <p className="text-ink-2 text-sm leading-relaxed mb-3">
               Não foi possível verificar sua conexão com o Melhor Envio.
               Verifique sua conexão e tente novamente.
             </p>
             <button
+              type="button"
               onClick={() => window.location.reload()}
-              className="w-full px-6 py-3 bg-blue-900 text-white rounded-xl font-semibold hover:bg-blue-800 active:bg-blue-950 transition cursor-pointer"
+              className="w-full px-6 py-3 bg-gold text-gold-deep rounded-xl font-semibold text-sm hover:bg-gold/90 active:bg-gold/80 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1"
             >
               Tentar novamente
             </button>
             <button
+              type="button"
               onClick={() => navigate(-1)}
-              className="block w-full mt-3 py-2.5 text-sm text-gray-500 hover:text-gray-700 transition cursor-pointer"
+              className="block w-full py-2.5 text-sm text-ink-2 hover:text-ink-1 transition-colors"
             >
               Voltar
             </button>
@@ -1131,31 +1178,42 @@ export function ListingForm() {
 
   if (!meConnected) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden w-full max-w-xs mx-auto">
-          <div className="bg-linear-to-r from-blue-900 to-gray-900 p-8 text-white text-center">
-            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
-              <Package size={32} className="text-white" />
+      <div className="min-h-screen bg-bg-0 flex items-center justify-center p-4">
+        <div className="bg-bg-1 border border-white/10 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] overflow-hidden w-full max-w-md mx-auto">
+          <div className="bg-bg-2 p-6 md:p-8 border-b border-white/10 text-center">
+            <div className="w-16 h-16 bg-gold/10 border border-gold/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Package size={28} className="text-gold" aria-hidden="true" />
             </div>
-            <h2 className="text-xl font-bold mb-1">Conecte o Melhor Envio</h2>
-            <p className="text-blue-100 text-sm">
+            <h2 className="font-display text-xl md:text-2xl font-bold text-ink-1 tracking-[-0.02em] mb-1">
+              Conecte o Melhor Envio
+            </h2>
+            <p className="text-ink-2 text-sm">
               Necessário para anunciar produtos
             </p>
           </div>
-          <div className="p-8 text-center">
+          <div className="p-6 md:p-8 text-center">
             {mePolling ? (
               <>
-                <div className="flex items-center justify-center gap-2 mb-3">
-                  <Loader2 size={20} className="animate-spin text-blue-900" />
-                  <p className="text-sm font-semibold text-gray-800">
+                <div
+                  className="flex items-center justify-center gap-2 mb-3"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <Loader2
+                    size={20}
+                    className="animate-spin text-gold"
+                    aria-hidden="true"
+                  />
+                  <p className="text-sm font-semibold text-ink-1">
                     Aguardando autorização…
                   </p>
                 </div>
-                <p className="text-xs text-gray-500 mb-6">
+                <p className="text-xs text-ink-3 mb-6 leading-relaxed">
                   Conclua a autorização na janela do Melhor Envio que foi
                   aberta. Esta tela atualizará automaticamente.
                 </p>
                 <button
+                  type="button"
                   onClick={() => {
                     if (mePollingIntervalRef.current) {
                       clearInterval(mePollingIntervalRef.current);
@@ -1166,37 +1224,42 @@ export function ListingForm() {
                     }
                     setMePolling(false);
                   }}
-                  className="w-full px-6 py-2.5 border border-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 transition cursor-pointer"
+                  className="w-full px-6 py-2.5 bg-bg-2 border border-white/10 text-ink-1 rounded-xl text-sm font-medium hover:bg-bg-3 hover:border-white/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1"
                 >
                   Cancelar
                 </button>
               </>
             ) : (
               <>
-                <p className="text-gray-600 text-sm mb-6">
+                <p className="text-ink-2 text-sm leading-relaxed mb-6">
                   Para anunciar produtos você precisa conectar sua conta do
                   Melhor Envio. Isso nos permite calcular fretes e processar
                   envios para seus compradores.
                 </p>
                 {meConnectUrl ? (
                   <button
+                    type="button"
                     onClick={startMeConnection}
-                    className="inline-flex items-center justify-center gap-2 w-full px-6 py-3 bg-blue-900 text-white rounded-xl font-semibold hover:bg-blue-800 active:bg-blue-950 transition cursor-pointer"
+                    className="inline-flex items-center justify-center gap-2 w-full px-6 py-3 bg-gold text-gold-deep rounded-xl font-semibold text-sm hover:bg-gold/90 active:bg-gold/80 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1"
                   >
-                    <ExternalLink size={18} />
+                    <ExternalLink size={18} aria-hidden="true" />
                     Conectar Melhor Envio
                   </button>
                 ) : (
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-                    <p className="text-sm text-amber-700">
+                  <div
+                    role="alert"
+                    className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3"
+                  >
+                    <p className="text-sm text-red-400">
                       Não foi possível obter o link de conexão. Entre em contato
                       com o suporte.
                     </p>
                   </div>
                 )}
                 <button
+                  type="button"
                   onClick={() => navigate(-1)}
-                  className="block w-full mt-3 py-2.5 text-sm text-gray-500 hover:text-gray-700 transition cursor-pointer"
+                  className="block w-full mt-3 py-2.5 text-sm text-ink-2 hover:text-ink-1 transition-colors"
                 >
                   Voltar
                 </button>
@@ -1214,15 +1277,23 @@ export function ListingForm() {
 
   if (stripeCheckLoading) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl p-10 max-w-sm w-full text-center">
-          <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
-            <Loader2 className="h-8 w-8 animate-spin text-blue-900" />
+      <div className="min-h-screen bg-bg-0 flex items-center justify-center p-4">
+        <div
+          className="bg-bg-1 border border-white/10 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] p-10 max-w-sm w-full text-center"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="w-16 h-16 bg-gold/10 border border-gold/30 rounded-2xl flex items-center justify-center mx-auto mb-5">
+            <Loader2
+              size={28}
+              className="animate-spin text-gold"
+              aria-hidden="true"
+            />
           </div>
-          <h2 className="text-lg font-bold text-gray-900 mb-1">
+          <h2 className="font-display text-xl font-bold text-ink-1 tracking-[-0.02em] mb-2">
             Verificando conexão
           </h2>
-          <p className="text-sm text-gray-500">
+          <p className="text-ink-2 text-sm leading-relaxed">
             Verificando conta Stripe…
           </p>
         </div>
@@ -1232,29 +1303,40 @@ export function ListingForm() {
 
   if (stripeCheckError) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden max-w-sm w-full">
-          <div className="bg-linear-to-r from-blue-900 to-gray-900 p-8 text-white text-center">
-            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
-              <AlertCircle size={32} className="text-white" />
+      <div className="min-h-screen bg-bg-0 flex items-center justify-center p-4">
+        <div
+          className="bg-bg-1 border border-white/10 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] overflow-hidden max-w-sm w-full"
+          role="alert"
+        >
+          <div className="bg-bg-2 p-6 md:p-8 border-b border-white/10 text-center">
+            <div className="w-16 h-16 bg-red-500/10 border border-red-500/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <AlertCircle
+                size={28}
+                className="text-red-400"
+                aria-hidden="true"
+              />
             </div>
-            <h2 className="text-xl font-bold mb-1">Erro de conexão</h2>
-            <p className="text-blue-100 text-sm">Stripe Connect</p>
+            <h2 className="font-display text-xl md:text-2xl font-bold text-ink-1 tracking-[-0.02em] mb-1">
+              Erro de conexão
+            </h2>
+            <p className="text-ink-2 text-sm">Stripe Connect</p>
           </div>
-          <div className="p-8 text-center">
-            <p className="text-gray-600 text-sm mb-6">
-              Não foi possível verificar sua conta Stripe. Verifique sua
-              conexão e tente novamente.
+          <div className="p-6 md:p-8 text-center space-y-3">
+            <p className="text-ink-2 text-sm leading-relaxed mb-3">
+              Não foi possível verificar sua conta Stripe. Verifique sua conexão
+              e tente novamente.
             </p>
             <button
+              type="button"
               onClick={() => window.location.reload()}
-              className="w-full px-6 py-3 bg-blue-900 text-white rounded-xl font-semibold hover:bg-blue-800 active:bg-blue-950 transition cursor-pointer"
+              className="w-full px-6 py-3 bg-gold text-gold-deep rounded-xl font-semibold text-sm hover:bg-gold/90 active:bg-gold/80 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1"
             >
               Tentar novamente
             </button>
             <button
+              type="button"
               onClick={() => navigate(-1)}
-              className="block w-full mt-3 py-2.5 text-sm text-gray-500 hover:text-gray-700 transition cursor-pointer"
+              className="block w-full py-2.5 text-sm text-ink-2 hover:text-ink-1 transition-colors"
             >
               Voltar
             </button>
@@ -1266,43 +1348,51 @@ export function ListingForm() {
 
   if (!stripeConnected) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden w-full max-w-xs mx-auto">
-          <div className="bg-linear-to-r from-blue-900 to-gray-900 p-8 text-white text-center">
-            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
-              <CreditCard size={32} className="text-white" />
+      <div className="min-h-screen bg-bg-0 flex items-center justify-center p-4">
+        <div className="bg-bg-1 border border-white/10 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] overflow-hidden w-full max-w-md mx-auto">
+          <div className="bg-bg-2 p-6 md:p-8 border-b border-white/10 text-center">
+            <div className="w-16 h-16 bg-gold/10 border border-gold/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <CreditCard size={28} className="text-gold" aria-hidden="true" />
             </div>
-            <h2 className="text-xl font-bold mb-1">Conecte sua conta Stripe</h2>
-            <p className="text-blue-100 text-sm">
+            <h2 className="font-display text-xl md:text-2xl font-bold text-ink-1 tracking-[-0.02em] mb-1">
+              Conecte sua conta Stripe
+            </h2>
+            <p className="text-ink-2 text-sm">
               Necessário para receber pagamentos
             </p>
           </div>
-          <div className="p-8 text-center">
-            <p className="text-gray-600 text-sm mb-6">
+          <div className="p-6 md:p-8 text-center">
+            <p className="text-ink-2 text-sm leading-relaxed mb-6">
               Para anunciar produtos você precisa conectar uma conta Stripe.
               Isso nos permite processar pagamentos e repassar os valores das
               suas vendas.
             </p>
             <button
+              type="button"
               onClick={startStripeOnboarding}
               disabled={stripeOnboardingLoading}
-              className="inline-flex items-center justify-center gap-2 w-full px-6 py-3 bg-blue-900 text-white rounded-xl font-semibold hover:bg-blue-800 active:bg-blue-950 transition disabled:opacity-50 cursor-pointer"
+              className="inline-flex items-center justify-center gap-2 w-full px-6 py-3 bg-gold text-gold-deep rounded-xl font-semibold text-sm hover:bg-gold/90 active:bg-gold/80 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {stripeOnboardingLoading ? (
                 <>
-                  <Loader2 size={18} className="animate-spin" />
+                  <Loader2
+                    size={18}
+                    className="animate-spin"
+                    aria-hidden="true"
+                  />
                   Aguarde...
                 </>
               ) : (
                 <>
-                  <CreditCard size={18} />
+                  <CreditCard size={18} aria-hidden="true" />
                   Conectar Stripe
                 </>
               )}
             </button>
             <button
+              type="button"
               onClick={() => navigate(-1)}
-              className="block w-full mt-3 py-2.5 text-sm text-gray-500 hover:text-gray-700 transition cursor-pointer"
+              className="block w-full mt-3 py-2.5 text-sm text-ink-2 hover:text-ink-1 transition-colors"
             >
               Voltar
             </button>
@@ -1318,13 +1408,25 @@ export function ListingForm() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl p-10 max-w-sm w-full text-center">
-          <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
-            <Loader2 className="h-8 w-8 animate-spin text-blue-900" />
+      <div className="min-h-screen bg-bg-0 flex items-center justify-center p-4">
+        <div
+          className="bg-bg-1 border border-white/10 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] p-10 max-w-sm w-full text-center"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="w-16 h-16 bg-gold/10 border border-gold/30 rounded-2xl flex items-center justify-center mx-auto mb-5">
+            <Loader2
+              size={28}
+              className="animate-spin text-gold"
+              aria-hidden="true"
+            />
           </div>
-          <h2 className="text-lg font-bold text-gray-900 mb-1">Carregando</h2>
-          <p className="text-sm text-gray-500">Preparando o formulário…</p>
+          <h2 className="font-display text-xl font-bold text-ink-1 tracking-[-0.02em] mb-2">
+            Carregando
+          </h2>
+          <p className="text-ink-2 text-sm leading-relaxed">
+            Preparando o formulário…
+          </p>
         </div>
       </div>
     );
@@ -1338,29 +1440,30 @@ export function ListingForm() {
   // ============================================
 
   return (
-    <div className="min-h-screen bg-blue-900 pb-24">
-      {/* Page banner — mirrors dashboard header style */}
-      <div className="relative bg-linear-to-br from-primary via-primary to-secundary overflow-hidden">
+    <div className="min-h-screen bg-bg-0 pb-24">
+      {/* Page banner */}
+      <div className="relative bg-bg-1 border-b border-white/10 overflow-hidden">
         <div
-          className="absolute inset-0 opacity-10"
+          className="absolute inset-0 opacity-40"
           style={{
             backgroundImage:
-              "radial-gradient(circle at 20% 50%, #1761b9 0%, transparent 60%), radial-gradient(circle at 80% 20%, #1761b9 0%, transparent 50%)",
+              "radial-gradient(circle at 20% 50%, rgba(245, 158, 11, 0.08) 0%, transparent 60%), radial-gradient(circle at 80% 20%, rgba(245, 158, 11, 0.05) 0%, transparent 50%)",
           }}
           aria-hidden="true"
         />
         <div className="relative max-w-2xl mx-auto px-4 sm:px-6 py-7">
           <button
+            type="button"
             onClick={() => navigate(-1)}
-            className="flex items-center gap-1.5 text-white/60 hover:text-white transition text-sm mb-4 cursor-pointer"
+            className="inline-flex items-center gap-1.5 text-ink-2 hover:text-ink-1 transition-colors text-sm mb-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1 rounded-md px-1 -ml-1"
           >
-            <ArrowLeft size={15} />
+            <ArrowLeft size={15} aria-hidden="true" />
             Voltar ao painel
           </button>
-          <h1 className="text-xl font-bold text-white">
+          <h1 className="font-display text-2xl md:text-3xl font-bold text-ink-1 tracking-[-0.02em]">
             {isEditMode ? "Editar Anúncio" : "Criar Anúncio"}
           </h1>
-          <p className="text-white/60 text-xs mt-0.5">
+          <p className="text-ink-2 text-sm mt-1.5 leading-relaxed">
             {isEditMode
               ? "Atualize as informações do seu anúncio"
               : "Preencha as informações para publicar seu produto"}
@@ -1371,16 +1474,19 @@ export function ListingForm() {
       <div className="w-full max-w-xl mx-auto px-4 sm:px-6 mt-5">
         {/* Draft notice */}
         {hasDraft && !isEditMode && (
-          <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <div
+            role="status"
+            className="mb-4 bg-bg-1 border border-gold/30 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] p-4"
+          >
             <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0 mt-0.5">
-                <FileText size={15} className="text-amber-700" />
+              <div className="w-10 h-10 rounded-xl bg-gold/10 border border-gold/30 flex items-center justify-center shrink-0 mt-0.5">
+                <FileText size={16} className="text-gold" aria-hidden="true" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-amber-800 text-sm leading-tight">
+                <p className="font-semibold text-ink-1 text-sm leading-tight">
                   Rascunho encontrado
                 </p>
-                <p className="text-amber-700 text-xs mt-0.5">
+                <p className="text-ink-2 text-xs mt-1 leading-relaxed">
                   Você tem um rascunho salvo em "
                   {STEP_NAMES[draftStepRef.current] ??
                     `Passo ${draftStepRef.current}`}
@@ -1390,18 +1496,20 @@ export function ListingForm() {
             </div>
             <div className="flex gap-2 mt-3">
               <button
+                type="button"
                 onClick={() => {
                   draftJustLoadedRef.current = false;
                   setCurrentStep(draftStepRef.current);
                   setHasDraft(false);
                 }}
-                className="flex-1 text-xs px-3 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 active:bg-amber-800 transition font-medium cursor-pointer"
+                className="flex-1 text-xs px-3 py-2 bg-gold text-gold-deep rounded-xl font-semibold hover:bg-gold/90 active:bg-gold/80 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-0"
               >
                 Continuar rascunho
               </button>
               <button
+                type="button"
                 onClick={discardDraft}
-                className="flex-1 text-xs px-3 py-2 bg-white border border-amber-300 text-amber-700 rounded-lg hover:bg-amber-50 active:bg-amber-100 transition font-medium cursor-pointer"
+                className="flex-1 text-xs px-3 py-2 bg-bg-2 border border-white/10 text-ink-1 rounded-xl font-medium hover:bg-bg-3 hover:border-white/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-0"
               >
                 Descartar
               </button>
@@ -1425,10 +1533,10 @@ export function ListingForm() {
                   key={step}
                   className={`rounded-full transition-all duration-300 ${
                     step === currentStep
-                      ? "w-7 h-2 bg-white"
+                      ? "w-7 h-2 bg-gold"
                       : step < currentStep
-                        ? "w-2 h-2 bg-white/50"
-                        : "w-2 h-2 bg-white/20"
+                        ? "w-2 h-2 bg-gold/50"
+                        : "w-2 h-2 bg-white/10"
                   }`}
                   title={STEP_NAMES[step]}
                   aria-hidden="true"
@@ -1436,13 +1544,13 @@ export function ListingForm() {
               ),
             )}
           </div>
-          <p className="text-center text-xs text-white/50">
+          <p className="text-center text-xs text-ink-3">
             {currentStep} de {TOTAL_STEPS} — {STEP_NAMES[currentStep]}
           </p>
         </div>
 
         {/* Form card */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+        <div className="bg-bg-1 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] border border-white/10">
           {/* Step header */}
           <div className="px-6 pt-6 pb-4 border-b border-gray-100">
             <div className="flex items-center gap-3">
@@ -1796,14 +1904,22 @@ export function ListingForm() {
                     <label className="block text-sm font-medium text-gray-700">
                       Método de envio
                     </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" role="radiogroup" aria-label="Método de envio">
-                      {(
-                        [
-                          { value: "both" as ShippingMethod, label: "Ambos" },
-                          { value: "melhor_envio" as ShippingMethod, label: "Somente Melhor Envio" },
-                          { value: "in_person" as ShippingMethod, label: "Somente Presencial" },
-                        ]
-                      ).map((opt) => (
+                    <div
+                      className="grid grid-cols-1 sm:grid-cols-3 gap-2"
+                      role="radiogroup"
+                      aria-label="Método de envio"
+                    >
+                      {[
+                        { value: "both" as ShippingMethod, label: "Ambos" },
+                        {
+                          value: "melhor_envio" as ShippingMethod,
+                          label: "Somente Melhor Envio",
+                        },
+                        {
+                          value: "in_person" as ShippingMethod,
+                          label: "Somente Presencial",
+                        },
+                      ].map((opt) => (
                         <label
                           key={opt.value}
                           className={`flex items-center gap-2.5 px-4 py-3 border-2 rounded-xl cursor-pointer transition ${
@@ -1818,7 +1934,10 @@ export function ListingForm() {
                             value={opt.value}
                             checked={formData.shipping_method === opt.value}
                             onChange={() =>
-                              setFormData((prev) => ({ ...prev, shipping_method: opt.value }))
+                              setFormData((prev) => ({
+                                ...prev,
+                                shipping_method: opt.value,
+                              }))
                             }
                             className="sr-only"
                           />
@@ -1875,7 +1994,8 @@ export function ListingForm() {
                     </div>
 
                     <p className="text-sm text-gray-500">
-                      Informe as dimensões de cada pacote que será enviado. Esses dados são usados para calcular o frete.
+                      Informe as dimensões de cada pacote que será enviado.
+                      Esses dados são usados para calcular o frete.
                     </p>
 
                     {errors.packages && (
@@ -1884,7 +2004,10 @@ export function ListingForm() {
 
                     {packages.length === 0 && (
                       <div className="border-2 border-dashed border-gray-200 rounded-xl py-8 text-center">
-                        <Package size={28} className="mx-auto text-gray-300 mb-2" />
+                        <Package
+                          size={28}
+                          className="mx-auto text-gray-300 mb-2"
+                        />
                         <p className="text-sm text-gray-400">
                           Nenhum pacote adicionado ainda.
                         </p>
@@ -1927,7 +2050,9 @@ export function ListingForm() {
                             type="button"
                             disabled={packages.length <= 1}
                             onClick={() =>
-                              setPackages((prev) => prev.filter((_, i) => i !== idx))
+                              setPackages((prev) =>
+                                prev.filter((_, i) => i !== idx),
+                              )
                             }
                             className="p-1.5 text-gray-400 hover:text-red-500 transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                             title="Remover pacote"
@@ -2088,7 +2213,9 @@ export function ListingForm() {
                         <div className="space-y-1">
                           <label className="block text-xs font-medium text-gray-700">
                             Descrição{" "}
-                            <span className="text-gray-400 font-normal">(opcional)</span>
+                            <span className="text-gray-400 font-normal">
+                              (opcional)
+                            </span>
                           </label>
                           <input
                             type="text"
@@ -2116,17 +2243,28 @@ export function ListingForm() {
                           <button
                             type="button"
                             onClick={() => {
-                              const errs = validatePackageDraftHelper(packageDraft);
+                              const errs =
+                                validatePackageDraftHelper(packageDraft);
                               if (Object.keys(errs).length > 0) {
                                 setPackageDraftErrors(errs);
                                 return;
                               }
                               if (editingPackageIndex !== null) {
                                 setPackages((prev) =>
-                                  prev.map((p, i) => (i === editingPackageIndex ? { ...packageDraft, _key: p._key } : p))
+                                  prev.map((p, i) =>
+                                    i === editingPackageIndex
+                                      ? { ...packageDraft, _key: p._key }
+                                      : p,
+                                  ),
                                 );
                               } else {
-                                setPackages((prev) => [...prev, { ...packageDraft, _key: crypto.randomUUID() }]);
+                                setPackages((prev) => [
+                                  ...prev,
+                                  {
+                                    ...packageDraft,
+                                    _key: crypto.randomUUID(),
+                                  },
+                                ]);
                               }
                               if (errors.packages) {
                                 setErrors((prev) => {
@@ -2139,7 +2277,9 @@ export function ListingForm() {
                             }}
                             className="flex-1 px-4 py-2.5 bg-blue-900 text-white rounded-xl text-sm font-semibold hover:bg-blue-800 transition cursor-pointer"
                           >
-                            {editingPackageIndex !== null ? "Salvar" : "Adicionar"}
+                            {editingPackageIndex !== null
+                              ? "Salvar"
+                              : "Adicionar"}
                           </button>
                         </div>
                       </div>
@@ -2357,9 +2497,7 @@ export function ListingForm() {
                 {submitting || uploading ? (
                   <>
                     <Loader2 size={16} className="animate-spin" />
-                    <span>
-                      {uploading ? "Enviando…" : "Aguarde…"}
-                    </span>
+                    <span>{uploading ? "Enviando…" : "Aguarde…"}</span>
                   </>
                 ) : isLastStep ? (
                   <>
