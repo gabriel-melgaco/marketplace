@@ -1552,16 +1552,16 @@ export function ListingForm() {
         {/* Form card */}
         <div className="bg-bg-1 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] border border-white/10">
           {/* Step header */}
-          <div className="px-6 pt-6 pb-4 border-b border-gray-100">
+          <div className="px-6 pt-6 pb-4 border-b border-white/10">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center shrink-0">
-                <StepIcon size={20} className="text-blue-900" />
+              <div className="w-10 h-10 bg-gold/10 border border-gold/30 rounded-xl flex items-center justify-center shrink-0">
+                <StepIcon size={20} className="text-gold" aria-hidden="true" />
               </div>
               <div>
-                <h2 className="text-lg font-bold text-gray-900 leading-tight">
+                <h2 className="font-display text-lg md:text-xl font-bold text-ink-1 tracking-[-0.02em] leading-tight">
                   {STEP_NAMES[currentStep]}
                 </h2>
-                <p className="text-xs text-gray-400 mt-0.5">
+                <p className="text-xs text-ink-3 mt-0.5">
                   Passo {currentStep} de {TOTAL_STEPS}
                 </p>
               </div>
@@ -1573,7 +1573,7 @@ export function ListingForm() {
               {/* STEP 1 — Produto */}
               {currentStep === 1 && (
                 <div className="space-y-4">
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-ink-2 leading-relaxed">
                     Selecione o produto que você está anunciando.
                   </p>
 
@@ -1581,32 +1581,34 @@ export function ListingForm() {
                   <div className="relative">
                     <Search
                       size={16}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none"
+                      aria-hidden="true"
                     />
                     <input
                       type="text"
                       placeholder="Buscar produto…"
                       value={productSearch}
                       onChange={(e) => handleProductSearch(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                      className="w-full pl-9 pr-4 py-2.5 bg-bg-2 border border-white/10 rounded-xl text-ink-1 placeholder:text-ink-3 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors"
                     />
                     {searchingProducts && (
                       <Loader2
                         size={16}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-gray-400"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-gold"
+                        aria-hidden="true"
                       />
                     )}
                   </div>
 
                   {/* Selected product */}
                   {selectedProduct && (
-                    <div className="flex items-center justify-between bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
-                      <div>
-                        <p className="text-sm font-semibold text-blue-900">
+                    <div className="flex items-center justify-between bg-gold/10 border border-gold/30 rounded-xl px-4 py-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-ink-1 truncate">
                           {selectedProduct.name}
                         </p>
                         {selectedProduct.code && (
-                          <p className="text-xs text-blue-600">
+                          <p className="text-xs text-gold mt-0.5">
                             {selectedProduct.code}
                           </p>
                         )}
@@ -1614,28 +1616,29 @@ export function ListingForm() {
                       <button
                         type="button"
                         onClick={clearProduct}
-                        className="text-blue-400 hover:text-blue-700 transition cursor-pointer"
+                        className="text-ink-3 hover:text-ink-1 transition-colors shrink-0 ml-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 rounded"
+                        aria-label="Remover produto selecionado"
                       >
-                        <X size={18} />
+                        <X size={18} aria-hidden="true" />
                       </button>
                     </div>
                   )}
 
                   {/* Search results */}
                   {productSearch && productResults.length > 0 && (
-                    <div className="border border-gray-200 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
+                    <div className="border border-white/10 bg-bg-2 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
                       {productResults.map((product) => (
                         <button
                           key={product.id}
                           type="button"
                           onClick={() => selectProduct(product)}
-                          className="w-full text-left px-4 py-3 hover:bg-gray-50 transition border-b border-gray-100 last:border-0 cursor-pointer"
+                          className="w-full text-left px-4 py-3 hover:bg-bg-3 transition-colors border-b border-white/10 last:border-0 focus:outline-none focus-visible:bg-bg-3"
                         >
-                          <p className="text-sm font-medium text-gray-900">
+                          <p className="text-sm font-medium text-ink-1">
                             {product.name}
                           </p>
                           {product.code && (
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-ink-3 mt-0.5">
                               {product.code}
                             </p>
                           )}
@@ -1646,19 +1649,19 @@ export function ListingForm() {
 
                   {/* All products list */}
                   {!productSearch && !selectedProduct && (
-                    <div className="border border-gray-200 rounded-xl overflow-hidden max-h-60 overflow-y-auto">
+                    <div className="border border-white/10 bg-bg-2 rounded-xl overflow-hidden max-h-60 overflow-y-auto">
                       {allProducts.map((product) => (
                         <button
                           key={product.id}
                           type="button"
                           onClick={() => selectProduct(product)}
-                          className="w-full text-left px-4 py-3 hover:bg-gray-50 transition border-b border-gray-100 last:border-0 cursor-pointer"
+                          className="w-full text-left px-4 py-3 hover:bg-bg-3 transition-colors border-b border-white/10 last:border-0 focus:outline-none focus-visible:bg-bg-3"
                         >
-                          <p className="text-sm font-medium text-gray-900">
+                          <p className="text-sm font-medium text-ink-1">
                             {product.name}
                           </p>
                           {product.code && (
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-ink-3 mt-0.5">
                               {product.code}
                             </p>
                           )}
@@ -1669,12 +1672,13 @@ export function ListingForm() {
                           type="button"
                           onClick={loadMoreProducts}
                           disabled={loadingMoreProducts}
-                          className="w-full py-3 text-sm text-blue-900 font-medium hover:bg-gray-50 transition disabled:opacity-50 cursor-pointer"
+                          className="w-full py-3 text-sm text-gold font-medium hover:bg-bg-3 transition-colors disabled:opacity-50 focus:outline-none focus-visible:bg-bg-3"
                         >
                           {loadingMoreProducts ? (
                             <Loader2
                               size={16}
                               className="animate-spin mx-auto"
+                              aria-hidden="true"
                             />
                           ) : (
                             "Carregar mais"
@@ -1685,7 +1689,9 @@ export function ListingForm() {
                   )}
 
                   {errors.product && (
-                    <p className="text-sm text-red-500">{errors.product}</p>
+                    <p role="alert" className="text-sm text-red-400">
+                      {errors.product}
+                    </p>
                   )}
                 </div>
               )}
@@ -1693,25 +1699,31 @@ export function ListingForm() {
               {/* STEP 2 — Título */}
               {currentStep === 2 && (
                 <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label
+                    htmlFor="listing-title"
+                    className="block text-sm font-medium text-ink-1"
+                  >
                     Título do anúncio
                   </label>
                   <input
+                    id="listing-title"
                     type="text"
                     name="title"
                     value={formData.title}
                     onChange={handleChange}
                     maxLength={150}
                     placeholder="Ex: Monitor Ultrawide LG 34'' 144Hz"
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                    className="w-full px-4 py-2.5 bg-bg-2 border border-white/10 rounded-xl text-ink-1 placeholder:text-ink-3 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors"
                   />
                   <div className="flex items-center justify-between">
                     {errors.title ? (
-                      <p className="text-sm text-red-500">{errors.title}</p>
+                      <p role="alert" className="text-sm text-red-400">
+                        {errors.title}
+                      </p>
                     ) : (
                       <span />
                     )}
-                    <p className="text-xs text-gray-400">
+                    <p className="text-xs text-ink-3">
                       {formData.title.length}/150
                     </p>
                   </div>
