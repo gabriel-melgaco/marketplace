@@ -12,6 +12,8 @@ import {
   DollarSign,
   Tag,
   CheckCircle,
+  ChevronDown,
+  CreditCard,
   Ruler,
   Trash2,
   Search,
@@ -20,7 +22,6 @@ import {
   ExternalLink,
   Plus,
   Truck,
-  CreditCard,
 } from "lucide-react";
 import { productService } from "@/services/productService";
 import { storageService, IMAGE_UPLOAD_LIMITS } from "@/services/storageService";
@@ -1800,71 +1801,101 @@ export function ListingForm() {
               {currentStep === 4 && (
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <label className="block text-sm font-medium text-gray-700">
+                    <label
+                      htmlFor="listing-brand"
+                      className="block text-sm font-medium text-ink-1"
+                    >
                       Marca
                     </label>
-                    <select
-                      name="brand"
-                      value={formData.brand}
-                      onChange={handleChange}
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition bg-white"
-                    >
-                      <option value="">Selecione uma marca</option>
-                      {filterOptions?.brands.map((b) => (
-                        <option key={b.id} value={b.id}>
-                          {b.name}
+                    <div className="relative">
+                      <select
+                        id="listing-brand"
+                        name="brand"
+                        value={formData.brand}
+                        onChange={handleChange}
+                        className="w-full px-4 py-2.5 pr-10 bg-bg-2 border border-white/10 rounded-xl text-ink-1 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors appearance-none cursor-pointer"
+                      >
+                        <option value="" className="bg-bg-2 text-ink-3">
+                          Selecione uma marca
                         </option>
-                      ))}
-                    </select>
+                        {filterOptions?.brands.map((b) => (
+                          <option
+                            key={b.id}
+                            value={b.id}
+                            className="bg-bg-2 text-ink-1"
+                          >
+                            {b.name}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown
+                        size={16}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none"
+                        aria-hidden="true"
+                      />
+                    </div>
                     {errors.brand && (
-                      <p className="text-sm text-red-500">{errors.brand}</p>
+                      <p role="alert" className="text-sm text-red-400">
+                        {errors.brand}
+                      </p>
                     )}
                   </div>
 
                   <div className="space-y-2">
-                    <label className="block text-sm font-medium text-gray-700">
+                    <span className="block text-sm font-medium text-ink-1">
                       Condição
-                    </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {filterOptions?.conditions.map((c) => (
-                        <label
-                          key={c.id}
-                          className={`flex items-center gap-3 px-4 py-3 border-2 rounded-xl cursor-pointer transition ${
-                            formData.condition === String(c.id)
-                              ? "border-blue-900 bg-blue-50"
-                              : "border-gray-200 hover:border-gray-300"
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name="condition"
-                            value={c.id}
-                            checked={formData.condition === String(c.id)}
-                            onChange={handleChange}
-                            className="sr-only"
-                          />
-                          {formData.condition === String(c.id) ? (
-                            <CheckCircle
-                              size={18}
-                              className="text-blue-900 shrink-0"
-                            />
-                          ) : (
-                            <div className="w-4.5 h-4.5 border-2 border-gray-300 rounded-full shrink-0" />
-                          )}
-                          <span
-                            className={`text-sm font-medium ${
-                              formData.condition === String(c.id)
-                                ? "text-blue-900"
-                                : "text-gray-700"
+                    </span>
+                    <div
+                      role="radiogroup"
+                      aria-label="Condição do produto"
+                      className="grid grid-cols-1 sm:grid-cols-2 gap-3"
+                    >
+                      {filterOptions?.conditions.map((c) => {
+                        const selected = formData.condition === String(c.id);
+                        return (
+                          <label
+                            key={c.id}
+                            className={`flex items-center gap-3 px-4 py-3 border rounded-xl cursor-pointer transition-colors ${
+                              selected
+                                ? "border-gold/50 bg-gold/10"
+                                : "border-white/10 bg-bg-2 hover:border-white/20 hover:bg-bg-3"
                             }`}
                           >
-                            {c.name}
-                          </span>
-                        </label>
-                      ))}
+                            <input
+                              type="radio"
+                              name="condition"
+                              value={c.id}
+                              checked={selected}
+                              onChange={handleChange}
+                              className="sr-only"
+                            />
+                            {selected ? (
+                              <CheckCircle
+                                size={18}
+                                className="text-gold shrink-0"
+                                aria-hidden="true"
+                              />
+                            ) : (
+                              <div
+                                className="w-4.5 h-4.5 border-2 border-white/20 rounded-full shrink-0"
+                                aria-hidden="true"
+                              />
+                            )}
+                            <span
+                              className={`text-sm font-medium ${
+                                selected ? "text-ink-1" : "text-ink-2"
+                              }`}
+                            >
+                              {c.name}
+                            </span>
+                          </label>
+                        );
+                      })}
                     </div>
                     {errors.condition && (
-                      <p className="text-sm text-red-500">{errors.condition}</p>
+                      <p role="alert" className="text-sm text-red-400">
+                        {errors.condition}
+                      </p>
                     )}
                   </div>
                 </div>
