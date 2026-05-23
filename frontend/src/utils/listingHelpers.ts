@@ -41,6 +41,8 @@ export function validateStep(
     case 3: // Description
       if (!formData.description.trim())
         errors.description = "Descrição é obrigatória";
+      else if (formData.description.trim().length < 30)
+        errors.description = "Descrição precisa ter pelo menos 30 caracteres";
       else if (formData.description.length > 255)
         errors.description = "Máximo 255 caracteres";
       break;
@@ -87,7 +89,10 @@ export function validatePackageDraft(
  * Builds the listing request data from form data.
  * Returns packages as an array per the new API contract.
  */
-export function buildListingData(formData: FormData, packages: ListingPackageRequest[]) {
+export function buildListingData(
+  formData: FormData,
+  packages: ListingPackageRequest[],
+) {
   return {
     product: Number(formData.product),
     title: formData.title.trim(),
@@ -101,7 +106,9 @@ export function buildListingData(formData: FormData, packages: ListingPackageReq
       height_cm: formatDecimal(pkg.height_cm),
       width_cm: formatDecimal(pkg.width_cm),
       length_cm: formatDecimal(pkg.length_cm),
-      ...(pkg.description?.trim() ? { description: pkg.description.trim() } : {}),
+      ...(pkg.description?.trim()
+        ? { description: pkg.description.trim() }
+        : {}),
     })),
     shipping_method: formData.shipping_method,
   };
