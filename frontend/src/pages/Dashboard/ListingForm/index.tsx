@@ -1905,14 +1905,21 @@ export function ListingForm() {
               {currentStep === 5 && (
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <label className="block text-sm font-medium text-gray-700">
+                    <label
+                      htmlFor="listing-price"
+                      className="block text-sm font-medium text-ink-1"
+                    >
                       Preço (R$)
                     </label>
                     <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
+                      <span
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 text-sm pointer-events-none"
+                        aria-hidden="true"
+                      >
                         R$
                       </span>
                       <input
+                        id="listing-price"
                         type="number"
                         name="price"
                         value={formData.price}
@@ -1920,11 +1927,13 @@ export function ListingForm() {
                         min="0.01"
                         step="0.01"
                         placeholder="0,00"
-                        className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                        className="w-full pl-10 pr-4 py-2.5 bg-bg-2 border border-white/10 rounded-xl text-ink-1 placeholder:text-ink-3 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors"
                       />
                     </div>
                     {errors.price && (
-                      <p className="text-sm text-red-500">{errors.price}</p>
+                      <p role="alert" className="text-sm text-red-400">
+                        {errors.price}
+                      </p>
                     )}
                     {(() => {
                       const priceNum = Number(formData.price);
@@ -1941,35 +1950,38 @@ export function ListingForm() {
                           priceNum * (1 - platformFeePercentage / 100) * 100,
                         ) / 100;
                       return (
-                        <p className="text-sm text-green-700">
+                        <p className="text-sm text-emerald-400">
                           Você irá receber{" "}
-                          <span className="font-semibold">
+                          <span className="font-semibold text-ink-1">
                             R${" "}
                             {netValue.toLocaleString("pt-BR", {
                               minimumFractionDigits: 2,
                               maximumFractionDigits: 2,
                             })}
                           </span>{" "}
-                          <span className="text-green-600">
+                          <span className="text-ink-3">
                             (-{platformFeePercentage}%)
                           </span>
                         </p>
                       );
                     })()}
                   </div>
-
                   <div className="space-y-2">
-                    <label className="block text-sm font-medium text-gray-700">
+                    <label
+                      htmlFor="listing-quantity"
+                      className="block text-sm font-medium text-ink-1"
+                    >
                       Quantidade em estoque
                     </label>
                     <input
+                      id="listing-quantity"
                       type="number"
                       name="quantity"
                       value={formData.quantity}
                       onChange={handleChange}
                       min="1"
                       step="1"
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                      className="w-full px-4 py-2.5 bg-bg-2 border border-white/10 rounded-xl text-ink-1 placeholder:text-ink-3 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors"
                     />
                   </div>
                 </div>
@@ -1980,9 +1992,9 @@ export function ListingForm() {
                 <div className="space-y-6">
                   {/* Shipping Method */}
                   <div className="space-y-2">
-                    <label className="block text-sm font-medium text-gray-700">
+                    <span className="block text-sm font-medium text-ink-1">
                       Método de envio
-                    </label>
+                    </span>
                     <div
                       className="grid grid-cols-1 sm:grid-cols-3 gap-2"
                       role="radiogroup"
@@ -1998,59 +2010,61 @@ export function ListingForm() {
                           value: "in_person" as ShippingMethod,
                           label: "Somente Presencial",
                         },
-                      ].map((opt) => (
-                        <label
-                          key={opt.value}
-                          className={`flex items-center gap-2.5 px-4 py-3 border-2 rounded-xl cursor-pointer transition ${
-                            formData.shipping_method === opt.value
-                              ? "border-blue-900 bg-blue-50"
-                              : "border-gray-200 hover:border-gray-300"
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name="shipping_method"
-                            value={opt.value}
-                            checked={formData.shipping_method === opt.value}
-                            onChange={() =>
-                              setFormData((prev) => ({
-                                ...prev,
-                                shipping_method: opt.value,
-                              }))
-                            }
-                            className="sr-only"
-                          />
-                          <Truck
-                            size={16}
-                            className={
-                              formData.shipping_method === opt.value
-                                ? "text-blue-900 shrink-0"
-                                : "text-gray-400 shrink-0"
-                            }
-                          />
-                          <span
-                            className={`text-sm font-medium ${
-                              formData.shipping_method === opt.value
-                                ? "text-blue-900"
-                                : "text-gray-700"
+                      ].map((opt) => {
+                        const selected = formData.shipping_method === opt.value;
+                        return (
+                          <label
+                            key={opt.value}
+                            className={`flex items-center gap-2.5 px-4 py-3 border rounded-xl cursor-pointer transition-colors ${
+                              selected
+                                ? "border-gold/50 bg-gold/10"
+                                : "border-white/10 bg-bg-2 hover:border-white/20 hover:bg-bg-3"
                             }`}
                           >
-                            {opt.label}
-                          </span>
-                        </label>
-                      ))}
+                            <input
+                              type="radio"
+                              name="shipping_method"
+                              value={opt.value}
+                              checked={selected}
+                              onChange={() =>
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  shipping_method: opt.value,
+                                }))
+                              }
+                              className="sr-only"
+                            />
+                            <Truck
+                              size={16}
+                              className={
+                                selected
+                                  ? "text-gold shrink-0"
+                                  : "text-ink-3 shrink-0"
+                              }
+                              aria-hidden="true"
+                            />
+                            <span
+                              className={`text-sm font-medium ${
+                                selected ? "text-ink-1" : "text-ink-2"
+                              }`}
+                            >
+                              {opt.label}
+                            </span>
+                          </label>
+                        );
+                      })}
                     </div>
                   </div>
 
                   {/* Package list */}
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <label className="block text-sm font-medium text-gray-700">
+                      <span className="block text-sm font-medium text-ink-1">
                         Pacotes{" "}
-                        <span className="text-gray-400 font-normal">
+                        <span className="text-ink-3 font-normal">
                           ({packages.length})
                         </span>
-                      </label>
+                      </span>
                       <button
                         type="button"
                         onClick={() => {
@@ -2065,32 +2079,35 @@ export function ListingForm() {
                           setEditingPackageIndex(null);
                           setShowPackageModal(true);
                         }}
-                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-blue-900 text-white rounded-lg hover:bg-blue-800 transition cursor-pointer"
+                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-gold text-gold-deep rounded-lg font-semibold hover:bg-gold/90 active:bg-gold/80 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1"
                       >
-                        <Plus size={14} />
+                        <Plus size={14} aria-hidden="true" />
                         Adicionar Pacote
                       </button>
                     </div>
 
-                    <p className="text-sm text-gray-500">
+                    <p className="text-sm text-ink-2 leading-relaxed">
                       Informe as dimensões de cada pacote que será enviado.
                       Esses dados são usados para calcular o frete.
                     </p>
 
                     {errors.packages && (
-                      <p className="text-sm text-red-500">{errors.packages}</p>
+                      <p role="alert" className="text-sm text-red-400">
+                        {errors.packages}
+                      </p>
                     )}
 
                     {packages.length === 0 && (
-                      <div className="border-2 border-dashed border-gray-200 rounded-xl py-8 text-center">
+                      <div className="border border-dashed border-white/10 bg-bg-2 rounded-xl py-8 text-center">
                         <Package
                           size={28}
-                          className="mx-auto text-gray-300 mb-2"
+                          className="mx-auto text-ink-3 mb-2"
+                          aria-hidden="true"
                         />
-                        <p className="text-sm text-gray-400">
+                        <p className="text-sm text-ink-2">
                           Nenhum pacote adicionado ainda.
                         </p>
-                        <p className="text-xs text-gray-300 mt-0.5">
+                        <p className="text-xs text-ink-3 mt-0.5">
                           Clique em "+ Adicionar Pacote" para começar.
                         </p>
                       </div>
@@ -2099,19 +2116,19 @@ export function ListingForm() {
                     {packages.map((pkg, idx) => (
                       <div
                         key={pkg._key}
-                        className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-xl px-4 py-3"
+                        className="flex items-center justify-between bg-bg-2 border border-white/10 rounded-xl px-4 py-3"
                       >
-                        <div>
-                          <p className="text-sm font-medium text-gray-800">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-ink-1">
                             Pacote {idx + 1}
                           </p>
-                          <p className="text-xs text-gray-500 mt-0.5">
+                          <p className="text-xs text-ink-3 mt-0.5">
                             {pkg.weight_kg} kg · {pkg.height_cm}×{pkg.width_cm}×
                             {pkg.length_cm} cm
                             {pkg.description ? ` · ${pkg.description}` : ""}
                           </p>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0 ml-2">
                           <button
                             type="button"
                             onClick={() => {
@@ -2121,7 +2138,7 @@ export function ListingForm() {
                               setEditingPackageIndex(idx);
                               setShowPackageModal(true);
                             }}
-                            className="text-xs px-2.5 py-1 border border-gray-200 text-gray-600 rounded-lg hover:bg-white transition cursor-pointer"
+                            className="text-xs px-2.5 py-1 bg-bg-3 border border-white/10 text-ink-1 rounded-lg font-medium hover:border-white/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40"
                           >
                             Editar
                           </button>
@@ -2133,10 +2150,10 @@ export function ListingForm() {
                                 prev.filter((_, i) => i !== idx),
                               )
                             }
-                            className="p-1.5 text-gray-400 hover:text-red-500 transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                            title="Remover pacote"
+                            className="p-1.5 text-ink-3 hover:text-red-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 rounded"
+                            aria-label={`Remover pacote ${idx + 1}`}
                           >
-                            <Trash2 size={15} />
+                            <Trash2 size={15} aria-hidden="true" />
                           </button>
                         </div>
                       </div>
@@ -2145,14 +2162,23 @@ export function ListingForm() {
 
                   {/* Package modal */}
                   {showPackageModal && (
-                    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+                    <div
+                      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+                      role="dialog"
+                      aria-modal="true"
+                      aria-labelledby="package-modal-title"
+                    >
                       <div
-                        className="absolute inset-0 bg-black/40"
+                        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
                         onClick={() => setShowPackageModal(false)}
+                        aria-hidden="true"
                       />
-                      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+                      <div className="relative bg-bg-1 border border-white/10 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] w-full max-w-sm p-6 space-y-4">
                         <div className="flex items-center justify-between">
-                          <h3 className="text-base font-bold text-gray-900">
+                          <h3
+                            id="package-modal-title"
+                            className="font-display text-base font-bold text-ink-1 tracking-[-0.02em]"
+                          >
                             {editingPackageIndex !== null
                               ? "Editar pacote"
                               : "Adicionar pacote"}
@@ -2160,18 +2186,23 @@ export function ListingForm() {
                           <button
                             type="button"
                             onClick={() => setShowPackageModal(false)}
-                            className="text-gray-400 hover:text-gray-600 transition cursor-pointer"
+                            className="text-ink-3 hover:text-ink-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 rounded"
+                            aria-label="Fechar modal"
                           >
-                            <X size={20} />
+                            <X size={20} aria-hidden="true" />
                           </button>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3">
                           <div className="space-y-1">
-                            <label className="block text-xs font-medium text-gray-700">
+                            <label
+                              htmlFor="pkg-weight"
+                              className="block text-xs font-medium text-ink-1"
+                            >
                               Peso (kg)
                             </label>
                             <input
+                              id="pkg-weight"
                               type="number"
                               value={packageDraft.weight_kg}
                               onChange={(e) => {
@@ -2189,19 +2220,23 @@ export function ListingForm() {
                               min="0.01"
                               step="0.01"
                               placeholder="0.00"
-                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                              className="w-full px-3 py-2 bg-bg-2 border border-white/10 rounded-lg text-ink-1 placeholder:text-ink-3 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors"
                             />
                             {packageDraftErrors.weight_kg && (
-                              <p className="text-xs text-red-500">
+                              <p role="alert" className="text-xs text-red-400">
                                 {packageDraftErrors.weight_kg}
                               </p>
                             )}
                           </div>
                           <div className="space-y-1">
-                            <label className="block text-xs font-medium text-gray-700">
+                            <label
+                              htmlFor="pkg-height"
+                              className="block text-xs font-medium text-ink-1"
+                            >
                               Altura (cm)
                             </label>
                             <input
+                              id="pkg-height"
                               type="number"
                               value={packageDraft.height_cm}
                               onChange={(e) => {
@@ -2219,19 +2254,23 @@ export function ListingForm() {
                               min="0.1"
                               step="0.1"
                               placeholder="0.0"
-                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                              className="w-full px-3 py-2 bg-bg-2 border border-white/10 rounded-lg text-ink-1 placeholder:text-ink-3 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors"
                             />
                             {packageDraftErrors.height_cm && (
-                              <p className="text-xs text-red-500">
+                              <p role="alert" className="text-xs text-red-400">
                                 {packageDraftErrors.height_cm}
                               </p>
                             )}
                           </div>
                           <div className="space-y-1">
-                            <label className="block text-xs font-medium text-gray-700">
+                            <label
+                              htmlFor="pkg-width"
+                              className="block text-xs font-medium text-ink-1"
+                            >
                               Largura (cm)
                             </label>
                             <input
+                              id="pkg-width"
                               type="number"
                               value={packageDraft.width_cm}
                               onChange={(e) => {
@@ -2249,19 +2288,23 @@ export function ListingForm() {
                               min="0.1"
                               step="0.1"
                               placeholder="0.0"
-                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                              className="w-full px-3 py-2 bg-bg-2 border border-white/10 rounded-lg text-ink-1 placeholder:text-ink-3 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors"
                             />
                             {packageDraftErrors.width_cm && (
-                              <p className="text-xs text-red-500">
+                              <p role="alert" className="text-xs text-red-400">
                                 {packageDraftErrors.width_cm}
                               </p>
                             )}
                           </div>
                           <div className="space-y-1">
-                            <label className="block text-xs font-medium text-gray-700">
+                            <label
+                              htmlFor="pkg-length"
+                              className="block text-xs font-medium text-ink-1"
+                            >
                               Comprimento (cm)
                             </label>
                             <input
+                              id="pkg-length"
                               type="number"
                               value={packageDraft.length_cm}
                               onChange={(e) => {
@@ -2279,10 +2322,10 @@ export function ListingForm() {
                               min="0.1"
                               step="0.1"
                               placeholder="0.0"
-                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                              className="w-full px-3 py-2 bg-bg-2 border border-white/10 rounded-lg text-ink-1 placeholder:text-ink-3 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors"
                             />
                             {packageDraftErrors.length_cm && (
-                              <p className="text-xs text-red-500">
+                              <p role="alert" className="text-xs text-red-400">
                                 {packageDraftErrors.length_cm}
                               </p>
                             )}
@@ -2290,13 +2333,17 @@ export function ListingForm() {
                         </div>
 
                         <div className="space-y-1">
-                          <label className="block text-xs font-medium text-gray-700">
+                          <label
+                            htmlFor="pkg-description"
+                            className="block text-xs font-medium text-ink-1"
+                          >
                             Descrição{" "}
-                            <span className="text-gray-400 font-normal">
+                            <span className="text-ink-3 font-normal">
                               (opcional)
                             </span>
                           </label>
                           <input
+                            id="pkg-description"
                             type="text"
                             value={packageDraft.description || ""}
                             onChange={(e) =>
@@ -2307,7 +2354,7 @@ export function ListingForm() {
                             }
                             maxLength={100}
                             placeholder="Ex: Caixa com espuma protetora"
-                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                            className="w-full px-3 py-2 bg-bg-2 border border-white/10 rounded-lg text-ink-1 placeholder:text-ink-3 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors"
                           />
                         </div>
 
@@ -2315,7 +2362,7 @@ export function ListingForm() {
                           <button
                             type="button"
                             onClick={() => setShowPackageModal(false)}
-                            className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition cursor-pointer"
+                            className="flex-1 px-4 py-2.5 bg-bg-2 border border-white/10 text-ink-1 rounded-xl text-sm font-medium hover:bg-bg-3 hover:border-white/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1"
                           >
                             Cancelar
                           </button>
@@ -2354,7 +2401,7 @@ export function ListingForm() {
                               }
                               setShowPackageModal(false);
                             }}
-                            className="flex-1 px-4 py-2.5 bg-blue-900 text-white rounded-xl text-sm font-semibold hover:bg-blue-800 transition cursor-pointer"
+                            className="flex-1 px-4 py-2.5 bg-gold text-gold-deep rounded-xl text-sm font-semibold hover:bg-gold/90 active:bg-gold/80 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1"
                           >
                             {editingPackageIndex !== null
                               ? "Salvar"
