@@ -110,6 +110,19 @@ interface DraftData {
   packages?: PackageEntry[];
 }
 
+function isDraftEmpty(formData: FormData, packages: PackageEntry[]): boolean {
+  // Returns true if the draft has no meaningful content worth restoring
+  return (
+    !formData.title.trim() &&
+    !formData.description.trim() &&
+    !formData.product &&
+    !formData.brand &&
+    !formData.condition &&
+    !formData.price &&
+    packages.length === 0
+  );
+}
+
 export function ListingForm() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -343,11 +356,15 @@ export function ListingForm() {
 
   useEffect(() => {
     if (isEditMode) return;
-
     try {
       const saved = localStorage.getItem(draftKey);
       if (saved) {
         const draft: DraftData = JSON.parse(saved);
+        // Skip if draft has no meaningful content (e.g., stale empty after discard)
+        if (isDraftEmpty(draft.formData, draft.packages ?? [])) {
+          localStorage.removeItem(draftKey);
+          return;
+        }
         draftStepRef.current = draft.step ?? 1;
         draftJustLoadedRef.current = true;
         setHasDraft(true);
@@ -397,6 +414,11 @@ export function ListingForm() {
 
   const saveDraft = useCallback(() => {
     if (isEditMode) return;
+    if (isDraftEmpty(formData, packages)) {
+      // Nothing meaningful to save; ensure no stale draft remains
+      localStorage.removeItem(draftKey);
+      return;
+    }
 
     try {
       const draft: DraftData = {
@@ -1733,27 +1755,41 @@ export function ListingForm() {
               {/* STEP 3 — Descrição */}
               {currentStep === 3 && (
                 <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label
+                    htmlFor="listing-description"
+                    className="block text-sm font-medium text-ink-1"
+                  >
                     Descrição
                   </label>
                   <textarea
+                    id="listing-description"
                     name="description"
                     value={formData.description}
                     onChange={handleChange}
                     maxLength={255}
                     rows={5}
-                    placeholder="Descreva o produto com detalhes relevantes…"
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition resize-none"
+                    placeholder="Descreva o produto com detalhes relevantes (mínimo 30 caracteres)…"
+                    className="w-full px-4 py-2.5 bg-bg-2 border border-white/10 rounded-xl text-ink-1 placeholder:text-ink-3 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors resize-none"
                   />
                   <div className="flex items-center justify-between">
                     {errors.description ? (
-                      <p className="text-sm text-red-500">
+                      <p role="alert" className="text-sm text-red-400">
                         {errors.description}
                       </p>
                     ) : (
-                      <span />
+                      <p
+                        className={`text-xs transition-colors ${
+                          formData.description.trim().length >= 30
+                            ? "text-emerald-400"
+                            : "text-ink-3"
+                        }`}
+                      >
+                        {formData.description.trim().length < 30
+                          ? `Mínimo 30 caracteres • ${formData.description.trim().length}/30`
+                          : "Mínimo atingido ✓"}
+                      </p>
                     )}
-                    <p className="text-xs text-gray-400">
+                    <p className="text-xs text-ink-3">
                       {formData.description.length}/255
                     </p>
                   </div>
