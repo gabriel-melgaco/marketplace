@@ -2417,20 +2417,20 @@ export function ListingForm() {
               {/* STEP 7 — Imagens */}
               {currentStep === 7 && (
                 <div className="space-y-4">
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-ink-2 leading-relaxed">
                     Adicione fotos do produto. A primeira imagem será a capa do
                     anúncio.{" "}
-                    <span className="font-medium">
+                    <span className="font-medium text-ink-1">
                       Máximo {MAX_IMAGES} imagens.
                     </span>
                   </p>
 
                   {/* Drag & drop zone */}
                   <label
-                    className={`block border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
+                    className={`block border border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
                       isDragging
-                        ? "border-blue-900 bg-blue-50 scale-[1.01]"
-                        : "border-gray-200 hover:border-blue-300 hover:bg-gray-50/50"
+                        ? "border-gold/50 bg-gold/10 scale-[1.01]"
+                        : "border-white/10 bg-bg-2 hover:border-gold/30 hover:bg-bg-3"
                     }`}
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
@@ -2444,52 +2444,64 @@ export function ListingForm() {
                       className="sr-only"
                     />
                     <div
-                      className={`w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-3 transition-colors ${isDragging ? "bg-blue-100" : "bg-gray-100"}`}
+                      className={`w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-3 transition-colors ${
+                        isDragging
+                          ? "bg-gold/20 border border-gold/30"
+                          : "bg-bg-3 border border-white/10"
+                      }`}
                     >
                       <ImagePlus
                         size={22}
-                        className={
-                          isDragging ? "text-blue-900" : "text-gray-400"
-                        }
+                        className={isDragging ? "text-gold" : "text-ink-3"}
+                        aria-hidden="true"
                       />
                     </div>
-                    <p className="text-sm font-semibold text-gray-700">
+                    <p className="text-sm font-semibold text-ink-1">
                       {isDragging
                         ? "Solte as imagens aqui"
                         : "Clique para selecionar ou arraste"}
                     </p>
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className="text-xs text-ink-3 mt-1">
                       JPEG, PNG ou WebP · Máx{" "}
                       {IMAGE_UPLOAD_LIMITS.MAX_FILE_SIZE_MB}MB por imagem
                     </p>
                   </label>
 
                   {uploadError && (
-                    <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-start gap-2">
+                    <div
+                      role="alert"
+                      className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 flex items-start gap-2"
+                    >
                       <AlertCircle
                         size={16}
-                        className="text-red-500 shrink-0 mt-0.5"
+                        className="text-red-400 shrink-0 mt-0.5"
+                        aria-hidden="true"
                       />
-                      <p className="text-sm text-red-700">{uploadError}</p>
+                      <p className="text-sm text-red-400">{uploadError}</p>
                     </div>
                   )}
 
                   {/* Uploading progress */}
                   {uploading && (
-                    <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      className="bg-gold/10 border border-gold/30 rounded-xl px-4 py-3"
+                    >
                       <div className="flex items-center gap-2 mb-2">
                         <Loader2
                           size={16}
-                          className="animate-spin text-blue-900"
+                          className="animate-spin text-gold"
+                          aria-hidden="true"
                         />
-                        <p className="text-sm text-blue-900 font-medium">
+                        <p className="text-sm text-ink-1 font-medium">
                           Enviando imagem {uploadProgress.current} de{" "}
                           {uploadProgress.total}…
                         </p>
                       </div>
-                      <div className="w-full bg-blue-100 rounded-full h-1.5">
+                      <div className="w-full bg-bg-2 rounded-full h-1.5 overflow-hidden">
                         <div
-                          className="bg-blue-900 h-1.5 rounded-full transition-all duration-300"
+                          className="bg-gold h-1.5 rounded-full transition-all duration-300"
                           style={{
                             width: `${(uploadProgress.current / uploadProgress.total) * 100}%`,
                           }}
@@ -2501,17 +2513,15 @@ export function ListingForm() {
                   {/* Existing images (edit mode) */}
                   {existingImages.length > 0 && (
                     <div>
-                      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+                      <p className="text-xs font-medium text-ink-3 uppercase tracking-wide mb-2">
                         Imagens atuais
                       </p>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         {existingImages.map((img) => (
                           <div
                             key={img.id}
-                            className={`relative rounded-xl overflow-hidden aspect-square border-2 transition ${
-                              img.is_primary
-                                ? "border-blue-900"
-                                : "border-transparent"
+                            className={`relative rounded-xl overflow-hidden aspect-square border transition-colors ${
+                              img.is_primary ? "border-gold" : "border-white/10"
                             }`}
                           >
                             <img
@@ -2520,8 +2530,8 @@ export function ListingForm() {
                               className="w-full h-full object-cover"
                             />
                             {img.is_primary && (
-                              <div className="absolute top-1 left-1 bg-blue-900 text-white text-xs px-1.5 py-0.5 rounded-md flex items-center gap-1">
-                                <Star size={10} />
+                              <div className="absolute top-1 left-1 bg-gold text-gold-deep text-xs font-semibold px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                                <Star size={10} aria-hidden="true" />
                                 Capa
                               </div>
                             )}
@@ -2534,17 +2544,15 @@ export function ListingForm() {
                   {/* Pending images */}
                   {pendingImages.length > 0 && (
                     <div>
-                      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+                      <p className="text-xs font-medium text-ink-3 uppercase tracking-wide mb-2">
                         Novas imagens ({pendingImages.length})
                       </p>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         {pendingImages.map((img) => (
                           <div
                             key={img.id}
-                            className={`relative rounded-xl overflow-hidden aspect-square border-2 transition ${
-                              img.isPrimary
-                                ? "border-blue-900"
-                                : "border-transparent"
+                            className={`relative rounded-xl overflow-hidden aspect-square border transition-colors ${
+                              img.isPrimary ? "border-gold" : "border-white/10"
                             }`}
                           >
                             <img
@@ -2555,31 +2563,39 @@ export function ListingForm() {
 
                             {/* Primary badge */}
                             {img.isPrimary && (
-                              <div className="absolute top-1 left-1 bg-blue-900 text-white text-xs px-1.5 py-0.5 rounded-md flex items-center gap-1">
-                                <Star size={10} />
+                              <div className="absolute top-1 left-1 bg-gold text-gold-deep text-xs font-semibold px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                                <Star size={10} aria-hidden="true" />
                                 Capa
                               </div>
                             )}
 
                             {/* Actions overlay */}
-                            <div className="absolute inset-0 bg-black/0 hover:bg-black/30 transition flex items-center justify-center gap-2 opacity-0 hover:opacity-100">
+                            <div className="absolute inset-0 bg-black/0 hover:bg-black/50 transition flex items-center justify-center gap-2 opacity-0 hover:opacity-100">
                               {!img.isPrimary && (
                                 <button
                                   type="button"
                                   onClick={() => setPendingPrimary(img.id)}
-                                  title="Definir como capa"
-                                  className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow hover:bg-blue-50 transition cursor-pointer"
+                                  className="w-8 h-8 bg-bg-1 border border-white/10 rounded-lg flex items-center justify-center hover:border-gold/40 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40"
+                                  aria-label="Definir como capa"
                                 >
-                                  <Star size={14} className="text-blue-900" />
+                                  <Star
+                                    size={14}
+                                    className="text-gold"
+                                    aria-hidden="true"
+                                  />
                                 </button>
                               )}
                               <button
                                 type="button"
                                 onClick={() => removePendingImage(img.id)}
-                                title="Remover imagem"
-                                className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow hover:bg-red-50 transition cursor-pointer"
+                                className="w-8 h-8 bg-bg-1 border border-white/10 rounded-lg flex items-center justify-center hover:border-red-500/40 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40"
+                                aria-label="Remover imagem"
                               >
-                                <Trash2 size={14} className="text-red-500" />
+                                <Trash2
+                                  size={14}
+                                  className="text-red-400"
+                                  aria-hidden="true"
+                                />
                               </button>
                             </div>
                           </div>
@@ -2590,7 +2606,7 @@ export function ListingForm() {
 
                   {pendingImages.length === 0 &&
                     existingImages.length === 0 && (
-                      <p className="text-sm text-gray-400 text-center py-2">
+                      <p className="text-sm text-ink-3 text-center py-2">
                         Nenhuma imagem selecionada. As imagens são opcionais,
                         mas aumentam as chances de venda.
                       </p>
@@ -2600,15 +2616,15 @@ export function ListingForm() {
             </div>
 
             {/* Navigation buttons */}
-            <div className="px-6 pb-6 pt-2 flex items-center gap-3">
+            <div className="px-6 pb-6 pt-2 flex items-center gap-3 border-t border-white/10 mt-2">
               {currentStep > 1 ? (
                 <button
                   type="button"
                   onClick={handleBack}
                   disabled={submitting || uploading}
-                  className="flex items-center gap-2 px-5 py-2.5 border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 active:bg-gray-100 transition disabled:opacity-50 cursor-pointer"
+                  className="flex items-center gap-2 px-5 py-2.5 bg-bg-2 border border-white/10 text-ink-1 rounded-xl text-sm font-medium hover:bg-bg-3 hover:border-white/20 transition-colors disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1"
                 >
-                  <ArrowLeft size={16} />
+                  <ArrowLeft size={16} aria-hidden="true" />
                   Voltar
                 </button>
               ) : (
@@ -2618,16 +2634,20 @@ export function ListingForm() {
               <button
                 type="submit"
                 disabled={submitting || uploading}
-                className="flex items-center justify-center gap-2 px-6 py-2.5 bg-blue-900 text-white rounded-xl text-sm font-semibold hover:bg-blue-800 active:bg-blue-950 transition disabled:opacity-60 cursor-pointer ml-auto min-w-32.5"
+                className="flex items-center justify-center gap-2 px-6 py-2.5 bg-gold text-gold-deep rounded-xl text-sm font-semibold hover:bg-gold/90 active:bg-gold/80 transition-colors disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1 ml-auto min-w-32.5"
               >
                 {submitting || uploading ? (
                   <>
-                    <Loader2 size={16} className="animate-spin" />
+                    <Loader2
+                      size={16}
+                      className="animate-spin"
+                      aria-hidden="true"
+                    />
                     <span>{uploading ? "Enviando…" : "Aguarde…"}</span>
                   </>
                 ) : isLastStep ? (
                   <>
-                    <CheckCircle size={16} />
+                    <CheckCircle size={16} aria-hidden="true" />
                     <span>
                       {isEditMode ? "Salvar alterações" : "Publicar Anúncio"}
                     </span>
@@ -2635,7 +2655,7 @@ export function ListingForm() {
                 ) : (
                   <>
                     <span>Próximo</span>
-                    <ArrowRight size={16} />
+                    <ArrowRight size={16} aria-hidden="true" />
                   </>
                 )}
               </button>
