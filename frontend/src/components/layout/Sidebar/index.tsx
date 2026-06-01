@@ -54,7 +54,7 @@ export function Sidebar() {
         aria-label={isAuthenticated ? "Abrir menu da conta" : "Abrir menu"}
         aria-expanded={isOpen}
         aria-haspopup="dialog"
-        className="focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-1 focus:ring-offset-transparent rounded-lg"
+        className="focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 rounded-lg"
       >
         {isAuthenticated ? (
           user?.picture ? (
@@ -64,19 +64,19 @@ export function Sidebar() {
               className="w-8 h-8 md:w-10 md:h-10 rounded-full object-cover cursor-pointer"
             />
           ) : (
-            <FaUserCircle className="w-8 h-8 md:w-10 md:h-10 text-text-primary cursor-pointer" aria-hidden="true" />
+            <FaUserCircle className="w-8 h-8 md:w-10 md:h-10 text-ink-2 cursor-pointer" aria-hidden="true" />
           )
         ) : (
           // md:hidden because the desktop header renders its own login link;
           // the avatar button is only needed on mobile when unauthenticated.
-          <FaUserCircle className="w-8 h-8 md:w-10 md:h-10 md:hidden text-text-primary cursor-pointer" aria-hidden="true" />
+          <FaUserCircle className="w-8 h-8 md:w-10 md:h-10 md:hidden text-ink-2 cursor-pointer" aria-hidden="true" />
         )}
       </button>
 
       {/* Overlay */}
       <div
         className={`
-          fixed inset-0 z-40 bg-black/40 transition-opacity
+          fixed inset-0 z-40 bg-black/60 transition-opacity
           ${isOpen ? "opacity-100" : "opacity-0 pointer-events-none"}
         `}
         onClick={() => setIsOpen(false)}
@@ -93,23 +93,46 @@ export function Sidebar() {
         className={`
           fixed top-0 bottom-0 right-0 z-50
           w-1/2 md:w-1/4
-          bg-white shadow-xl
+          bg-bg-1 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)]
           transform transition-transform duration-300
           ${isOpen ? "translate-x-0" : "translate-x-full"}
           flex flex-col
         `}
       >
         {/* Header do drawer */}
-        <div className="flex items-center justify-end px-4 py-4 border-b">
+        <div className="flex items-center justify-end px-4 py-4 border-b border-white/10">
           <button
             ref={closeButtonRef}
             onClick={() => setIsOpen(false)}
             aria-label="Fechar menu"
-            className="w-9 h-9 flex items-center justify-center rounded-xl text-gray-500 hover:text-gray-900 hover:bg-gray-100 active:bg-gray-200 transition focus:outline-none focus:ring-2 focus:ring-blue-900/40"
+            className="w-9 h-9 flex items-center justify-center rounded-xl text-ink-3 hover:text-ink-1 hover:bg-bg-3 active:bg-bg-3 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40"
           >
             <CgClose className="w-5 h-5" aria-hidden="true" />
           </button>
         </div>
+
+        {/* Bloco de perfil do usuário autenticado */}
+        {isAuthenticated && (
+          <div className="px-4 py-4 border-b border-white/10 flex items-center gap-3">
+            {user?.picture ? (
+              <img
+                className="rounded-full w-10 h-10 object-cover flex-shrink-0"
+                src={toPublicUrl(user.picture)}
+                alt={user.full_name ?? "Avatar"}
+              />
+            ) : (
+              <FaUserCircle className="w-10 h-10 flex-shrink-0 text-ink-3" aria-hidden="true" />
+            )}
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-ink-1 truncate">
+                {user?.full_name ?? "Usuário"}
+              </p>
+              <p className="text-xs text-ink-3 truncate">
+                {user?.email ?? ""}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Conteúdo */}
         <nav className="flex-1 overflow-y-auto" aria-label="Navegação da conta">
@@ -120,18 +143,19 @@ export function Sidebar() {
                   key={item.label}
                   to={item.path}
                   onClick={() => setIsOpen(false)}
-                  className="block px-4 py-3 text-gray-800 hover:bg-secundary hover:text-text-primary transition cursor-pointer"
+                  className="block px-4 py-3 text-ink-2 hover:bg-bg-3 hover:text-ink-1 transition-colors border-b border-white/[0.06] cursor-pointer"
                 >
                   {item.label}
                 </Link>
               ))}
 
               <button
+                type="button"
                 onClick={() => {
                   logout();
                   setIsOpen(false);
                 }}
-                className="w-full text-left px-4 py-3 text-red-600 font-medium hover:bg-red-600 hover:text-white transition cursor-pointer"
+                className="w-full text-left px-4 py-3 text-red-400 font-medium hover:bg-red-500/10 hover:text-red-300 transition-colors cursor-pointer"
               >
                 Sair
               </button>
@@ -143,7 +167,7 @@ export function Sidebar() {
                   key={item.label}
                   to={item.path}
                   onClick={() => setIsOpen(false)}
-                  className="block px-4 py-3 text-gray-800 hover:bg-secundary hover:text-text-primary transition"
+                  className="block px-4 py-3 text-ink-2 hover:bg-bg-3 hover:text-ink-1 transition-colors border-b border-white/[0.06]"
                 >
                   {item.label}
                 </Link>
