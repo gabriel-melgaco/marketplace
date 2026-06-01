@@ -12,8 +12,8 @@ const GUEST_MENU = [
 ];
 
 const AUTH_MENU = [
-  { label: "Mensagens", path: "/conversations" },
   { label: "Minha Conta", path: "/account" },
+  { label: "Mensagens", path: "/conversations" },
 ];
 
 export function Sidebar() {
@@ -64,12 +64,18 @@ export function Sidebar() {
               className="w-8 h-8 md:w-10 md:h-10 rounded-full object-cover cursor-pointer"
             />
           ) : (
-            <FaUserCircle className="w-8 h-8 md:w-10 md:h-10 text-ink-2 cursor-pointer" aria-hidden="true" />
+            <FaUserCircle
+              className="w-8 h-8 md:w-10 md:h-10 text-ink-2 cursor-pointer"
+              aria-hidden="true"
+            />
           )
         ) : (
           // md:hidden because the desktop header renders its own login link;
           // the avatar button is only needed on mobile when unauthenticated.
-          <FaUserCircle className="w-8 h-8 md:w-10 md:h-10 md:hidden text-ink-2 cursor-pointer" aria-hidden="true" />
+          <FaUserCircle
+            className="w-8 h-8 md:w-10 md:h-10 md:hidden text-ink-2 cursor-pointer"
+            aria-hidden="true"
+          />
         )}
       </button>
 
@@ -116,20 +122,21 @@ export function Sidebar() {
           <div className="px-4 py-4 border-b border-white/10 flex items-center gap-3">
             {user?.picture ? (
               <img
-                className="rounded-full w-10 h-10 object-cover flex-shrink-0"
+                className="rounded-full w-10 h-10 object-cover shrink-0"
                 src={toPublicUrl(user.picture)}
                 alt={user.full_name ?? "Avatar"}
               />
             ) : (
-              <FaUserCircle className="w-10 h-10 flex-shrink-0 text-ink-3" aria-hidden="true" />
+              <FaUserCircle
+                className="w-10 h-10 shrink-0 text-ink-3"
+                aria-hidden="true"
+              />
             )}
             <div className="min-w-0">
               <p className="text-sm font-semibold text-ink-1 truncate">
                 {user?.full_name ?? "Usuário"}
               </p>
-              <p className="text-xs text-ink-3 truncate">
-                {user?.email ?? ""}
-              </p>
+              <p className="text-xs text-ink-3 truncate">{user?.email ?? ""}</p>
             </div>
           </div>
         )}
@@ -143,7 +150,7 @@ export function Sidebar() {
                   key={item.label}
                   to={item.path}
                   onClick={() => setIsOpen(false)}
-                  className="block px-4 py-3 text-ink-2 hover:bg-bg-3 hover:text-ink-1 transition-colors border-b border-white/[0.06] cursor-pointer"
+                  className="block px-4 py-3 text-ink-2 hover:bg-bg-3 hover:text-ink-1 transition-colors border-b border-white/6 cursor-pointer"
                 >
                   {item.label}
                 </Link>
@@ -167,7 +174,7 @@ export function Sidebar() {
                   key={item.label}
                   to={item.path}
                   onClick={() => setIsOpen(false)}
-                  className="block px-4 py-3 text-ink-2 hover:bg-bg-3 hover:text-ink-1 transition-colors border-b border-white/[0.06]"
+                  className="block px-4 py-3 text-ink-2 hover:bg-bg-3 hover:text-ink-1 transition-colors border-b border-white/6"
                 >
                   {item.label}
                 </Link>
