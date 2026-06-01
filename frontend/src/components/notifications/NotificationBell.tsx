@@ -55,7 +55,7 @@ export function NotificationBell({ className = "" }: NotificationBellProps) {
         aria-haspopup="true"
         aria-expanded={isOpen}
         onClick={() => setIsOpen((prev) => !prev)}
-        className="relative text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-transparent rounded-lg"
+        className="relative text-ink-2 p-2 rounded-xl border border-transparent hover:bg-bg-2 hover:border-white/[0.12] hover:text-ink-1 transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -76,7 +76,7 @@ export function NotificationBell({ className = "" }: NotificationBellProps) {
         {unreadCount > 0 && (
           <span
             aria-hidden="true"
-            className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold leading-none"
+            className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-gold text-gold-deep ring-2 ring-bg-0 text-[10px] font-bold leading-none"
           >
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
@@ -85,7 +85,7 @@ export function NotificationBell({ className = "" }: NotificationBellProps) {
         <span
           aria-hidden="true"
           title={isConnected ? "Conectado" : "Desconectado"}
-          className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-white ${
+          className={`absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border border-bg-1 ${
             isConnected ? "bg-green-400" : "bg-gray-400"
           }`}
         />
@@ -100,13 +100,13 @@ export function NotificationBell({ className = "" }: NotificationBellProps) {
           >
             <div
               aria-hidden="true"
-              className="absolute right-4 -top-2.25 w-4 h-4 bg-white border-l border-t border-gray-200 rotate-45 z-10"
+              className="absolute right-4 -top-2.25 w-4 h-4 bg-bg-1 border-l border-t border-white/10 rotate-45 z-10"
             />
             <div
               role="dialog"
               aria-modal="true"
               aria-label="Painel de notificações"
-              className="relative bg-white rounded-xl shadow-xl border border-gray-200 flex flex-col overflow-hidden max-h-[75vh]"
+              className="relative bg-bg-1 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] border border-white/10 flex flex-col overflow-hidden max-h-[75vh]"
             >
               <NotificationList onClose={() => setIsOpen(false)} />
             </div>
@@ -116,13 +116,13 @@ export function NotificationBell({ className = "" }: NotificationBellProps) {
           <div className="hidden sm:block absolute right-0 top-full mt-3 z-50 w-105">
             <div
               aria-hidden="true"
-              className="absolute right-3 -top-2.25 w-4 h-4 bg-white border-l border-t border-gray-200 rotate-45 z-10"
+              className="absolute right-3 -top-2.25 w-4 h-4 bg-bg-1 border-l border-t border-white/10 rotate-45 z-10"
             />
             <div
               role="dialog"
               aria-modal="true"
               aria-label="Painel de notificações"
-              className="relative bg-white rounded-xl shadow-xl border border-gray-200 flex flex-col overflow-hidden max-h-[70vh]"
+              className="relative bg-bg-1 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] border border-white/10 flex flex-col overflow-hidden max-h-[70vh]"
             >
               <NotificationList onClose={() => setIsOpen(false)} />
             </div>
