@@ -80,6 +80,7 @@ export interface SellerOrderDetail {
   items: SellerOrderItem[];
   total: string;
   status: OrderStatus;
+  status_display: string;
   payment_method: string;
   shipping_address: SellerOrderAddress | null;
   shipping_cost?: string;
@@ -93,6 +94,7 @@ export interface PaginatedSaleListItem {
   order_number: string;
   total: string;
   status: OrderStatus;
+  status_display: string;
   created_at: string;
   items?: SellerOrderItem[];
 }

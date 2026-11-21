@@ -1,9 +1,30 @@
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { AuthLogo } from "@/components/ui/AuthLogo";
-import { Eye, EyeOff, Mail, Lock, LogIn, AlertCircle } from "lucide-react";
+import {
+  Eye,
+  EyeOff,
+  Mail,
+  Lock,
+  LogIn,
+  AlertCircle,
+  CheckCircle2,
+  ShieldCheck,
+  Zap,
+} from "lucide-react";
 import { startGoogleOAuth } from "@/hooks/useGoogleAuth";
+
+function getAxiosErrorMessage(err: unknown, fallback: string): string {
+  const responseData = (err as { response?: { data?: unknown } })?.response
+    ?.data;
+  if (responseData && typeof responseData === "object") {
+    return (Object.values(responseData).flat() as string[]).join(" ") || fallback;
+  }
+  if (typeof responseData === "string" && responseData) return responseData;
+  if (err instanceof Error) return err.message;
+  return fallback;
+}
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -20,157 +41,222 @@ export default function LoginPage() {
     startGoogleOAuth("login");
   };
 
-  const handleLogin = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  const handleLogin = async () => {
     setIsLoading(true);
     setError("");
 
     try {
       await login({ email, password });
       navigate("/");
-    } catch (err: any) {
-      setError(err.message || "Erro ao efetuar login");
+    } catch (err: unknown) {
+      setError(getAxiosErrorMessage(err, "Erro ao efetuar login"));
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
-      <AuthLogo />
+    <div className="min-h-screen bg-bg-0 lg:grid lg:grid-cols-[2fr_3fr] relative">
 
-      {/* Card de Cadastro - MARGEM CORRIGIDA */}
-      <div className="w-full max-w-md lg:max-w-2xl mt-24 mb-8 md:my-8">
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
-          {/* Header do Card */}
-          <div className="bg-linear-to-r from-blue-900 to-gray-900 p-8 text-white text-center">
-            <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
-              <LogIn size={40} />
+      {/* ── Hero (apenas lg+) ─────────────────────────────────────────── */}
+      <aside className="hidden lg:flex flex-col items-center justify-between p-12 bg-bg-1 border-r border-white/10 relative overflow-hidden">
+        {/* Decorative glow */}
+        <div
+          aria-hidden="true"
+          className="absolute -top-32 -left-32 w-[500px] h-[500px] rounded-full pointer-events-none"
+          style={{
+            background:
+              "radial-gradient(circle, rgba(245,158,11,0.08) 0%, transparent 70%)",
+          }}
+        />
+
+        {/* Brand */}
+        <div className="relative z-10 w-full max-w-sm">
+          <div className="flex items-center gap-3 mb-12">
+            <div className="w-10 h-10 bg-gold rounded-full flex items-center justify-center shrink-0">
+              <span className="text-gold-deep text-sm font-bold">CS</span>
             </div>
-            <h1 className="text-3xl font-bold mb-2">Bem-vindo!</h1>
-            <p className="text-blue-100">Entre para acessar sua conta</p>
+            <span className="font-display font-bold text-xl text-ink-1 tracking-tight">
+              MARKETPLACE
+            </span>
           </div>
 
-          {/* Formulário */}
-          <form onSubmit={handleLogin} className="p-8">
-            {/* Mensagem de Erro */}
-            {error && (
-              <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
-                <AlertCircle
-                  className="text-red-600 shrink-0 mt-0.5"
-                  size={20}
-                />
-                <p className="text-sm text-red-800">{error}</p>
-              </div>
-            )}
+          <h2 className="font-display text-4xl font-extrabold text-ink-1 tracking-[-0.03em] leading-tight mb-4">
+            Equipamentos{" "}
+            <span className="text-gold">profissionais.</span>
+          </h2>
+          <p className="text-ink-2 text-base leading-relaxed max-w-xs">
+            A plataforma para comprar e vender equipamentos fitness com
+            segurança e agilidade.
+          </p>
 
-            {/* Campo de Email */}
-            <div className="mb-6">
-              <label className="block text-gray-700 font-semibold mb-2">
-                Email
-              </label>
-              <div className="relative">
-                <Mail
-                  className="absolute left-3 top-3.5 text-gray-400"
-                  size={20}
-                />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="seu@email.com"
-                  className="w-full pl-11 pr-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none transition"
-                  required
-                  disabled={isLoading}
-                />
+          <ul className="mt-10 space-y-4">
+            <li className="flex items-center gap-3 text-ink-2 text-sm">
+              <CheckCircle2 size={18} className="text-gold shrink-0" />
+              Pagamento seguro e protegido
+            </li>
+            <li className="flex items-center gap-3 text-ink-2 text-sm">
+              <ShieldCheck size={18} className="text-gold shrink-0" />
+              Vendedores verificados
+            </li>
+            <li className="flex items-center gap-3 text-ink-2 text-sm">
+              <Zap size={18} className="text-gold shrink-0" />
+              Entrega rápida para todo o Brasil
+            </li>
+          </ul>
+        </div>
+
+        {/* Footer hero */}
+        <p className="relative z-10 text-ink-3 text-xs">
+          © 2026 megdev. Todos os direitos reservados.
+        </p>
+      </aside>
+
+      {/* ── Formulário ───────────────────────────────────────────────── */}
+      <main className="flex items-center justify-center p-4 pt-24 lg:pt-4 min-h-screen lg:min-h-0">
+        {/* AuthLogo — visível apenas em mobile (lg:hidden não existe aqui pois
+            o hero já está hidden em mobile; o logo fixed cobre ambos) */}
+        <AuthLogo />
+
+        <div className="w-full max-w-md">
+          {/* Card */}
+          <div className="bg-bg-1 border border-white/10 rounded-2xl overflow-hidden">
+
+            {/* Header do card */}
+            <div className="bg-bg-2 p-8 border-b border-white/10 text-center">
+              <div className="w-16 h-16 bg-gold/10 border border-gold/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <LogIn size={32} className="text-gold" aria-hidden="true" />
               </div>
+              <h1 className="font-display text-2xl font-bold text-ink-1 tracking-[-0.02em] mb-1">
+                Bem-vindo!
+              </h1>
+              <p className="text-ink-2 text-sm">Entre para acessar sua conta</p>
             </div>
 
-            {/* Campo de Senha */}
-            <div className="mb-6">
-              <label className="block text-gray-700 font-semibold mb-2">
-                Senha
-              </label>
-              <div className="relative">
-                <Lock
-                  className="absolute left-3 top-3.5 text-gray-400"
-                  size={20}
-                />
-                <input
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full pl-11 pr-12 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none transition"
-                  required
-                  disabled={isLoading}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-3.5 text-gray-400 hover:text-gray-600 transition"
-                  disabled={isLoading}
-                >
-                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-                </button>
-              </div>
-            </div>
+            {/* Body */}
+            <div className="p-8 space-y-5">
 
-            {/* Lembrar-me e Esqueci a senha */}
-            <div className="flex items-center justify-between mb-6">
-              <label className="flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                  disabled={isLoading}
-                />
-                <span className="ml-2 text-sm text-gray-600">Lembrar-me</span>
-              </label>
-              <Link
-                to="/forgotpassword"
-                className="text-sm text-blue-900 hover:text-blue-600 underline font-semibold transition-transform duration-200 hover:scale-105"
-              >
-                Esqueci minha senha
-              </Link>
-            </div>
-
-            {/* Botão de Login */}
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full bg-linear-to-r from-gray-800 to-blue-900 text-white py-3 rounded-lg font-bold hover:from-blue-700 hover:to-blue-600 transition shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none cursor-pointer"
-            >
-              {isLoading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                  Entrando...
-                </span>
-              ) : (
-                "Entrar"
+              {/* Erro */}
+              {error && (
+                <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start gap-3">
+                  <AlertCircle
+                    className="text-red-400 shrink-0 mt-0.5"
+                    size={18}
+                  />
+                  <p className="text-sm text-red-400">{error}</p>
+                </div>
               )}
-            </button>
 
-            {/* Divider */}
-            <div className="relative my-6">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300"></div>
+              {/* Email */}
+              <div>
+                <label className="block text-sm font-semibold text-ink-1 mb-2">
+                  Email
+                </label>
+                <div className="relative">
+                  <Mail
+                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none"
+                    size={18}
+                    aria-hidden="true"
+                  />
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && void handleLogin()}
+                    placeholder="seu@email.com"
+                    className="w-full pl-10 pr-4 py-3 bg-bg-2 border border-white/10 rounded-xl text-ink-1 placeholder:text-ink-3 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors disabled:opacity-50"
+                    disabled={isLoading}
+                  />
+                </div>
               </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-4 bg-white text-gray-500">ou</span>
-              </div>
-            </div>
 
-            {/* Login Social */}
-            <div className="space-y-3">
+              {/* Senha */}
+              <div>
+                <label className="block text-sm font-semibold text-ink-1 mb-2">
+                  Senha
+                </label>
+                <div className="relative">
+                  <Lock
+                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none"
+                    size={18}
+                    aria-hidden="true"
+                  />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && void handleLogin()}
+                    placeholder="••••••••"
+                    className="w-full pl-10 pr-12 py-3 bg-bg-2 border border-white/10 rounded-xl text-ink-1 placeholder:text-ink-3 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors disabled:opacity-50"
+                    disabled={isLoading}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-ink-3 hover:text-ink-1 transition-colors"
+                    disabled={isLoading}
+                    aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Lembrar-me + Esqueci a senha */}
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                    className="w-4 h-4 rounded border-white/20 bg-bg-2 accent-gold"
+                    disabled={isLoading}
+                  />
+                  <span className="text-sm text-ink-2">Lembrar-me</span>
+                </label>
+                <Link
+                  to="/forgotpassword"
+                  className="text-sm text-gold hover:text-gold/80 font-medium transition-colors"
+                >
+                  Esqueci minha senha
+                </Link>
+              </div>
+
+              {/* Botão principal */}
+              <button
+                type="button"
+                onClick={() => void handleLogin()}
+                disabled={isLoading}
+                className="w-full bg-gold text-gold-deep py-3 rounded-xl font-semibold text-sm hover:bg-gold/90 active:bg-gold/80 transition-colors focus:outline-none focus:ring-2 focus:ring-gold/40 focus:ring-offset-2 focus:ring-offset-bg-1 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isLoading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-4 h-4 rounded-full border-2 border-gold-deep/30 border-t-gold-deep animate-spin" />
+                    Entrando...
+                  </span>
+                ) : (
+                  "Entrar"
+                )}
+              </button>
+
+              {/* Divider */}
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-white/10" />
+                </div>
+                <div className="relative flex justify-center text-xs">
+                  <span className="px-3 bg-bg-1 text-ink-3">ou</span>
+                </div>
+              </div>
+
+              {/* Google */}
               <button
                 type="button"
                 onClick={handleGoogleLogin}
-                className="w-full flex items-center justify-center gap-3 bg-white border-2 border-gray-300 text-gray-700 py-3 rounded-lg font-semibold hover:bg-gray-50 transition cursor-pointer"
                 disabled={isLoading}
+                className="w-full flex items-center justify-center gap-3 bg-bg-2 border border-white/10 text-ink-1 py-3 rounded-xl text-sm font-medium hover:bg-bg-3 hover:border-white/15 transition-colors focus:outline-none focus:ring-2 focus:ring-gold/40 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <svg className="w-5 h-5" viewBox="0 0 24 24">
+                <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
                   <path
                     fill="#4285F4"
                     d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -190,39 +276,35 @@ export default function LoginPage() {
                 </svg>
                 Continuar com Google
               </button>
-            </div>
 
-            {/* Link para Cadastro */}
-            <div className="mt-8 text-center">
-              <p className="text-gray-600">
+              {/* Cadastro */}
+              <p className="text-center text-sm text-ink-2 pt-1">
                 Não tem uma conta?{" "}
                 <Link
                   to="/register"
-                  className="text-blue-800 hover:text-blue-700 font-bold"
+                  className="text-gold hover:text-gold/80 font-semibold transition-colors"
                 >
                   Cadastre-se agora
                 </Link>
               </p>
             </div>
-          </form>
-        </div>
+          </div>
 
-        {/* Footer */}
-        <div className="mt-8 text-center text-white text-sm">
-          <p className="mb-2">
-            © 2025 Marketplace. Todos os direitos reservados.
-          </p>
-          <div className="flex justify-center gap-4">
-            <a href="#" className="hover:underline">
-              Termos de Uso
-            </a>
-            <span>•</span>
-            <a href="#" className="hover:underline">
-              Política de Privacidade
-            </a>
+          {/* Footer (mobile) */}
+          <div className="mt-6 text-center text-ink-3 text-xs space-y-1 lg:hidden">
+            <p>© 2026 megdev. Todos os direitos reservados.</p>
+            <div className="flex justify-center gap-4">
+              <Link to="/politica-de-cookies" className="hover:text-ink-2 transition-colors">
+                Termos de Uso
+              </Link>
+              <span>•</span>
+              <Link to="/politica-de-cookies" className="hover:text-ink-2 transition-colors">
+                Política de Privacidade
+              </Link>
+            </div>
           </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

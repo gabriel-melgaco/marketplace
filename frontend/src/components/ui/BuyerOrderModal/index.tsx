@@ -22,7 +22,8 @@ import type { SellerShipment } from "@/types/orders";
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function getAxiosErrorMessage(err: unknown, fallback: string): string {
-  const responseData = (err as { response?: { data?: unknown } })?.response?.data;
+  const responseData = (err as { response?: { data?: unknown } })?.response
+    ?.data;
   if (responseData && typeof responseData === "object") {
     const messages = (
       Object.values(responseData as Record<string, unknown>).flat() as unknown[]
@@ -35,17 +36,6 @@ function getAxiosErrorMessage(err: unknown, fallback: string): string {
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-
-const ORDER_STATUS_LABELS: Record<string, string> = {
-  pending_payment: "Aguardando Pagamento",
-  paid: "Pago",
-  processing: "Em Processamento",
-  shipped: "Enviado",
-  delivered: "Entregue",
-  completed: "Concluído",
-  cancelled: "Cancelado",
-  failed: "Falhou",
-};
 
 const ORDER_STATUS_COLORS: Record<string, string> = {
   pending_payment: "bg-yellow-100 text-yellow-800",
@@ -136,7 +126,9 @@ export function BuyerOrderModal({
 }: BuyerOrderModalProps) {
   const [order, setOrder] = useState<Order | null>(null);
   const [shipments, setShipments] = useState<SellerShipment[]>([]);
-  const [inPersonDeliveries, setInPersonDeliveries] = useState<InPersonDelivery[]>([]);
+  const [inPersonDeliveries, setInPersonDeliveries] = useState<
+    InPersonDelivery[]
+  >([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [cancelling, setCancelling] = useState(false);
@@ -232,13 +224,13 @@ export function BuyerOrderModal({
     if (isConfirmingDeliveryRef.current) return;
 
     const result = await Swal.fire({
-      title: 'Confirmar recebimento?',
-      text: 'Ao confirmar, o vendedor receberá o pagamento pelo produto.',
-      icon: 'question',
+      title: "Confirmar recebimento?",
+      text: "Ao confirmar, o vendedor receberá o pagamento pelo produto.",
+      icon: "question",
       showCancelButton: true,
-      confirmButtonText: 'Sim, recebi o produto',
-      cancelButtonText: 'Cancelar',
-      confirmButtonColor: '#15803d',
+      confirmButtonText: "Sim, recebi o produto",
+      cancelButtonText: "Cancelar",
+      confirmButtonColor: "#15803d",
     });
 
     if (!result.isConfirmed) return;
@@ -249,9 +241,9 @@ export function BuyerOrderModal({
     try {
       await shippingService.confirmDelivery(shipmentId);
       await Swal.fire({
-        icon: 'success',
-        title: 'Recebimento confirmado!',
-        text: 'Obrigado por confirmar. O vendedor será notificado.',
+        icon: "success",
+        title: "Recebimento confirmado!",
+        text: "Obrigado por confirmar. O vendedor será notificado.",
         timer: 3000,
         showConfirmButton: false,
       });
@@ -259,9 +251,9 @@ export function BuyerOrderModal({
       onClose();
     } catch (err: unknown) {
       Swal.fire({
-        icon: 'error',
-        title: 'Erro',
-        text: getAxiosErrorMessage(err, 'Erro ao confirmar recebimento.'),
+        icon: "error",
+        title: "Erro",
+        text: getAxiosErrorMessage(err, "Erro ao confirmar recebimento."),
       });
     } finally {
       isConfirmingDeliveryRef.current = false;
@@ -393,11 +385,13 @@ export function BuyerOrderModal({
                         "bg-gray-100 text-gray-700"
                       }`}
                     >
-                      {ORDER_STATUS_LABELS[order.status] ?? order.status}
+                      {order.status_display}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500">Data do pedido</span>
+                    <span className="text-sm text-gray-500">
+                      Data do pedido
+                    </span>
                     <span className="text-sm font-medium text-gray-800">
                       {new Date(order.created_at).toLocaleDateString("pt-BR", {
                         day: "2-digit",
@@ -530,8 +524,8 @@ export function BuyerOrderModal({
                           : ""}
                       </p>
                       <p>
-                        {shippingAddress.neighborhood} —{" "}
-                        {shippingAddress.city}/{shippingAddress.state}
+                        {shippingAddress.neighborhood} — {shippingAddress.city}/
+                        {shippingAddress.state}
                       </p>
                       <p>CEP: {shippingAddress.zipcode}</p>
                       {shippingAddress.recipient_phone && (
@@ -615,7 +609,11 @@ export function BuyerOrderModal({
                               Rastrear envio
                             </button>
                           )}
-                          {['posted', 'in_transit', 'out_for_delivery'].includes(shipment.status) && (
+                          {[
+                            "posted",
+                            "in_transit",
+                            "out_for_delivery",
+                          ].includes(shipment.status) && (
                             <button
                               onClick={() => handleConfirmDelivery(shipment.id)}
                               disabled={isConfirmingDelivery}

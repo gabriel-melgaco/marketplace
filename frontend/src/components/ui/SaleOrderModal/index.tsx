@@ -17,19 +17,17 @@ import { inPersonService } from "@/services/inPersonService";
 import type { InPersonDelivery } from "@/services/inPersonService";
 import { InPersonDeliveryPanel } from "@/components/ui/InPersonDeliveryPanel";
 import { toPublicUrl } from "@/services/storageService";
-import type {
-  SellerOrderDetail,
-  SellerShipment,
-} from "@/types/orders";
+import type { SellerOrderDetail, SellerShipment } from "@/types/orders";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function getAxiosErrorMessage(err: unknown, fallback: string): string {
-  const responseData = (err as { response?: { data?: unknown } })?.response?.data;
+  const responseData = (err as { response?: { data?: unknown } })?.response
+    ?.data;
   if (responseData && typeof responseData === "object") {
-    const messages = (Object.values(responseData as Record<string, unknown>).flat() as unknown[]).filter(
-      (v): v is string => typeof v === "string",
-    );
+    const messages = (
+      Object.values(responseData as Record<string, unknown>).flat() as unknown[]
+    ).filter((v): v is string => typeof v === "string");
     return messages.join(" ") || fallback;
   }
   if (typeof responseData === "string" && responseData) return responseData;
@@ -38,17 +36,6 @@ function getAxiosErrorMessage(err: unknown, fallback: string): string {
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-
-const ORDER_STATUS_LABELS: Record<string, string> = {
-  pending_payment: "Aguardando Pagamento",
-  paid: "Pago",
-  processing: "Em Processamento",
-  shipped: "Enviado",
-  delivered: "Entregue",
-  completed: "Concluído",
-  cancelled: "Cancelado",
-  failed: "Falhou",
-};
 
 const ORDER_STATUS_COLORS: Record<string, string> = {
   pending_payment: "bg-yellow-100 text-yellow-800",
@@ -107,7 +94,9 @@ const SWAL_TOAST_CONFIG = {
 type ShipmentPhase = "needs_label" | "needs_post" | "in_transit";
 
 function getShipmentPhase(s: SellerShipment): ShipmentPhase {
-  if (["posted", "in_transit", "out_for_delivery", "delivered"].includes(s.status)) {
+  if (
+    ["posted", "in_transit", "out_for_delivery", "delivered"].includes(s.status)
+  ) {
     return "in_transit";
   }
   if (s.status === "generated" || s.label_url) {
@@ -152,17 +141,29 @@ function ModalSkeleton() {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderModalProps) {
+export function SaleOrderModal({
+  orderId,
+  onClose,
+  onOrderUpdated,
+}: SaleOrderModalProps) {
   const [order, setOrder] = useState<SellerOrderDetail | null>(null);
   const [shipments, setShipments] = useState<SellerShipment[]>([]);
-  const [inPersonDeliveries, setInPersonDeliveries] = useState<InPersonDelivery[]>([]);
+  const [inPersonDeliveries, setInPersonDeliveries] = useState<
+    InPersonDelivery[]
+  >([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [generatingTickets, setGeneratingTickets] = useState(false);
   const [labelLoading, setLabelLoading] = useState<Record<number, boolean>>({});
-  const [markingShipped, setMarkingShipped] = useState<Record<number, boolean>>({});
-  const [trackingInputs, setTrackingInputs] = useState<Record<number, string>>({});
-  const [showTrackingInput, setShowTrackingInput] = useState<Record<number, boolean>>({});
+  const [markingShipped, setMarkingShipped] = useState<Record<number, boolean>>(
+    {},
+  );
+  const [trackingInputs, setTrackingInputs] = useState<Record<number, string>>(
+    {},
+  );
+  const [showTrackingInput, setShowTrackingInput] = useState<
+    Record<number, boolean>
+  >({});
   const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   // Move focus into modal on open
@@ -249,7 +250,9 @@ export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderMo
   async function handleGenerateTickets() {
     setGeneratingTickets(true);
     try {
-      const result = await shippingService.createShipments({ order_id: orderId });
+      const result = await shippingService.createShipments({
+        order_id: orderId,
+      });
       await fetchShipments();
       if (result.created_count > 0) {
         Swal.fire({
@@ -349,7 +352,10 @@ export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderMo
       <div className="relative ml-auto flex flex-col bg-white w-full lg:max-w-xl h-full shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
-          <h2 id="sale-order-modal-title" className="text-base font-bold text-gray-900">
+          <h2
+            id="sale-order-modal-title"
+            className="text-base font-bold text-gray-900"
+          >
             {order ? `Pedido #${order.order_number}` : "Carregando pedido…"}
           </h2>
           <button
@@ -397,11 +403,13 @@ export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderMo
                     <span
                       className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${ORDER_STATUS_COLORS[order.status] ?? "bg-gray-100 text-gray-700"}`}
                     >
-                      {ORDER_STATUS_LABELS[order.status] ?? order.status}
+                      {order.status_display}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500">Data do pedido</span>
+                    <span className="text-sm text-gray-500">
+                      Data do pedido
+                    </span>
                     <span className="text-sm font-medium text-gray-800">
                       {new Date(order.created_at).toLocaleDateString("pt-BR", {
                         day: "2-digit",
@@ -413,14 +421,19 @@ export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderMo
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500">Método de pagamento</span>
+                    <span className="text-sm text-gray-500">
+                      Método de pagamento
+                    </span>
                     <span className="text-sm font-medium text-gray-800">
-                      {PAYMENT_METHOD_LABELS[order.payment_method] ?? order.payment_method}
+                      {PAYMENT_METHOD_LABELS[order.payment_method] ??
+                        order.payment_method}
                     </span>
                   </div>
                   {order.buyer_notes && (
                     <div className="pt-2 border-t border-gray-200">
-                      <p className="text-xs text-gray-500 mb-1">Notas do comprador</p>
+                      <p className="text-xs text-gray-500 mb-1">
+                        Notas do comprador
+                      </p>
                       <p className="text-sm text-gray-700 bg-white rounded-lg px-3 py-2 border border-gray-100">
                         {order.buyer_notes}
                       </p>
@@ -436,12 +449,11 @@ export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderMo
                 </h3>
                 <div className="space-y-3">
                   {order.items.map((item) => {
-                    const imgSrc =
-                      item.listing.primary_image
-                        ? toPublicUrl(item.listing.primary_image)
-                        : item.listing.images?.[0]?.image_url
-                          ? toPublicUrl(item.listing.images[0].image_url)
-                          : null;
+                    const imgSrc = item.listing.primary_image
+                      ? toPublicUrl(item.listing.primary_image)
+                      : item.listing.images?.[0]?.image_url
+                        ? toPublicUrl(item.listing.images[0].image_url)
+                        : null;
 
                     return (
                       <div
@@ -483,7 +495,9 @@ export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderMo
 
                   {/* Total row */}
                   <div className="flex items-center justify-between px-3 py-2 border-t border-gray-100 mt-1">
-                    <span className="text-sm font-semibold text-gray-600">Total</span>
+                    <span className="text-sm font-semibold text-gray-600">
+                      Total
+                    </span>
                     <span className="text-base font-extrabold text-blue-800">
                       R${" "}
                       {Number(order.total).toLocaleString("pt-BR", {
@@ -501,7 +515,10 @@ export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderMo
                     Endereço de Entrega
                   </h3>
                   <div className="bg-gray-50 rounded-xl p-4 flex gap-3">
-                    <MapPin size={16} className="text-gray-400 shrink-0 mt-0.5" />
+                    <MapPin
+                      size={16}
+                      className="text-gray-400 shrink-0 mt-0.5"
+                    />
                     <div className="text-sm text-gray-700 space-y-0.5">
                       {order.shipping_address.recipient_name && (
                         <p className="font-semibold text-gray-800">
@@ -509,13 +526,15 @@ export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderMo
                         </p>
                       )}
                       <p>
-                        {order.shipping_address.street}, {order.shipping_address.number}
+                        {order.shipping_address.street},{" "}
+                        {order.shipping_address.number}
                         {order.shipping_address.complement
                           ? ` — ${order.shipping_address.complement}`
                           : ""}
                       </p>
                       <p>
-                        {order.shipping_address.neighborhood} — {order.shipping_address.city}/
+                        {order.shipping_address.neighborhood} —{" "}
+                        {order.shipping_address.city}/
                         {order.shipping_address.state}
                       </p>
                       <p>CEP: {order.shipping_address.zipcode}</p>
@@ -548,10 +567,13 @@ export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderMo
                       ) : (
                         <Truck size={16} />
                       )}
-                      {generatingTickets ? "Gerando tickets…" : "Gerar Tickets de Envio"}
+                      {generatingTickets
+                        ? "Gerando tickets…"
+                        : "Gerar Tickets de Envio"}
                     </button>
                     <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
-                      Itens com entrega presencial serão exibidos após a geração.
+                      Itens com entrega presencial serão exibidos após a
+                      geração.
                     </div>
                   </div>
                 )}
@@ -562,7 +584,8 @@ export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderMo
                     {shipments.map((shipment) => {
                       const phase = getShipmentPhase(shipment);
                       const isLabelLoading = labelLoading[shipment.id] ?? false;
-                      const isMarkingShipped = markingShipped[shipment.id] ?? false;
+                      const isMarkingShipped =
+                        markingShipped[shipment.id] ?? false;
                       const showInput = showTrackingInput[shipment.id] ?? false;
                       const trackingValue = trackingInputs[shipment.id] ?? "";
 
@@ -575,19 +598,24 @@ export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderMo
                           <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-100">
                             <div>
                               <p className="text-sm font-semibold text-gray-800">
-                                {shipment.carrier_name} — {shipment.service_name}
+                                {shipment.carrier_name} —{" "}
+                                {shipment.service_name}
                               </p>
                               <p className="text-xs text-gray-500 mt-0.5">
                                 Frete: R${" "}
-                                {Number(shipment.shipping_cost).toLocaleString("pt-BR", {
-                                  minimumFractionDigits: 2,
-                                })}
+                                {Number(shipment.shipping_cost).toLocaleString(
+                                  "pt-BR",
+                                  {
+                                    minimumFractionDigits: 2,
+                                  },
+                                )}
                               </p>
                             </div>
                             <span
                               className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${SHIPMENT_STATUS_COLORS[shipment.status] ?? "bg-gray-100 text-gray-700"}`}
                             >
-                              {SHIPMENT_STATUS_LABELS[shipment.status] ?? shipment.status}
+                              {SHIPMENT_STATUS_LABELS[shipment.status] ??
+                                shipment.status}
                             </span>
                           </div>
 
@@ -605,7 +633,9 @@ export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderMo
                                 ) : (
                                   <ExternalLink size={15} />
                                 )}
-                                {isLabelLoading ? "Gerando etiqueta…" : "Gerar Etiqueta"}
+                                {isLabelLoading
+                                  ? "Gerando etiqueta…"
+                                  : "Gerar Etiqueta"}
                               </button>
                             )}
 
@@ -640,14 +670,21 @@ export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderMo
                                     />
                                     <div className="flex gap-2">
                                       <button
-                                        onClick={() => handleMarkAsShipped(shipment.id)}
+                                        onClick={() =>
+                                          handleMarkAsShipped(shipment.id)
+                                        }
                                         disabled={isMarkingShipped}
                                         className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-900 text-white rounded-xl text-sm font-semibold hover:bg-blue-800 transition-colors disabled:opacity-60"
                                       >
                                         {isMarkingShipped ? (
-                                          <Loader2 size={15} className="animate-spin" />
+                                          <Loader2
+                                            size={15}
+                                            className="animate-spin"
+                                          />
                                         ) : null}
-                                        {isMarkingShipped ? "Confirmando…" : "Confirmar Envio"}
+                                        {isMarkingShipped
+                                          ? "Confirmando…"
+                                          : "Confirmar Envio"}
                                       </button>
                                       <button
                                         onClick={() =>
@@ -684,7 +721,9 @@ export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderMo
                               <div className="space-y-2">
                                 {shipment.tracking_code && (
                                   <div className="flex items-center justify-between text-sm">
-                                    <span className="text-gray-500">Rastreamento</span>
+                                    <span className="text-gray-500">
+                                      Rastreamento
+                                    </span>
                                     <span className="font-mono font-semibold text-gray-800">
                                       {shipment.tracking_code}
                                     </span>
@@ -692,18 +731,24 @@ export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderMo
                                 )}
                                 {shipment.estimated_delivery_date && (
                                   <div className="flex items-center justify-between text-sm">
-                                    <span className="text-gray-500">Previsão de entrega</span>
+                                    <span className="text-gray-500">
+                                      Previsão de entrega
+                                    </span>
                                     <span className="font-medium text-gray-800">
-                                      {new Date(shipment.estimated_delivery_date).toLocaleDateString(
-                                        "pt-BR",
-                                      )}
+                                      {new Date(
+                                        shipment.estimated_delivery_date,
+                                      ).toLocaleDateString("pt-BR")}
                                     </span>
                                   </div>
                                 )}
                                 {shipment.tracking_url && (
                                   <button
                                     onClick={() =>
-                                      window.open(shipment.tracking_url, "_blank", "noopener,noreferrer")
+                                      window.open(
+                                        shipment.tracking_url,
+                                        "_blank",
+                                        "noopener,noreferrer",
+                                      )
                                     }
                                     className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-blue-900 text-blue-900 rounded-xl text-sm font-semibold hover:bg-blue-50 transition-colors mt-2"
                                   >
@@ -730,25 +775,24 @@ export function SaleOrderModal({ orderId, onClose, onOrderUpdated }: SaleOrderMo
                 )}
               </section>
 
-            {/* Section: In-Person Deliveries */}
-            {inPersonDeliveries.length > 0 && (
-              <section>
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">
-                  Entrega Presencial
-                </h3>
-                <div className="space-y-4">
-                  {inPersonDeliveries.map((d) => (
-                    <InPersonDeliveryPanel
-                      key={d.id}
-                      deliveryId={d.id}
-                      role="seller"
-                      onUpdated={onOrderUpdated}
-                    />
-                  ))}
-                </div>
-              </section>
-            )}
-
+              {/* Section: In-Person Deliveries */}
+              {inPersonDeliveries.length > 0 && (
+                <section>
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-widest mb-3">
+                    Entrega Presencial
+                  </h3>
+                  <div className="space-y-4">
+                    {inPersonDeliveries.map((d) => (
+                      <InPersonDeliveryPanel
+                        key={d.id}
+                        deliveryId={d.id}
+                        role="seller"
+                        onUpdated={onOrderUpdated}
+                      />
+                    ))}
+                  </div>
+                </section>
+              )}
             </div>
           )}
         </div>

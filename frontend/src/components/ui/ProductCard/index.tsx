@@ -4,6 +4,25 @@ import { Package, ChevronLeft, ChevronRight } from "lucide-react";
 import { toPublicUrl } from "@/services/storageService";
 import type { MarketplaceListing } from "@/types/product";
 
+function formatRelativeTime(dateStr: string): string {
+  const published = new Date(dateStr).getTime();
+  if (Number.isNaN(published)) return "";
+  const diffDays = Math.floor((Date.now() - published) / (1000 * 60 * 60 * 24));
+  if (diffDays < 1) return "Hoje";
+  if (diffDays === 1) return "Ontem";
+  if (diffDays < 7) return `Há ${diffDays} dias`;
+  if (diffDays < 30) {
+    const weeks = Math.floor(diffDays / 7);
+    return weeks === 1 ? "Há 1 semana" : `Há ${weeks} semanas`;
+  }
+  if (diffDays < 365) {
+    const months = Math.floor(diffDays / 30);
+    return months === 1 ? "Há 1 mês" : `Há ${months} meses`;
+  }
+  const years = Math.floor(diffDays / 365);
+  return years === 1 ? "Há 1 ano" : `Há ${years} anos`;
+}
+
 function formatPrice(price: string): string {
   const num = Number(price);
   if (isNaN(num)) return price;
@@ -62,7 +81,6 @@ export function ProductCard({ listing }: { listing: MarketplaceListing }) {
     : getImageSrc(listing);
 
   const location = getListingLocation(listing);
-  const dateStr = formatListingDate(listing.created_at);
 
   const handlePrev = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -95,10 +113,11 @@ export function ProductCard({ listing }: { listing: MarketplaceListing }) {
   return (
     <Link
       to={`/productdetail/${listing.id}`}
-      className="block bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-shadow"
+      className="block bg-bg-1 border border-white/[0.06] rounded-[18px] overflow-hidden active:scale-[0.98] active:border-white/[0.12] transition-all duration-200"
     >
       <div
-        className="aspect-4/3 bg-gray-200 flex items-center justify-center relative overflow-hidden"
+        className="aspect-square flex items-center justify-center relative overflow-hidden"
+        style={{ background: 'radial-gradient(circle at 50% 40%, #25252d 0%, #141418 100%)' }}
         role={hasMultipleImages ? "region" : undefined}
         aria-label={hasMultipleImages ? `Galeria de imagens: ${listing.title || listing.product.name}` : undefined}
         onKeyDown={hasMultipleImages ? handleCarouselKeyDown : undefined}
@@ -107,24 +126,30 @@ export function ProductCard({ listing }: { listing: MarketplaceListing }) {
           <img
             src={imageSrc}
             alt={`${listing.title || listing.product.name}${hasMultipleImages ? ` — imagem ${currentIndex + 1} de ${allImages.length}` : ""}`}
-            className="w-full h-full object-cover transition-opacity duration-200"
+            className="w-full h-full object-contain p-3.5 drop-shadow-[0_8px_20px_rgba(0,0,0,0.4)] transition-opacity duration-200"
             loading="lazy"
             decoding="async"
             sizes="(min-width: 768px) 25vw, 50vw"
           />
         ) : (
-          <div className="text-gray-400 text-center p-4">
+          <div className="text-ink-3 text-center p-4">
             <Package size={40} className="mx-auto mb-2" aria-hidden="true" />
             <p className="text-sm">Sem imagem</p>
           </div>
         )}
+
+        <div
+          aria-hidden
+          className="absolute inset-0 z-[2] pointer-events-none"
+          style={{ background: 'linear-gradient(180deg, transparent 60%, rgba(0,0,0,0.35) 100%)' }}
+        />
 
         {hasMultipleImages && (
           <>
             <button
               type="button"
               onClick={handlePrev}
-              className="absolute left-1 top-1/2 -translate-y-1/2 bg-black/40 hover:bg-black/60 active:bg-black/70 text-white rounded-full p-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-white"
+              className="absolute left-1 top-1/2 -translate-y-1/2 z-[3] bg-black/50 hover:bg-black/70 border border-white/[0.12] text-white rounded-full p-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-white"
               aria-label="Imagem anterior"
             >
               <ChevronLeft size={14} aria-hidden="true" />
@@ -132,7 +157,7 @@ export function ProductCard({ listing }: { listing: MarketplaceListing }) {
             <button
               type="button"
               onClick={handleNext}
-              className="absolute right-1 top-1/2 -translate-y-1/2 bg-black/40 hover:bg-black/60 active:bg-black/70 text-white rounded-full p-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-white"
+              className="absolute right-1 top-1/2 -translate-y-1/2 z-[3] bg-black/50 hover:bg-black/70 border border-white/[0.12] text-white rounded-full p-1.5 transition-colors focus:outline-none focus:ring-2 focus:ring-white"
               aria-label="Próxima imagem"
             >
               <ChevronRight size={14} aria-hidden="true" />
@@ -141,7 +166,7 @@ export function ProductCard({ listing }: { listing: MarketplaceListing }) {
             <div
               role="tablist"
               aria-label="Selecionar imagem"
-              className="absolute bottom-2 left-0 right-0 flex justify-center gap-1.5"
+              className="absolute bottom-2 left-0 right-0 z-[3] flex justify-center gap-1.5"
             >
               {allImages.map((_, idx) => (
                 <button
@@ -152,7 +177,7 @@ export function ProductCard({ listing }: { listing: MarketplaceListing }) {
                   aria-label={`Imagem ${idx + 1} de ${allImages.length}`}
                   onClick={(e) => handleDotClick(e, idx)}
                   className={`h-1.5 rounded-full transition-all duration-200 focus:outline-none focus:ring-1 focus:ring-white ${
-                    idx === currentIndex ? "w-4 bg-white" : "w-1.5 bg-white/50 hover:bg-white/75"
+                    idx === currentIndex ? "w-4 bg-gold" : "w-1.5 bg-white/30 hover:bg-white/50"
                   }`}
                 />
               ))}
@@ -160,16 +185,26 @@ export function ProductCard({ listing }: { listing: MarketplaceListing }) {
           </>
         )}
       </div>
-      <div className="p-3">
-        <h3 className="font-semibold text-gray-800 text-sm truncate">
+
+      <div className="px-3.5 pt-3 pb-3.5">
+        <h3 className="text-sm font-medium text-ink-1 leading-[1.35] tracking-[-0.005em] mb-2.5 overflow-hidden [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical]">
           {listing.title || listing.product.name}
         </h3>
-        <p className="text-lg font-bold text-blue-800 mt-1">
-          R$ {formatPrice(listing.price)}
+        <p className="font-display font-bold text-[17px] tracking-[-0.02em] text-ink-1 tabular-nums">
+          <span className="text-[11px] text-ink-3 font-medium mr-0.5">R$</span>
+          {formatPrice(listing.price)}
         </p>
-        <p className="text-xs text-gray-400 mt-1.5">
-          Publicado em {dateStr}{location ? ` - ${location}` : ""}
-        </p>
+        <div className="mt-2 pt-2 border-t border-white/[0.06] flex items-center text-[10.5px] text-ink-3">
+          <div className="flex items-center gap-1.5">
+            <span>{formatRelativeTime(listing.created_at)}</span>
+            {location && (
+              <>
+                <span aria-hidden className="w-[3px] h-[3px] rounded-full bg-ink-3" />
+                <span>{location}</span>
+              </>
+            )}
+          </div>
+        </div>
       </div>
     </Link>
   );

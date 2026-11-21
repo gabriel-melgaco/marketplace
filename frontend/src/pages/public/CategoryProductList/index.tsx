@@ -67,7 +67,7 @@ export function CategoryProductList() {
       : "Todos os Produtos";
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900">
+    <div className="min-h-screen bg-bg-0">
       {/* Filtro */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-6">
         <FilterButton selectedCategory={categorySlug ?? undefined} />
@@ -75,9 +75,9 @@ export function CategoryProductList() {
 
       {/* Titulo */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-4">
-        <h1 className="text-white text-xl font-bold">{title}</h1>
+        <h1 className="font-display text-ink-1 text-xl md:text-2xl font-bold tracking-[-0.02em]">{title}</h1>
         {!loading && !error && (
-          <p className="text-white/60 text-sm mt-1">
+          <p className="text-ink-3 text-sm mt-1">
             {listings.length}{" "}
             {listings.length === 1 ? "resultado" : "resultados"}
           </p>
@@ -90,10 +90,10 @@ export function CategoryProductList() {
 
         {error && (
           <div className="text-center py-20">
-            <p className="text-white text-lg mb-4">{error}</p>
+            <p className="text-ink-1 text-lg mb-4">{error}</p>
             <button
               onClick={() => setRetryCount((c) => c + 1)}
-              className="px-4 py-2 bg-white text-blue-900 rounded-lg font-medium hover:bg-gray-100 transition"
+              className="px-4 py-2 bg-gold text-gold-deep rounded-lg font-semibold hover:bg-gold/90 transition focus:outline-none focus:ring-2 focus:ring-gold/40 focus:ring-offset-2 focus:ring-offset-bg-0"
             >
               Tentar novamente
             </button>
@@ -102,14 +102,14 @@ export function CategoryProductList() {
 
         {!loading && !error && listings.length === 0 && (
           <div className="text-center py-20">
-            <Package size={48} className="mx-auto mb-4 text-white/60" />
-            <p className="text-white/80 text-lg">
+            <Package size={48} className="mx-auto mb-4 text-ink-3" />
+            <p className="text-ink-2 text-lg">
               Nenhum produto encontrado
               {categoryName ? ` em ${categoryName}` : ""}.
             </p>
             <Link
               to="/"
-              className="inline-block mt-4 px-4 py-2 bg-white text-blue-900 rounded-lg font-medium hover:bg-gray-100 transition"
+              className="inline-block mt-4 px-4 py-2 bg-gold text-gold-deep rounded-lg font-semibold hover:bg-gold/90 transition"
             >
               Voltar para o inicio
             </Link>

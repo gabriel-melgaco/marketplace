@@ -132,25 +132,39 @@ export default function Home() {
   }, [retryCount]);
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900">
+    <div className="min-h-screen bg-bg-0">
       {/* Aviso de conexão para vendedores */}
       <SellerConnectionsBanner />
 
+      {/* Hero */}
+      <section className="px-[18px] pt-5 pb-3.5 max-w-7xl mx-auto">
+        <div className="flex items-end justify-between mb-4">
+          <h1 className="font-display font-extrabold text-[26px] md:text-[36px] lg:text-[48px] tracking-[-0.03em] leading-none text-ink-1">
+            Equipamentos
+            <br />
+            <span className="text-gold">profissionais.</span>
+          </h1>
+          <div className="text-xs md:text-sm text-ink-3 tabular-nums">
+            {listings.length} {listings.length === 1 ? "anúncio" : "anúncios"}
+          </div>
+        </div>
+      </section>
+
       {/* Botão Estado */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-6">
+      <div className="max-w-7xl mx-auto px-[18px] pb-3">
         <FilterButton />
       </div>
 
       {/* Produtos */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 pb-24">
+      <main className="pb-24">
         {loading && <ProductGridSkeleton />}
 
         {error && (
           <div className="text-center py-20">
-            <p className="text-white text-lg mb-4">{error}</p>
+            <p className="text-ink-1 text-lg mb-4">{error}</p>
             <button
               onClick={() => setRetryCount((c) => c + 1)}
-              className="px-4 py-2 bg-white text-blue-900 rounded-lg font-medium hover:bg-gray-100 transition"
+              className="px-4 py-2 bg-gold text-gold-deep rounded-lg font-medium hover:bg-gold/90 transition"
             >
               Tentar novamente
             </button>
@@ -159,13 +173,13 @@ export default function Home() {
 
         {!loading && !error && listings.length === 0 && (
           <div className="text-center py-20">
-            <Package size={48} className="mx-auto mb-4 text-white/60" />
-            <p className="text-white/80 text-lg">Nenhum produto encontrado.</p>
+            <Package size={48} className="mx-auto mb-4 text-ink-3" />
+            <p className="text-ink-2 text-lg">Nenhum produto encontrado.</p>
           </div>
         )}
 
         {!loading && !error && listings.length > 0 && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+          <div className="grid grid-cols-2 gap-2.5 px-3.5 md:grid-cols-3 md:gap-4 md:px-6 lg:grid-cols-4 lg:gap-6 lg:px-8 max-w-7xl mx-auto">
             {listings.map((listing) => (
               <ProductCard key={listing.id} listing={listing} />
             ))}

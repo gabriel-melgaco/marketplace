@@ -96,9 +96,9 @@ export function FilterButton({ selectedState, selectedCategory }: FilterButtonPr
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-4 py-2 bg-white border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition"
+        className="flex items-center gap-2 px-4 py-2 bg-bg-1 border border-white/10 rounded-lg hover:bg-bg-2 transition text-ink-1 focus:outline-none focus:ring-2 focus:ring-gold/40"
       >
-        <SlidersHorizontal size={16} />
+        <SlidersHorizontal size={16} className="text-ink-2" />
         {activeLabel ? (
           <>
             <span>{activeLabel}</span>
@@ -107,7 +107,7 @@ export function FilterButton({ selectedState, selectedCategory }: FilterButtonPr
                 e.stopPropagation();
                 handleClear();
               }}
-              className="ml-1 p-0.5 rounded-full hover:bg-gray-200 transition"
+              className="ml-1 p-0.5 rounded-full hover:bg-bg-3 transition"
               aria-label="Limpar filtro"
             >
               <X size={14} />
@@ -122,15 +122,15 @@ export function FilterButton({ selectedState, selectedCategory }: FilterButtonPr
       </button>
 
       {isOpen && (
-        <div className="absolute top-full left-0 mt-2 w-72 bg-white rounded-xl shadow-lg border border-gray-200 z-50">
+        <div className="absolute top-full left-0 mt-2 w-72 bg-bg-2 rounded-xl shadow-lg border border-white/10 z-50">
           {/* Tabs */}
-          <div className="flex border-b border-gray-200">
+          <div className="flex border-b border-white/10">
             <button
               onClick={() => setActiveTab("estados")}
               className={`flex-1 py-2.5 text-sm font-medium transition ${
                 activeTab === "estados"
-                  ? "text-blue-700 border-b-2 border-blue-700"
-                  : "text-gray-500 hover:text-gray-700"
+                  ? "text-gold border-b-2 border-gold"
+                  : "text-ink-2 hover:text-ink-1"
               }`}
             >
               Estados
@@ -139,8 +139,8 @@ export function FilterButton({ selectedState, selectedCategory }: FilterButtonPr
               onClick={() => setActiveTab("categorias")}
               className={`flex-1 py-2.5 text-sm font-medium transition ${
                 activeTab === "categorias"
-                  ? "text-blue-700 border-b-2 border-blue-700"
-                  : "text-gray-500 hover:text-gray-700"
+                  ? "text-gold border-b-2 border-gold"
+                  : "text-ink-2 hover:text-ink-1"
               }`}
             >
               Categorias
@@ -154,20 +154,20 @@ export function FilterButton({ selectedState, selectedCategory }: FilterButtonPr
                 <button
                   key={state.uf}
                   onClick={() => handleSelectState(state.uf)}
-                  className={`w-full text-left px-4 py-2.5 text-sm hover:bg-blue-50 transition flex items-center justify-between ${
+                  className={`w-full text-left px-4 py-2.5 text-sm hover:bg-bg-3 transition flex items-center justify-between ${
                     selectedState === state.uf
-                      ? "bg-blue-50 text-blue-800 font-semibold"
-                      : "text-gray-700"
+                      ? "bg-gold/10 text-gold font-semibold"
+                      : "text-ink-1"
                   }`}
                 >
                   <span>{state.name}</span>
-                  <span className="text-gray-400 text-xs">{state.uf}</span>
+                  <span className="text-ink-2 text-xs">{state.uf}</span>
                 </button>
               ))}
 
             {activeTab === "categorias" &&
               (categories.length === 0 ? (
-                <p className="px-4 py-6 text-sm text-gray-400 text-center">
+                <p className="px-4 py-6 text-sm text-ink-2 text-center">
                   Nenhuma categoria encontrada.
                 </p>
               ) : (
@@ -175,10 +175,10 @@ export function FilterButton({ selectedState, selectedCategory }: FilterButtonPr
                   <button
                     key={category.id}
                     onClick={() => handleSelectCategory(category.slug)}
-                    className={`w-full text-left px-4 py-2.5 text-sm hover:bg-blue-50 transition ${
+                    className={`w-full text-left px-4 py-2.5 text-sm hover:bg-bg-3 transition ${
                       isCategoryActive(category.slug)
-                        ? "bg-blue-50 text-blue-800 font-semibold"
-                        : "text-gray-700"
+                        ? "bg-gold/10 text-gold font-semibold"
+                        : "text-ink-1"
                     }`}
                   >
                     {category.name}

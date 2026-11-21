@@ -8,6 +8,44 @@
 
   --color-text-primary: #ffffff;
   --color-text-secundary: #000000;
+
+  /* Cores — Redesign V1 Dourado */
+  --color-bg-0: #0a0a0c;
+  --color-bg-1: #111115;
+  --color-bg-2: #17171c;
+  --color-bg-3: #1e1e24;
+
+  --color-ink-1: #f5f5f7;
+  --color-ink-2: #a1a1aa;
+  --color-ink-3: #6b6b74;
+
+  --color-gold: #f59e0b;
+  --color-gold-dim: rgba(245, 158, 11, 0.12);
+  --color-gold-deep: #1a1200;
+
+  /* Fontes */
+  --font-display: 'Archivo', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+  /* Sombras */
+  --shadow-gold-glow: 0 8px 24px rgba(245, 158, 11, 0.35);
+}
+
+@layer base {
+  html, body {
+    @apply bg-bg-0 text-ink-1;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    background-image:
+      radial-gradient(circle at 20% 0%, rgba(245, 158, 11, 0.05) 0%, transparent 40%),
+      radial-gradient(circle at 80% 10%, rgba(99, 102, 241, 0.04) 0%, transparent 45%);
+  }
+}
+
+@layer utilities {
+  .scrollbar-none { scrollbar-width: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
 }
 
 button:not(:disabled),

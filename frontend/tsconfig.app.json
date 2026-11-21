@@ -25,7 +25,6 @@
     "noUncheckedSideEffectImports": true,
 
     /* ⭐ PATH ALIASES - ADICIONE ESTAS LINHAS */
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
       "@/components/*": ["./src/components/*"],
@@ -39,5 +38,14 @@
       "@/assets/*": ["./src/assets/*"]
     }
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": [
+    "src/**/__tests__/**",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/*.spec.ts",
+    "src/**/*.spec.tsx",
+    "src/test-setup.ts",
+    "src/setupTests.ts"
+  ]
 }

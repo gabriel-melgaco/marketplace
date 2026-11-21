@@ -1,16 +1,18 @@
-import { useNavigate } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 import { MessageCircle } from "lucide-react";
 
 export function NavChat() {
-  const navigate = useNavigate();
-
   return (
-    <button
-      onClick={() => navigate("/chat")}
-      className="flex flex-col items-center gap-1 text-white hover:text-blue-800 transition cursor-pointer"
+    <NavLink
+      to="/chat"
+      className={({ isActive }) =>
+        `flex flex-col items-center gap-[3px] text-[10.5px] font-medium p-1 transition-colors duration-150 ${
+          isActive ? "text-ink-1" : "text-ink-3 hover:text-ink-2"
+        }`
+      }
     >
-      <MessageCircle size={24} />
-      <span className="text-xs">Chat</span>
-    </button>
+      <MessageCircle size={20} strokeWidth={2} />
+      <span>Chat</span>
+    </NavLink>
   );
 }

@@ -79,9 +79,9 @@ function FreightCalculator({ listingId }: { listingId: number }) {
   const rawCep = cep.replace(/\D/g, "");
 
   return (
-    <div className="bg-white rounded-xl p-5 shadow-md">
-      <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-        <Truck size={16} className="text-blue-800" />
+    <div className="bg-bg-1 border border-white/10 rounded-xl p-5">
+      <h3 className="text-ink-1 font-semibold text-sm mb-3 flex items-center gap-2">
+        <Truck size={16} className="text-gold" />
         Calcular Frete
       </h3>
       <div className="flex gap-2">
@@ -95,12 +95,12 @@ function FreightCalculator({ listingId }: { listingId: number }) {
             if (e.key === "Enter") handleCalculate();
           }}
           maxLength={9}
-          className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-800/20 focus:border-blue-800 transition"
+          className="flex-1 px-3 py-2 bg-bg-2 border border-white/10 rounded-lg text-sm text-ink-1 placeholder:text-ink-3 focus:outline-none focus:ring-2 focus:ring-gold/20 focus:border-gold/50 transition"
         />
         <button
           onClick={handleCalculate}
           disabled={rawCep.length !== 8 || loading}
-          className="px-4 py-2 bg-blue-800 text-white rounded-lg text-sm font-medium hover:bg-blue-900 transition disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
+          className="px-4 py-2 bg-gold text-gold-deep rounded-lg text-sm font-semibold hover:bg-gold/90 transition disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-gold/40 focus:ring-offset-2 focus:ring-offset-bg-1"
         >
           {loading ? (
             <Loader2 size={16} className="animate-spin" />
@@ -111,23 +111,23 @@ function FreightCalculator({ listingId }: { listingId: number }) {
       </div>
 
       {error && (
-        <div className="mt-3 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
-          <AlertCircle size={15} className="text-red-500 shrink-0 mt-0.5" />
-          <p className="text-sm text-red-700">{error}</p>
+        <div className="mt-3 flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2.5">
+          <AlertCircle size={15} className="text-red-400 shrink-0 mt-0.5" />
+          <p className="text-sm text-red-400">{error}</p>
         </div>
       )}
 
       {result && !result.available && (
-        <div className="mt-3 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
-          <AlertCircle size={15} className="text-amber-600 shrink-0 mt-0.5" />
-          <p className="text-sm text-amber-700">
+        <div className="mt-3 flex items-start gap-2 bg-gold/10 border border-gold/30 rounded-lg px-3 py-2.5">
+          <AlertCircle size={15} className="text-gold shrink-0 mt-0.5" />
+          <p className="text-sm text-gold">
             {result.message || "Frete não disponível para este CEP."}
           </p>
         </div>
       )}
 
       {result?.available && result.options && result.options.length > 0 && (
-        <div className="mt-3 divide-y divide-gray-100">
+        <div className="mt-3 divide-y divide-white/10">
           {result.options.map((option) => (
             <div
               key={option.service_id}
@@ -138,14 +138,14 @@ function FreightCalculator({ listingId }: { listingId: number }) {
                   <img
                     src={option.company_picture}
                     alt={option.company}
-                    className="h-5 max-w-16 object-contain"
+                    className="h-5 max-w-16 object-contain bg-ink-1/5 rounded px-1 py-0.5 filter brightness-90 contrast-110"
                   />
                 )}
                 <div>
-                  <p className="text-sm font-medium text-gray-800">
+                  <p className="text-sm font-medium text-ink-1">
                     {option.name}
                   </p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-ink-3">
                     Prazo: {option.delivery_days}{" "}
                     {option.delivery_days === 1
                       ? "dia útil"
@@ -153,7 +153,7 @@ function FreightCalculator({ listingId }: { listingId: number }) {
                   </p>
                 </div>
               </div>
-              <p className="text-sm font-semibold text-blue-800">
+              <p className="text-sm font-semibold text-gold">
                 R${" "}
                 {Number(option.price).toLocaleString("pt-BR", {
                   minimumFractionDigits: 2,
@@ -180,15 +180,15 @@ function ShippingMethodInfo({ method }: { method: ShippingMethod | undefined }) 
   if (!method) return null;
   const { label, icon } = SHIPPING_METHOD_LABELS[method];
   return (
-    <div className="bg-white rounded-xl p-4 shadow-md flex items-center gap-3">
+    <div className="bg-bg-1 border border-white/10 rounded-xl p-4 flex items-center gap-3">
       {icon === "mappin" ? (
-        <MapPin size={16} className="text-blue-800 shrink-0" />
+        <MapPin size={16} className="text-gold shrink-0" />
       ) : (
-        <Truck size={16} className="text-blue-800 shrink-0" />
+        <Truck size={16} className="text-gold shrink-0" />
       )}
       <div>
-        <p className="text-xs text-gray-500">Método de entrega</p>
-        <p className="text-sm font-medium text-gray-800">{label}</p>
+        <p className="text-xs text-ink-3">Método de entrega</p>
+        <p className="text-sm font-medium text-ink-1">{label}</p>
       </div>
     </div>
   );
@@ -245,8 +245,8 @@ function ImageCarousel({
 
   if (sortedImages.length === 0) {
     return (
-      <div className="aspect-4/3 bg-gray-200 rounded-xl flex items-center justify-center">
-        <div className="text-gray-400 text-center p-4">
+      <div className="aspect-4/3 bg-bg-2 border border-white/10 rounded-xl flex items-center justify-center">
+        <div className="text-ink-3 text-center p-4">
           <Package size={60} className="mx-auto mb-2" />
           <p>Sem imagem</p>
         </div>
@@ -255,10 +255,13 @@ function ImageCarousel({
   }
 
   return (
-    <div className="space-y-4 bg-linear-to-br from-black via-gray-800 to-blue-900">
+    <div className="space-y-4">
       {/* Main image */}
       <div className="relative">
-        <div className="aspect-4/3 bg-gray-100 rounded-xl overflow-hidden max-h-150 mx-auto">
+        <div
+          className="aspect-4/3 rounded-xl overflow-hidden max-h-150 mx-auto"
+          style={{ background: 'radial-gradient(circle at 50% 40%, #25252d 0%, #141418 100%)' }}
+        >
           <img
             src={toPublicUrl(sortedImages[currentIndex].image_url)}
             alt={`${productName} - Imagem ${currentIndex + 1} de ${sortedImages.length}`}
@@ -277,21 +280,21 @@ function ImageCarousel({
           <>
             <button
               onClick={goToPrevious}
-              className="absolute left-2 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white rounded-full p-3 shadow-lg transition-all hover:scale-110 focus:outline-none focus:ring-2 focus:ring-blue-800 focus:ring-offset-2"
+              className="absolute left-2 top-1/2 -translate-y-1/2 bg-bg-0/80 backdrop-blur hover:bg-bg-0 border border-white/10 text-ink-1 rounded-full p-3 transition-all hover:scale-110 focus:outline-none focus:ring-2 focus:ring-gold/40 focus:ring-offset-2 focus:ring-offset-bg-1"
               aria-label="Imagem anterior"
             >
-              <ChevronLeft size={24} className="text-gray-800" />
+              <ChevronLeft size={24} />
             </button>
             <button
               onClick={goToNext}
-              className="absolute right-2 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white rounded-full p-3 shadow-lg transition-all hover:scale-110 focus:outline-none focus:ring-2 focus:ring-blue-800 focus:ring-offset-2"
+              className="absolute right-2 top-1/2 -translate-y-1/2 bg-bg-0/80 backdrop-blur hover:bg-bg-0 border border-white/10 text-ink-1 rounded-full p-3 transition-all hover:scale-110 focus:outline-none focus:ring-2 focus:ring-gold/40 focus:ring-offset-2 focus:ring-offset-bg-1"
               aria-label="Próxima imagem"
             >
-              <ChevronRight size={24} className="text-gray-800" />
+              <ChevronRight size={24} />
             </button>
 
             {/* Counter badge */}
-            <div className="absolute bottom-3 right-3 bg-black/70 text-white text-xs px-3 py-1 rounded-full">
+            <div className="absolute bottom-3 right-3 bg-bg-0/80 backdrop-blur text-ink-1 border border-white/10 text-xs px-3 py-1 rounded-full font-medium">
               {currentIndex + 1} / {sortedImages.length}
             </div>
           </>
@@ -305,10 +308,10 @@ function ImageCarousel({
             <button
               key={img.id}
               onClick={() => setCurrentIndex(idx)}
-              className={`shrink-0 w-20 h-20 rounded-lg overflow-hidden border-2 transition-all focus:outline-none focus:ring-2 focus:ring-blue-800 focus:ring-offset-2 ${
+              className={`shrink-0 w-20 h-20 rounded-lg overflow-hidden border-2 transition-all focus:outline-none focus:ring-2 focus:ring-gold/40 focus:ring-offset-2 focus:ring-offset-bg-1 ${
                 idx === currentIndex
-                  ? "border-blue-800 ring-2 ring-blue-800"
-                  : "border-gray-300 hover:border-blue-800 opacity-60 hover:opacity-100"
+                  ? "border-gold ring-1 ring-gold/50"
+                  : "border-white/10 opacity-60 hover:opacity-100 hover:border-white/20"
               }`}
               aria-label={`Ver imagem ${idx + 1}`}
             >
@@ -433,14 +436,14 @@ export function ProductDetail() {
 
   if (error || !listing) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900">
+      <div className="min-h-screen bg-bg-0">
         <div className="text-center py-20">
-          <p className="text-white text-lg mb-4">
+          <p className="text-ink-1 text-lg mb-4">
             {error || "Produto não encontrado."}
           </p>
           <Link
             to="/"
-            className="px-4 py-2 bg-white text-blue-900 rounded-lg font-medium hover:bg-gray-100 transition focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-blue-900"
+            className="px-4 py-2 bg-gold text-gold-deep rounded-lg font-semibold hover:bg-gold/90 transition focus:outline-none focus:ring-2 focus:ring-gold/40 focus:ring-offset-2 focus:ring-offset-bg-0"
           >
             Voltar para o início
           </Link>
@@ -458,14 +461,14 @@ export function ProductDetail() {
     (listing.packages?.length ?? 0) > 0;
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900">
+    <div className="min-h-screen bg-bg-0">
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 pb-24">
         {/* Main content grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left: Image + Info */}
           <div className="lg:col-span-2 space-y-5">
             {/* Image Carousel */}
-            <div className="bg-white rounded-xl p-4 sm:p-6 shadow-md">
+            <div className="bg-bg-1 border border-white/10 rounded-xl p-4 sm:p-6">
               <ImageCarousel
                 images={listing.images}
                 productName={listing.product.name}
@@ -475,21 +478,21 @@ export function ProductDetail() {
             {/* Mobile: Price/Chat + Seller (after image on mobile, hidden on desktop) */}
             <div className="lg:hidden space-y-4">
               {/* Price + Buy buttons */}
-              <div className="bg-white rounded-xl p-5 shadow-md">
-                <p className="text-3xl font-bold text-blue-800 mb-4">
+              <div className="bg-bg-1 border border-white/10 rounded-xl p-5">
+                <p className="font-display text-3xl font-bold text-ink-1 tabular-nums tracking-[-0.02em] mb-4">
                   R$ {formatPrice(listing.price)}
                 </p>
                 <div className="space-y-3">
                   <button
                     onClick={handleBuyClick}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-900 text-white rounded-lg font-semibold hover:bg-blue-950 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gold text-gold-deep rounded-lg font-semibold hover:bg-gold/90 transition-colors focus:outline-none focus:ring-2 focus:ring-gold/40 focus:ring-offset-2 focus:ring-offset-bg-1"
                   >
                     <ShoppingBag size={20} />
                     Comprar
                   </button>
                   <button
                     onClick={handleAddToCartClick}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-white text-blue-800 border border-blue-800 rounded-lg font-semibold hover:bg-blue-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-ink-1 text-bg-0 rounded-lg font-semibold hover:bg-ink-2 transition-colors focus:outline-none focus:ring-2 focus:ring-ink-1/40 focus:ring-offset-2 focus:ring-offset-bg-1"
                   >
                     <ShoppingCart size={20} />
                     Adicionar ao Carrinho
@@ -498,20 +501,20 @@ export function ProductDetail() {
               </div>
 
               {/* Seller info */}
-              <div className="bg-white rounded-xl p-5 shadow-md">
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+              <div className="bg-bg-1 border border-white/10 rounded-xl p-5">
+                <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wide mb-3">
                   Vendedor
                 </h3>
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center shrink-0">
-                    <User size={22} className="text-blue-800" />
+                  <div className="w-12 h-12 bg-gold/15 rounded-full flex items-center justify-center shrink-0">
+                    <User size={22} className="text-gold" />
                   </div>
                   <div>
-                    <p className="font-semibold text-gray-900">
+                    <p className="font-semibold text-ink-1">
                       {listing.seller_name}
                     </p>
                     {listing.shipping_address && (
-                      <p className="text-sm text-gray-500">
+                      <p className="text-sm text-ink-3">
                         {listing.shipping_address.state}
                       </p>
                     )}
@@ -519,7 +522,7 @@ export function ProductDetail() {
                 </div>
                 <button
                   onClick={handleChatClick}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 mt-4 bg-blue-800 text-white rounded-lg font-semibold hover:bg-blue-900 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 mt-4 bg-bg-2 border border-white/10 text-ink-1 rounded-lg font-semibold hover:bg-bg-3 hover:border-white/15 transition-colors focus:outline-none focus:ring-2 focus:ring-gold/40 focus:ring-offset-2 focus:ring-offset-bg-1"
                 >
                   <MessageCircle size={20} />
                   Chat com vendedor
@@ -533,78 +536,78 @@ export function ProductDetail() {
             </div>
 
             {/* Title */}
-            <div className="bg-white rounded-xl p-5 sm:p-6 shadow-md">
-              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 leading-tight">
+            <div className="bg-bg-1 border border-white/10 rounded-xl p-5 sm:p-6">
+              <h1 className="font-display font-bold text-2xl sm:text-3xl text-ink-1 leading-tight tracking-[-0.02em]">
                 {listing.product.name}
               </h1>
-              <div className="flex flex-wrap items-center gap-3 sm:gap-4 mt-3 text-sm text-gray-500">
+              <div className="flex flex-wrap items-center gap-3 sm:gap-4 mt-3 text-sm text-ink-3">
                 <span className="flex items-center gap-1.5">
-                  <Calendar size={16} />
+                  <Calendar size={16} className="text-ink-3" />
                   Publicado em {formatListingDate(listing.created_at)}
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <Eye size={16} />
+                  <Eye size={16} className="text-ink-3" />
                   {listing.views_count} visualizações
                 </span>
               </div>
             </div>
 
             {/* Description */}
-            <div className="bg-white rounded-xl p-5 sm:p-6 shadow-md">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
+            <div className="bg-bg-1 border border-white/10 rounded-xl p-5 sm:p-6">
+              <h2 className="text-lg font-semibold text-ink-1 mb-4">
                 Descrição
               </h2>
-              <p className="text-gray-700 whitespace-pre-line leading-relaxed text-sm sm:text-base">
+              <p className="text-ink-2 whitespace-pre-line leading-relaxed text-sm sm:text-base">
                 {listing.description}
               </p>
             </div>
 
             {/* Location */}
-            <div className="bg-white rounded-xl p-5 sm:p-6 shadow-md">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
+            <div className="bg-bg-1 border border-white/10 rounded-xl p-5 sm:p-6">
+              <h2 className="text-lg font-semibold text-ink-1 mb-4">
                 Localização do anúncio
               </h2>
-              <div className="flex items-start gap-3 text-gray-700">
-                <MapPin size={20} className="text-blue-800 shrink-0 mt-0.5" />
-                <p className="font-medium">
+              <div className="flex items-start gap-3">
+                <MapPin size={20} className="text-gold shrink-0 mt-0.5" />
+                <p className="text-ink-1 font-medium">
                   {getLocation(listing) || "Não informada"}
                 </p>
               </div>
             </div>
 
             {/* Other details */}
-            <div className="bg-white rounded-xl p-6 shadow-md">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
+            <div className="bg-bg-1 border border-white/10 rounded-xl p-6">
+              <h2 className="text-lg font-semibold text-ink-1 mb-4">
                 Detalhes do anúncio
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="flex items-center gap-3">
-                  <Tag size={18} className="text-blue-800" />
+                  <Tag size={18} className="text-ink-3" />
                   <div>
-                    <p className="text-xs text-gray-500">Condição</p>
-                    <p className="text-sm font-medium text-gray-800">
+                    <p className="text-xs text-ink-3">Condição</p>
+                    <p className="text-sm font-medium text-ink-1">
                       {listing.condition.name}
                     </p>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-3">
-                  <Box size={18} className="text-blue-800" />
+                  <Box size={18} className="text-ink-3" />
                   <div>
-                    <p className="text-xs text-gray-500">Marca</p>
-                    <p className="text-sm font-medium text-gray-800">
+                    <p className="text-xs text-ink-3">Marca</p>
+                    <p className="text-sm font-medium text-ink-1">
                       {listing.brand.name}
                     </p>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-3">
-                  <Package size={18} className="text-blue-800" />
+                  <Package size={18} className="text-ink-3" />
                   <div>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-ink-3">
                       Quantidade disponível
                     </p>
-                    <p className="text-sm font-medium text-gray-800">
+                    <p className="text-sm font-medium text-ink-1">
                       {listing.quantity} un.
                     </p>
                   </div>
@@ -612,10 +615,10 @@ export function ProductDetail() {
 
                 {listing.product.category && (
                   <div className="flex items-center gap-3">
-                    <Tag size={18} className="text-blue-800" />
+                    <Tag size={18} className="text-ink-3" />
                     <div>
-                      <p className="text-xs text-gray-500">Categoria</p>
-                      <p className="text-sm font-medium text-gray-800">
+                      <p className="text-xs text-ink-3">Categoria</p>
+                      <p className="text-sm font-medium text-ink-1">
                         {listing.product.category.name}
                       </p>
                     </div>
@@ -624,10 +627,10 @@ export function ProductDetail() {
 
                 {listing.product.series && (
                   <div className="flex items-center gap-3">
-                    <Tag size={18} className="text-blue-800" />
+                    <Tag size={18} className="text-ink-3" />
                     <div>
-                      <p className="text-xs text-gray-500">Série</p>
-                      <p className="text-sm font-medium text-gray-800">
+                      <p className="text-xs text-ink-3">Série</p>
+                      <p className="text-sm font-medium text-ink-1">
                         {listing.product.series.name}
                       </p>
                     </div>
@@ -636,10 +639,10 @@ export function ProductDetail() {
 
                 {listing.product.code && (
                   <div className="flex items-center gap-3">
-                    <Tag size={18} className="text-blue-800" />
+                    <Tag size={18} className="text-ink-3" />
                     <div>
-                      <p className="text-xs text-gray-500">Código do produto</p>
-                      <p className="text-sm font-medium text-gray-800">
+                      <p className="text-xs text-ink-3">Código do produto</p>
+                      <p className="text-sm font-medium text-ink-1">
                         {listing.product.code}
                       </p>
                     </div>
@@ -648,17 +651,17 @@ export function ProductDetail() {
               </div>
 
               {hasDimensions && (
-                <div className="mt-6 pt-4 border-t border-gray-100">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-3">
+                <div className="mt-6 pt-4 border-t border-white/10">
+                  <h3 className="text-sm font-semibold text-ink-2 mb-3">
                     Dimensões e peso
                   </h3>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     {(listing.weight_kg || firstPackage?.weight_kg) && (
                       <div className="flex items-center gap-2">
-                        <Weight size={16} className="text-gray-500" />
+                        <Weight size={16} className="text-ink-3" />
                         <div>
-                          <p className="text-xs text-gray-500">Peso</p>
-                          <p className="text-sm text-gray-800">
+                          <p className="text-xs text-ink-3">Peso</p>
+                          <p className="text-sm text-ink-1">
                             {listing.weight_kg || firstPackage?.weight_kg} kg
                           </p>
                         </div>
@@ -666,10 +669,10 @@ export function ProductDetail() {
                     )}
                     {(listing.height_cm || firstPackage?.height_cm) && (
                       <div className="flex items-center gap-2">
-                        <Ruler size={16} className="text-gray-500" />
+                        <Ruler size={16} className="text-ink-3" />
                         <div>
-                          <p className="text-xs text-gray-500">Altura</p>
-                          <p className="text-sm text-gray-800">
+                          <p className="text-xs text-ink-3">Altura</p>
+                          <p className="text-sm text-ink-1">
                             {listing.height_cm || firstPackage?.height_cm} cm
                           </p>
                         </div>
@@ -677,10 +680,10 @@ export function ProductDetail() {
                     )}
                     {(listing.width_cm || firstPackage?.width_cm) && (
                       <div className="flex items-center gap-2">
-                        <Ruler size={16} className="text-gray-500" />
+                        <Ruler size={16} className="text-ink-3" />
                         <div>
-                          <p className="text-xs text-gray-500">Largura</p>
-                          <p className="text-sm text-gray-800">
+                          <p className="text-xs text-ink-3">Largura</p>
+                          <p className="text-sm text-ink-1">
                             {listing.width_cm || firstPackage?.width_cm} cm
                           </p>
                         </div>
@@ -688,10 +691,10 @@ export function ProductDetail() {
                     )}
                     {(listing.length_cm || firstPackage?.length_cm) && (
                       <div className="flex items-center gap-2">
-                        <Ruler size={16} className="text-gray-500" />
+                        <Ruler size={16} className="text-ink-3" />
                         <div>
-                          <p className="text-xs text-gray-500">Comprimento</p>
-                          <p className="text-sm text-gray-800">
+                          <p className="text-xs text-ink-3">Comprimento</p>
+                          <p className="text-sm text-ink-1">
                             {listing.length_cm || firstPackage?.length_cm} cm
                           </p>
                         </div>
@@ -707,21 +710,21 @@ export function ProductDetail() {
           <div className="hidden lg:block">
             <div className="space-y-4">
               {/* Price + Buy buttons */}
-              <div className="bg-white rounded-xl p-6 shadow-md">
-                <p className="text-3xl font-bold text-blue-800 mb-4">
+              <div className="bg-bg-1 border border-white/10 rounded-xl p-6">
+                <p className="font-display text-3xl font-bold text-ink-1 tabular-nums tracking-[-0.02em] mb-4">
                   R$ {formatPrice(listing.price)}
                 </p>
                 <div className="space-y-3">
                   <button
                     onClick={handleBuyClick}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-900 text-white rounded-lg font-semibold hover:bg-blue-950 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gold text-gold-deep rounded-lg font-semibold hover:bg-gold/90 transition-colors focus:outline-none focus:ring-2 focus:ring-gold/40 focus:ring-offset-2 focus:ring-offset-bg-1"
                   >
                     <ShoppingBag size={20} />
                     Comprar
                   </button>
                   <button
                     onClick={handleAddToCartClick}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-white text-blue-800 border border-blue-800 rounded-lg font-semibold hover:bg-blue-50 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-ink-1 text-bg-0 rounded-lg font-semibold hover:bg-ink-2 transition-colors focus:outline-none focus:ring-2 focus:ring-ink-1/40 focus:ring-offset-2 focus:ring-offset-bg-1"
                   >
                     <ShoppingCart size={20} />
                     Adicionar ao Carrinho
@@ -730,20 +733,20 @@ export function ProductDetail() {
               </div>
 
               {/* Seller info */}
-              <div className="bg-white rounded-xl p-6 shadow-md">
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+              <div className="bg-bg-1 border border-white/10 rounded-xl p-6">
+                <h3 className="text-xs font-semibold text-ink-3 uppercase tracking-wide mb-3">
                   Vendedor
                 </h3>
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center shrink-0">
-                    <User size={22} className="text-blue-800" />
+                  <div className="w-12 h-12 bg-gold/15 rounded-full flex items-center justify-center shrink-0">
+                    <User size={22} className="text-gold" />
                   </div>
                   <div>
-                    <p className="font-semibold text-gray-900">
+                    <p className="font-semibold text-ink-1">
                       {listing.seller_name}
                     </p>
                     {listing.shipping_address && (
-                      <p className="text-sm text-gray-500">
+                      <p className="text-sm text-ink-3">
                         {listing.shipping_address.state}
                       </p>
                     )}
@@ -751,7 +754,7 @@ export function ProductDetail() {
                 </div>
                 <button
                   onClick={handleChatClick}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 mt-4 bg-blue-800 text-white rounded-lg font-semibold hover:bg-blue-900 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 mt-4 bg-bg-2 border border-white/10 text-ink-1 rounded-lg font-semibold hover:bg-bg-3 hover:border-white/15 transition-colors focus:outline-none focus:ring-2 focus:ring-gold/40 focus:ring-offset-2 focus:ring-offset-bg-1"
                 >
                   <MessageCircle size={20} />
                   Chat com vendedor
@@ -769,7 +772,7 @@ export function ProductDetail() {
         {/* Suggested products */}
         {suggestedListings.length > 0 && (
           <div className="mt-10">
-            <h2 className="text-xl font-bold text-white mb-6">
+            <h2 className="font-display font-bold text-xl md:text-2xl text-ink-1 tracking-[-0.02em] mb-6">
               Também podem te interessar
             </h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">

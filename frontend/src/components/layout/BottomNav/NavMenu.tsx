@@ -36,12 +36,12 @@ export function NavMenu() {
     <>
       <button
         onClick={() => setIsOpen(true)}
-        className="flex flex-col items-center gap-1 text-white hover:text-blue-800 transition cursor-pointer"
+        className="flex flex-col items-center gap-[3px] text-[10.5px] font-medium p-1 transition-colors duration-150 text-ink-3 hover:text-ink-2 cursor-pointer"
         aria-label="Abrir menu"
         aria-expanded={isOpen}
       >
-        <Menu size={24} />
-        <span className="text-xs">Menu</span>
+        <Menu size={20} strokeWidth={2} />
+        <span>Menu</span>
       </button>
 
       {createPortal(

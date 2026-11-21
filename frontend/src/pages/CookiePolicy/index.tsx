@@ -18,20 +18,20 @@ function CookieTable({ category, description, rows }: CookieTableProps) {
   return (
     <div className="mb-8">
       {/* h3 com tamanho legivel e cor de destaque — diferenciado do h2 */}
-      <h3 className="text-lg font-semibold text-blue-800 mb-1">{category}</h3>
-      <p className="text-sm text-gray-600 mb-3 leading-relaxed">{description}</p>
+      <h3 className="text-lg font-semibold text-gold mb-1">{category}</h3>
+      <p className="text-sm text-ink-2 mb-3 leading-relaxed">{description}</p>
       {/* overflow-x-auto garante scroll horizontal em mobile sem quebrar o layout */}
-      <div className="overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
+      <div className="overflow-x-auto rounded-lg border border-white/10">
         <table className="w-full text-sm min-w-[480px]">
           <thead>
-            <tr className="bg-gray-100 border-b border-gray-200">
-              <th className="text-left px-4 py-3 font-semibold text-gray-700 w-1/3">
+            <tr className="bg-bg-3 border-b border-white/10">
+              <th className="text-left px-4 py-3 font-semibold text-ink-1 w-1/3">
                 Nome
               </th>
-              <th className="text-left px-4 py-3 font-semibold text-gray-700 w-1/2">
+              <th className="text-left px-4 py-3 font-semibold text-ink-1 w-1/2">
                 Finalidade
               </th>
-              <th className="text-left px-4 py-3 font-semibold text-gray-700 whitespace-nowrap">
+              <th className="text-left px-4 py-3 font-semibold text-ink-1 whitespace-nowrap">
                 Duração
               </th>
             </tr>
@@ -40,18 +40,18 @@ function CookieTable({ category, description, rows }: CookieTableProps) {
             {rows.map((row, index) => (
               <tr
                 key={row.name}
-                // Striped: linhas pares com fundo levemente cinza para facilitar leitura
-                className={`border-b border-gray-100 last:border-0 transition-colors hover:bg-blue-50 ${
-                  index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+                // Striped: linhas pares com fundo levemente escuro para facilitar leitura
+                className={`border-b border-white/5 last:border-0 transition-colors hover:bg-gold/5 ${
+                  index % 2 === 0 ? 'bg-bg-2' : 'bg-bg-1'
                 }`}
               >
-                <td className="px-4 py-3 font-mono text-xs text-blue-800 align-top">
+                <td className="px-4 py-3 font-mono text-xs text-gold align-top">
                   {row.name}
                 </td>
-                <td className="px-4 py-3 text-gray-700 align-top leading-relaxed">
+                <td className="px-4 py-3 text-ink-1 align-top leading-relaxed">
                   {row.purpose}
                 </td>
-                <td className="px-4 py-3 text-gray-500 whitespace-nowrap align-top">
+                <td className="px-4 py-3 text-ink-3 whitespace-nowrap align-top">
                   {row.duration}
                 </td>
               </tr>
@@ -124,7 +124,7 @@ function Section({ id, title, children }: SectionProps) {
   return (
     <section id={id} className="mb-12">
       {/* h2 bem diferenciado do h3 em tamanho, peso e decoracao */}
-      <h2 className="text-2xl font-bold text-blue-900 mb-4 pb-2 border-b-2 border-blue-100">
+      <h2 className="font-display text-2xl md:text-[28px] font-bold text-ink-1 tracking-[-0.02em] mb-4 pb-2 border-b border-gold/30">
         {title}
       </h2>
       {children}
@@ -141,24 +141,25 @@ export function CookiePolicy() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8 pb-16">
+    <div className="min-h-screen bg-bg-0 pb-16">
+    <div className="max-w-3xl mx-auto px-4 py-8">
       {/* h1 — topo da hierarquia, claramente maior que os h2 */}
-      <h1 className="text-3xl font-bold text-blue-900 mb-2">
+      <h1 className="font-display text-3xl md:text-4xl font-bold text-ink-1 tracking-[-0.02em] mb-2">
         Política de Cookies
       </h1>
-      <p className="text-sm text-gray-500 mb-10">
+      <p className="text-sm text-ink-3 mb-10">
         Última atualização: abril de 2026
       </p>
 
       {/* 1. O que são cookies */}
       <Section id="o-que-sao" title="1. O que são cookies">
-        <p className="text-gray-700 leading-relaxed mb-4">
+        <p className="text-ink-1 leading-relaxed mb-4">
           Cookies são pequenos arquivos de texto armazenados no seu navegador
           quando você visita um site. Eles permitem que o site reconheça seu
           dispositivo em visitas futuras, mantendo preferências e informações de
           sessão.
         </p>
-        <p className="text-gray-700 leading-relaxed">
+        <p className="text-ink-1 leading-relaxed">
           Utilizamos tanto cookies de sessão (apagados ao fechar o navegador)
           quanto cookies persistentes (permanecem por um período determinado).
           Nenhum cookie armazena informações pessoais sensíveis como senhas ou
@@ -168,7 +169,7 @@ export function CookiePolicy() {
 
       {/* 2. Quais cookies usamos */}
       <Section id="quais-cookies" title="2. Quais cookies usamos">
-        <p className="text-gray-700 leading-relaxed mb-6">
+        <p className="text-ink-1 leading-relaxed mb-6">
           Organizamos os cookies em quatro categorias conforme sua finalidade:
         </p>
 
@@ -199,21 +200,21 @@ export function CookiePolicy() {
 
       {/* 3. Como gerenciar */}
       <Section id="como-gerenciar" title="3. Como gerenciar seus cookies">
-        <p className="text-gray-700 leading-relaxed mb-4">
+        <p className="text-ink-1 leading-relaxed mb-4">
           Você pode gerenciar suas preferências de cookies a qualquer momento:
         </p>
         {/*
           list-outside com pl-5 resolve o problema de indentacao de itens longos
           com <strong> em mobile que list-inside causava
         */}
-        <ul className="list-disc list-outside pl-5 space-y-3 text-gray-700 mb-6">
+        <ul className="list-disc list-outside pl-5 space-y-3 text-ink-1 marker:text-gold mb-6">
           <li className="leading-relaxed">
             <strong>Pelo nosso banner:</strong> clique em "Personalizar" no banner
             de consentimento que aparece na primeira visita.
           </li>
           <li className="leading-relaxed">
             <strong>Pela sua conta:</strong> acesse{' '}
-            <a href="/account?section=notifications" className="text-blue-800 underline underline-offset-2 hover:text-blue-900 font-medium">
+            <a href="/account?section=notifications" className="text-gold underline underline-offset-2 hover:text-gold/80 font-medium">
               Minha Conta → Notificações
             </a>{' '}
             e clique em "Gerenciar" na seção de Preferências de cookies.
@@ -223,7 +224,7 @@ export function CookiePolicy() {
             visualizar, bloquear e excluir cookies nas configurações de privacidade.
           </li>
         </ul>
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800 leading-relaxed">
+        <div className="bg-gold/10 border border-gold/30 rounded-lg p-4 text-sm text-gold leading-relaxed">
           <strong>Atenção:</strong> desativar cookies essenciais pode impedir o
           funcionamento correto do login, do carrinho e de outras funcionalidades
           críticas.
@@ -232,11 +233,11 @@ export function CookiePolicy() {
 
       {/* 4. Seus direitos (LGPD) */}
       <Section id="lgpd" title="4. Seus direitos (LGPD)">
-        <p className="text-gray-700 leading-relaxed mb-4">
+        <p className="text-ink-1 leading-relaxed mb-4">
           De acordo com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018),
           você tem os seguintes direitos como titular de dados:
         </p>
-        <ul className="list-disc list-outside pl-5 space-y-3 text-gray-700">
+        <ul className="list-disc list-outside pl-5 space-y-3 text-ink-1 marker:text-gold">
           <li className="leading-relaxed">
             <strong>Confirmação e acesso:</strong> confirmar se tratamos seus dados
             e acessar quais dados possuímos.
@@ -266,11 +267,11 @@ export function CookiePolicy() {
 
       {/* 5. Contato */}
       <Section id="contato" title="5. Contato">
-        <p className="text-gray-700 leading-relaxed mb-4">
+        <p className="text-ink-1 leading-relaxed mb-4">
           Para exercer seus direitos ou esclarecer dúvidas sobre esta política,
           entre em contato com nosso Encarregado de Proteção de Dados (DPO):
         </p>
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-2 text-sm text-gray-700">
+        <div className="bg-bg-1 border border-white/10 rounded-lg p-4 space-y-2 text-sm text-ink-1">
           <p>
             <strong>Empresa:</strong> Grupo China Source Trade Ltda
           </p>
@@ -284,7 +285,7 @@ export function CookiePolicy() {
             <strong>E-mail:</strong>{' '}
             <a
               href="mailto:privacidade@megdev.com.br"
-              className="text-blue-800 underline underline-offset-2 hover:text-blue-900 font-medium"
+              className="text-gold underline underline-offset-2 hover:text-gold/80 font-medium"
             >
               privacidade@megdev.com.br
             </a>
@@ -293,8 +294,8 @@ export function CookiePolicy() {
       </Section>
 
       {/* Botao gerenciar preferencias — destaque prominente no final */}
-      <div className="border-t-2 border-blue-100 pt-10 mt-4">
-        <p className="text-sm text-gray-600 mb-5 leading-relaxed">
+      <div className="border-t border-gold/30 pt-10 mt-4">
+        <p className="text-sm text-ink-2 mb-5 leading-relaxed">
           Deseja revisar ou alterar suas escolhas de cookies? Clique abaixo para
           redefinir suas preferências — o banner de consentimento será exibido
           novamente.
@@ -302,11 +303,12 @@ export function CookiePolicy() {
         <button
           type="button"
           onClick={handleManagePreferences}
-          className="w-full sm:w-auto bg-blue-900 text-white px-8 py-3 rounded-xl text-sm font-semibold hover:bg-blue-800 active:bg-blue-950 transition-colors shadow-md"
+          className="w-full sm:w-auto bg-gold text-gold-deep px-8 py-3 rounded-xl text-sm font-semibold hover:bg-gold/90 active:bg-gold/80 transition-colors focus:outline-none focus:ring-2 focus:ring-gold/40 focus:ring-offset-2 focus:ring-offset-bg-0"
         >
           Gerenciar minhas preferências de cookies
         </button>
       </div>
+    </div>
     </div>
   )
 }

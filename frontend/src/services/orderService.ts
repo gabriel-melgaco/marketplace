@@ -15,6 +15,7 @@ export interface Order {
   items: OrderItem[];
   total: string;
   status: string;
+  status_display: string;
   payment_method: string;
   shipping_address: any;
   buyer_notes?: string;
@@ -27,12 +28,13 @@ export interface OrderList {
   order_number: string;
   total: string;
   status: string;
+  status_display: string;
   created_at: string;
 }
 
 export interface ItemDelivery {
   listing_id: number;
-  delivery_method: 'melhor_envio' | 'in_person';
+  delivery_method: "melhor_envio" | "in_person";
   service_id?: number;
 }
 
@@ -77,7 +79,8 @@ export const orderService = {
 
   // Seller endpoints
   async listSales() {
-    const response = await api.get<PaginatedOrMaybeNot<OrderList>>("/orders/sales/");
+    const response =
+      await api.get<PaginatedOrMaybeNot<OrderList>>("/orders/sales/");
     return toArray(response.data);
   },
 
@@ -87,7 +90,10 @@ export const orderService = {
   },
 
   async updateOrderStatus(id: string, data: OrderUpdateStatusRequest) {
-    const response = await api.post<Order>(`/orders/sales/${id}/update-status/`, data);
+    const response = await api.post<Order>(
+      `/orders/sales/${id}/update-status/`,
+      data,
+    );
     return response.data;
   },
 };
