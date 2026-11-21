@@ -1,78 +1,78 @@
 # Marketplace Academia
 
-API REST multi-vendor para compra e venda de equipamentos de academia no Brasil. Vendedores cadastram anúncios individuais; compradores navegam, adicionam ao carrinho e finalizam compras de múltiplos vendedores em um único checkout. Cada pedido é dividido automaticamente por vendedor, os pagamentos são roteados via Stripe Connect e o frete é orquestrado pelo Melhor Envio com credenciais OAuth2 por vendedor.
+Multi-vendor REST API for buying and selling gym equipment in Brazil. Sellers create individual listings; buyers browse, add items to the cart, and complete purchases from multiple sellers in a single checkout. Each order is automatically split by seller, payments are routed via Stripe Connect, and shipping is orchestrated by Melhor Envio with per-seller OAuth2 credentials.
 
-## Estrutura do Repositório
+## Repository Structure
 
 ```
 marketplace_academia/
-├── backend/    # API Django (Python 3.12)
-└── frontend/   # Interface React + Vite + Tailwind CSS
+├── backend/    # Django API (Python 3.12)
+└── frontend/   # React + Vite + Tailwind CSS interface
 ```
 
 ---
 
 ## Backend
 
-### Stack Tecnológica
+### Tech Stack
 
-| Camada | Tecnologia |
-|--------|------------|
+| Layer | Technology |
+|-------|------------|
 | Framework | Django 5.1 + Django REST Framework 3.15 |
 | ASGI / WebSocket | Daphne 4 + Django Channels 4 |
-| Banco de dados | PostgreSQL (produção) / SQLite (desenvolvimento) |
+| Database | PostgreSQL (production) / SQLite (development) |
 | Cache | Redis (django-redis) |
-| Fila de tarefas | Celery 5 + Celery Beat (Redis broker) |
-| Autenticação | JWT via HttpOnly cookies (drf-auth-kit + simplejwt) |
-| Login social | Google OAuth2 (django-allauth) |
-| Pagamentos | Stripe (Payment Intents + Connect) |
-| Frete | Melhor Envio API v2 (OAuth2 por vendedor) |
-| Storage de imagens | MinIO (S3-compatible) |
-| E-mail transacional | Resend (SMTP) |
-| CEP | ViaCEP |
-| Documentação | drf-spectacular (Swagger UI + Redoc) |
-| Observabilidade | structlog |
-| Segurança | argon2-cffi, cryptography |
-| Testes | pytest + pytest-django |
-| Containerização | Docker |
+| Task queue | Celery 5 + Celery Beat (Redis broker) |
+| Authentication | JWT via HttpOnly cookies (drf-auth-kit + simplejwt) |
+| Social login | Google OAuth2 (django-allauth) |
+| Payments | Stripe (Payment Intents + Connect) |
+| Shipping | Melhor Envio API v2 (per-seller OAuth2) |
+| Image storage | MinIO (S3-compatible) |
+| Transactional email | Resend (SMTP) |
+| ZIP code lookup | ViaCEP |
+| Documentation | drf-spectacular (Swagger UI + Redoc) |
+| Observability | structlog |
+| Security | argon2-cffi, cryptography |
+| Testing | pytest + pytest-django |
+| Containerization | Docker |
 
-### Arquitetura dos Apps
+### App Architecture
 
 ```
 backend/
-├── api/                  # Configurações, ASGI, Celery, URLs raiz
-├── authentication/       # Usuário customizado, registro, login social
-├── products/             # Catálogo: categorias, marcas, séries, condições, anúncios
-├── orders/               # Carrinho, pedidos, state machine de status
-├── payments/             # Stripe PaymentIntent, Connect, reembolsos, repasses
-├── logistics/            # Frete (Melhor Envio), envios, endereços, entrega presencial
-├── chats/                # Mensagens em tempo real via WebSocket
-├── notifications/        # Feed de notificações in-app + preferências
-└── storage/              # Upload e gestão de imagens via MinIO
+├── api/                  # Settings, ASGI, Celery, root URLs
+├── authentication/       # Custom user, registration, social login
+├── products/             # Catalog: categories, brands, series, conditions, listings
+├── orders/               # Cart, orders, status state machine
+├── payments/             # Stripe PaymentIntent, Connect, refunds, payouts
+├── logistics/            # Shipping (Melhor Envio), shipments, addresses, in-person delivery
+├── chats/                # Real-time messages via WebSocket
+├── notifications/        # In-app notification feed + preferences
+└── storage/              # Image upload and management via MinIO
 ```
 
-### Funcionalidades Principais
+### Main Features
 
-#### Autenticação
-- Registro com e-mail obrigatório (CPF, data de nascimento, nome completo)
-- Verificação de e-mail mandatória antes do primeiro login
-- Login por e-mail/senha com JWT via HttpOnly cookies
-- Login social com Google OAuth2
-- Reset e alteração de senha
-- Access token: 24h | Refresh token: 30 dias
+#### Authentication
+- Registration with required email (CPF, date of birth, full name)
+- Mandatory email verification before the first login
+- Email/password login with JWT via HttpOnly cookies
+- Social login with Google OAuth2
+- Password reset and change
+- Access token: 24h | Refresh token: 30 days
 
-#### Produtos e Catálogo
-- Hierarquia: Categoria → Produto → Anúncio (`MarketplaceListing`)
-- Filtros por marca, série, condição, preço e vendedor
-- Gestão completa do anúncio pelo vendedor (criar, editar, ativar/desativar, marcar como vendido)
-- Upload de imagens por anúncio (armazenadas no MinIO)
-- Criação de anúncio bloqueada se o vendedor não tiver token Melhor Envio ativo
+#### Products and Catalog
+- Hierarchy: Category → Product → Listing (`MarketplaceListing`)
+- Filters by brand, series, condition, price, and seller
+- Full listing management by the seller (create, edit, activate/deactivate, mark as sold)
+- Per-listing image upload (stored in MinIO)
+- Listing creation blocked if the seller has no active Melhor Envio token
 
-#### Carrinho e Pedidos
-- Carrinho persistente por usuário autenticado
-- Checkout multi-vendor: um `Order` criado por vendedor automaticamente
-- Snapshot de preço, endereço e dados do produto no momento da compra
-- State machine de pedido com trilha de auditoria:
+#### Cart and Orders
+- Persistent cart per authenticated user
+- Multi-vendor checkout: one `Order` automatically created per seller
+- Snapshot of price, address, and product data at purchase time
+- Order state machine with audit trail:
 
 ```
 pending_payment → paid → processing → shipped → delivered
@@ -80,86 +80,86 @@ pending_payment → paid → processing → shipped → delivered
                                     ↘ cancelled / failed
 ```
 
-- Cancelamento automático de pedidos sem pagamento após tempo configurável (Celery)
-- Confirmação automática de entrega após prazo configurável sem resposta do comprador
+- Automatic cancellation of unpaid orders after a configurable time (Celery)
+- Automatic delivery confirmation after a configurable period without buyer response
 
-#### Pagamentos (Stripe)
-- Criação de PaymentIntent server-side com cálculo de split por vendedor
-- Confirmação de pagamento dispara criação de envios automaticamente
-- Taxa de plataforma configurável (padrão: 10%)
-- Repasse ao vendedor agendado via Celery Beat após entrega confirmada
-- **Stripe Connect**: onboarding de vendedores com link hospedado, sincronização de status e desconexão
-- **Reembolsos** com fluxo não-unilateral:
+#### Payments (Stripe)
+- Server-side PaymentIntent creation with per-seller split calculation
+- Payment confirmation automatically triggers shipment creation
+- Configurable platform fee (default: 10%)
+- Seller payout scheduled via Celery Beat after delivery confirmation
+- **Stripe Connect**: seller onboarding with hosted link, status sync, and disconnection
+- **Refunds** with a non-unilateral flow:
 
 ```
 requested → seller_reviewing → approved / rejected
                              ↘ escalated → platform_decision → refunded
 ```
 
-- Expiração automática de prazos via Celery Beat (escalada, revisão do vendedor)
+- Automatic deadline expiration via Celery Beat (escalation, seller review)
 
-#### Logística (Melhor Envio)
-- Autenticação OAuth2 por vendedor com HMAC-SHA256 no state parameter (anti-CSRF)
-- Cotação de frete em tempo real (PAC, SEDEX, Jadlog, Mini, Azul, Total Express)
-- Criação automática de envio ao confirmar pagamento
-- Geração e download de etiqueta pelo vendedor
-- **Entrega dual por item**: transportadora (`shipping`) ou presencial (`in_person`)
-- `OrderDelivery` orquestra o status global; `InPersonDelivery` gerencia agendamento de encontro
-- Lookup de CEP via ViaCEP
+#### Logistics (Melhor Envio)
+- Per-seller OAuth2 authentication with HMAC-SHA256 in the state parameter (anti-CSRF)
+- Real-time shipping quotes (PAC, SEDEX, Jadlog, Mini, Azul, Total Express)
+- Automatic shipment creation on payment confirmation
+- Label generation and download by the seller
+- **Dual delivery per item**: carrier (`shipping`) or in-person (`in_person`)
+- `OrderDelivery` orchestrates the global status; `InPersonDelivery` manages meeting scheduling
+- ZIP code lookup via ViaCEP
 
-#### Chat em Tempo Real
+#### Real-Time Chat
 - WebSocket via Django Channels + Redis Channel Layer
-- Tipos de conversa: comprador↔vendedor, comprador↔suporte, suporte em grupo
-- Histórico de mensagens paginado via REST
-- Controle de mensagens não lidas por participante
-- Middleware JWT para autenticação no handshake WebSocket
+- Conversation types: buyer↔seller, buyer↔support, group support
+- Paginated message history via REST
+- Unread message tracking per participant
+- JWT middleware for WebSocket handshake authentication
 
-#### Notificações
-- Feed de notificações in-app com rastreamento leitura/não-lida
-- Preferências de entrega por usuário (in-app, e-mail ou ambos)
-- Disparadas automaticamente por mudanças de estado em pedidos, pagamentos e reembolsos
-- Entrega via WebSocket (tempo real) + Celery (assíncrono)
+#### Notifications
+- In-app notification feed with read/unread tracking
+- Per-user delivery preferences (in-app, email, or both)
+- Automatically triggered by state changes in orders, payments, and refunds
+- Delivery via WebSocket (real-time) + Celery (asynchronous)
 
-### Convenções de API
+### API Conventions
 
-| Convenção | Detalhe |
-|-----------|---------|
+| Convention | Detail |
+|------------|--------|
 | Base URL (local) | `http://localhost:8000/api/` |
-| Documentação interativa | `/api/docs/` (Swagger UI) e `/api/redoc/` (Redoc) |
-| Primary keys | UUID para Orders, RefundRequests, Conversations; inteiro para demais |
-| Nomenclatura de campos | `snake_case` |
-| Datas | ISO 8601 com timezone |
-| Valores monetários | Strings decimal em BRL (ex: `"149.90"`) |
-| Paginação | Page-number, tamanho padrão 20 (`?page=2`) |
-| Idioma | Português brasileiro |
-| Moeda | BRL |
+| Interactive documentation | `/api/docs/` (Swagger UI) and `/api/redoc/` (Redoc) |
+| Primary keys | UUID for Orders, RefundRequests, Conversations; integer for the rest |
+| Field naming | `snake_case` |
+| Dates | ISO 8601 with timezone |
+| Monetary values | Decimal strings in BRL (e.g., `"149.90"`) |
+| Pagination | Page-number, default size 20 (`?page=2`) |
+| Language | Brazilian Portuguese |
+| Currency | BRL |
 
-### Como Executar (Desenvolvimento)
+### How to Run (Development)
 
-**Pré-requisitos:** Python 3.12, Redis rodando localmente.
+**Prerequisites:** Python 3.12, Redis running locally.
 
 ```bash
 cd backend
 
-# Crie o ambiente virtual e instale as dependências
+# Create the virtual environment and install dependencies
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 pip install --no-deps drf-auth-kit==1.1.1
 
-# Configure as variáveis de ambiente
-cp .env.example .env   # edite com suas credenciais
+# Configure environment variables
+cp .env.example .env   # edit with your credentials
 
-# Execute as migrações
+# Run migrations
 python manage.py migrate
 
-# Inicie o servidor ASGI (Daphne)
+# Start the ASGI server (Daphne)
 python manage.py runserver
 
-# Em outro terminal — worker Celery
+# In another terminal — Celery worker
 celery -A api worker -l info
 
-# Em outro terminal — Celery Beat (tarefas agendadas)
+# In another terminal — Celery Beat (scheduled tasks)
 celery -A api beat -l info
 ```
 
@@ -171,14 +171,14 @@ docker build -t marketplace-academia-backend .
 docker run -p 5000:5000 --env-file .env marketplace-academia-backend
 ```
 
-### Testes
+### Tests
 
 ```bash
 cd backend
 pytest
 ```
 
-### Variáveis de Ambiente
+### Environment Variables
 
 ```env
 # Django
@@ -187,9 +187,9 @@ DEBUG=
 ALLOWED_HOSTS=
 TRUSTED_ORIGINS=
 ALLOWED_ORIGINS=
-ENVIRONMENT=prd        # omitir para usar SQLite em dev
+ENVIRONMENT=prd        # omit to use SQLite in dev
 
-# Banco de dados (produção)
+# Database (production)
 POSTGRES_DB=
 POSTGRES_USER=
 POSTGRES_PASSWORD=
@@ -207,7 +207,7 @@ BACKEND_BASE_URL=
 CLIENT_ID_OAUTH=
 SECRET_KEY_OAUTH=
 
-# E-mail (Resend)
+# Email (Resend)
 RESEND_API_KEY=
 
 # MinIO
@@ -231,25 +231,25 @@ MELHOR_ENVIO_CLIENT_ID=
 MELHOR_ENVIO_CLIENT_SECRET=
 MELHOR_ENVIO_STATE_SECRET=
 MELHOR_ENVIO_SELLER_REDIRECT_URI=
-MELHOR_ENVIO_TOKEN=          # fallback para cotações sem OAuth ativo
+MELHOR_ENVIO_TOKEN=          # fallback for quotes without an active OAuth connection
 MELHOR_ENVIO_SANDBOX=True
 MELHOR_ENVIO_WEBHOOK_SECRET=
 
-# Regras de negócio
+# Business rules
 PLATFORM_FEE_PERCENTAGE=10
 PAYOUT_DAYS=7
 AUTO_CONFIRM_DELIVERY_DAYS=20
 ORDER_PAYMENT_TIMEOUT_MINUTES=30
 ```
 
-### Integrações Externas
+### External Integrations
 
-| Serviço | Finalidade |
-|---------|------------|
-| **Stripe** | Processamento de pagamentos, split multi-vendor, webhooks |
-| **Melhor Envio** | Cotação de frete, criação de envios, etiquetas, rastreamento |
-| **ViaCEP** | Consulta de endereço por CEP |
-| **Google OAuth2** | Login social |
-| **MinIO** | Armazenamento de imagens de anúncios (S3-compatible) |
-| **Resend** | E-mails transacionais (verificação, reset de senha) |
-| **Redis** | Cache, broker Celery, channel layer WebSocket |
+| Service | Purpose |
+|---------|---------|
+| **Stripe** | Payment processing, multi-vendor split, webhooks |
+| **Melhor Envio** | Shipping quotes, shipment creation, labels, tracking |
+| **ViaCEP** | Address lookup by ZIP code |
+| **Google OAuth2** | Social login |
+| **MinIO** | Listing image storage (S3-compatible) |
+| **Resend** | Transactional emails (verification, password reset) |
+| **Redis** | Cache, Celery broker, WebSocket channel layer |
