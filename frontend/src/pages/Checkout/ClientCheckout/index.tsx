@@ -37,7 +37,6 @@ import Swal from "sweetalert2";
 export type SellerDeliveryMethod =
   | "melhor_envio"
   | "vendor"
-  | "both"
   | "in_person";
 
 interface ItemRef {
@@ -880,7 +879,7 @@ export function Checkout() {
 
       // When Melhor Envio is selected and quotes are not yet loaded, fetch them
       // using the same freight-quote endpoint used in ProductDetail.
-      if (method === "melhor_envio" || method === "both") {
+      if (method === "melhor_envio") {
         const currentQuote = quotesMapRef.current[sellerId];
         if (!currentQuote || currentQuote.quotes.length > 0) return;
         if (currentQuote.melhor_envio_items.length === 0) return;
@@ -977,9 +976,7 @@ export function Checkout() {
         selectedServices,
         // BUG 5 — 'in_person' (Combinar com vendedor) must also appear in inPersonSellers
         inPersonSellers: Object.entries(sellerDeliveryMethods)
-          .filter(
-            ([, m]) => m === "vendor" || m === "both" || m === "in_person",
-          )
+          .filter(([, m]) => m === "vendor" || m === "in_person")
           .map(([id]) => id),
         sellerDeliveryMethods,
         quotesSnapshot: Object.fromEntries(
@@ -1749,11 +1746,6 @@ export function Checkout() {
                                         label: "Entrega pelo Vendedor",
                                         icon: <MessageSquare size={14} />,
                                       },
-                                      {
-                                        value: "both" as SellerDeliveryMethod,
-                                        label: "Ambos",
-                                        icon: <Package size={14} />,
-                                      },
                                     ] as {
                                       value: SellerDeliveryMethod;
                                       label: string;
@@ -1787,10 +1779,9 @@ export function Checkout() {
                                   })}
                                 </div>
 
-                                {/* ME quotes when melhor_envio or both selected */}
-                                {(sellerDeliveryMethods[sellerId] ===
-                                  "melhor_envio" ||
-                                  sellerDeliveryMethods[sellerId] === "both") &&
+                                {/* ME quotes when melhor_envio selected */}
+                                {sellerDeliveryMethods[sellerId] ===
+                                  "melhor_envio" &&
                                   (perSellerLoading[sellerId] ? (
                                     <LoadingRow label="Buscando opções de frete..." />
                                   ) : sellerQuote.quotes.length === 0 ? (
@@ -1883,11 +1874,9 @@ export function Checkout() {
                                     </div>
                                   ))}
 
-                                {/* Contact note when vendor or both selected */}
-                                {(sellerDeliveryMethods[sellerId] ===
-                                  "vendor" ||
-                                  sellerDeliveryMethods[sellerId] ===
-                                    "both") && (
+                                {/* Contact note when vendor selected */}
+                                {sellerDeliveryMethods[sellerId] ===
+                                  "vendor" && (
                                   <AlertBanner variant="warning">
                                     Entre em contato com o vendedor para
                                     combinar a entrega dos itens a cargo dele.

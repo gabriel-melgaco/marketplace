@@ -332,7 +332,9 @@ export function SaleOrderModal({
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   const canGenerateTickets =
-    order && (order.status === "paid" || order.status === "processing");
+    !!order &&
+    (order.status === "paid" || order.status === "processing") &&
+    order.has_melhor_envio;
 
   const content = (
     <div

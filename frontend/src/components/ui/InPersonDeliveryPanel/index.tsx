@@ -425,8 +425,8 @@ export function InPersonDeliveryPanel({
           )}
         </div>
 
-        {/* ── Seller edit form ── */}
-        {role === "seller" && !isTerminal && (
+        {/* ── Edit form (both seller and buyer can propose/edit) ── */}
+        {!isTerminal && (
           <>
             {editing ? (
               <div className="space-y-3 border border-gray-200 rounded-xl p-4 bg-gray-50">
@@ -442,7 +442,7 @@ export function InPersonDeliveryPanel({
                       onChange={(e) =>
                         setForm((f) => ({ ...f, scheduled_date: e.target.value || null }))
                       }
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/30 focus:border-indigo-400"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-400/30 focus:border-indigo-400"
                     />
                   </div>
                   <div>
@@ -453,7 +453,7 @@ export function InPersonDeliveryPanel({
                       onChange={(e) =>
                         setForm((f) => ({ ...f, scheduled_time: e.target.value || null }))
                       }
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/30 focus:border-indigo-400"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-400/30 focus:border-indigo-400"
                     />
                   </div>
                 </div>
@@ -468,7 +468,7 @@ export function InPersonDeliveryPanel({
                     onChange={(e) =>
                       setForm((f) => ({ ...f, meeting_location_name: e.target.value }))
                     }
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/30 focus:border-indigo-400"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-400/30 focus:border-indigo-400"
                   />
                 </div>
                 <div>
@@ -482,7 +482,7 @@ export function InPersonDeliveryPanel({
                     onChange={(e) =>
                       setForm((f) => ({ ...f, meeting_address: e.target.value }))
                     }
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/30 focus:border-indigo-400"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-400/30 focus:border-indigo-400"
                   />
                 </div>
                 <div>
@@ -496,7 +496,7 @@ export function InPersonDeliveryPanel({
                     onChange={(e) =>
                       setForm((f) => ({ ...f, meeting_notes: e.target.value }))
                     }
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400/30 focus:border-indigo-400 resize-none"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-400/30 focus:border-indigo-400 resize-none"
                   />
                 </div>
 

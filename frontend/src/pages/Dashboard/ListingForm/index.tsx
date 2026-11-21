@@ -12,6 +12,8 @@ import {
   DollarSign,
   Tag,
   CheckCircle,
+  ChevronDown,
+  CreditCard,
   Ruler,
   Trash2,
   Search,
@@ -20,7 +22,6 @@ import {
   ExternalLink,
   Plus,
   Truck,
-  CreditCard,
 } from "lucide-react";
 import { productService } from "@/services/productService";
 import { storageService, IMAGE_UPLOAD_LIMITS } from "@/services/storageService";
@@ -110,6 +111,19 @@ interface DraftData {
   packages?: PackageEntry[];
 }
 
+function isDraftEmpty(formData: FormData, packages: PackageEntry[]): boolean {
+  // Returns true if the draft has no meaningful content worth restoring
+  return (
+    !formData.title.trim() &&
+    !formData.description.trim() &&
+    !formData.product &&
+    !formData.brand &&
+    !formData.condition &&
+    !formData.price &&
+    packages.length === 0
+  );
+}
+
 export function ListingForm() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -173,10 +187,14 @@ export function ListingForm() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [hasDraft, setHasDraft] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [platformFeePercentage, setPlatformFeePercentage] = useState<number | null>(null);
+  const [platformFeePercentage, setPlatformFeePercentage] = useState<
+    number | null
+  >(null);
   const [packages, setPackages] = useState<PackageEntry[]>([]);
   const [showPackageModal, setShowPackageModal] = useState(false);
-  const [editingPackageIndex, setEditingPackageIndex] = useState<number | null>(null);
+  const [editingPackageIndex, setEditingPackageIndex] = useState<number | null>(
+    null,
+  );
   const [packageDraft, setPackageDraft] = useState<ListingPackageRequest>({
     weight_kg: "",
     height_cm: "",
@@ -184,7 +202,9 @@ export function ListingForm() {
     length_cm: "",
     description: "",
   });
-  const [packageDraftErrors, setPackageDraftErrors] = useState<Record<string, string>>({});
+  const [packageDraftErrors, setPackageDraftErrors] = useState<
+    Record<string, string>
+  >({});
 
   const draftKey = isEditMode ? `listing_draft_${id}` : "listing_draft";
 
@@ -222,7 +242,9 @@ export function ListingForm() {
       setStripeCheckError(false);
       try {
         const status = await stripeConnectService.getAccountStatus();
-        setStripeConnected(status.has_account && status.ready_to_receive_payments);
+        setStripeConnected(
+          status.has_account && status.ready_to_receive_payments,
+        );
       } catch {
         setStripeCheckError(true);
       } finally {
@@ -335,11 +357,15 @@ export function ListingForm() {
 
   useEffect(() => {
     if (isEditMode) return;
-
     try {
       const saved = localStorage.getItem(draftKey);
       if (saved) {
         const draft: DraftData = JSON.parse(saved);
+        // Skip if draft has no meaningful content (e.g., stale empty after discard)
+        if (isDraftEmpty(draft.formData, draft.packages ?? [])) {
+          localStorage.removeItem(draftKey);
+          return;
+        }
         draftStepRef.current = draft.step ?? 1;
         draftJustLoadedRef.current = true;
         setHasDraft(true);
@@ -349,7 +375,7 @@ export function ListingForm() {
             draft.packages.map((pkg) => ({
               ...pkg,
               _key: (pkg as PackageEntry)._key ?? crypto.randomUUID(),
-            }))
+            })),
           );
         }
       }
@@ -389,6 +415,11 @@ export function ListingForm() {
 
   const saveDraft = useCallback(() => {
     if (isEditMode) return;
+    if (isDraftEmpty(formData, packages)) {
+      // Nothing meaningful to save; ensure no stale draft remains
+      localStorage.removeItem(draftKey);
+      return;
+    }
 
     try {
       const draft: DraftData = {
@@ -480,7 +511,8 @@ export function ListingForm() {
           description: listing.description,
           price: listing.price,
           quantity: String(listing.quantity),
-          shipping_method: (listing.shipping_method || "both") as ShippingMethod,
+          shipping_method: (listing.shipping_method ||
+            "both") as ShippingMethod,
         });
         if (listing.packages && listing.packages.length > 0) {
           setPackages(
@@ -491,17 +523,19 @@ export function ListingForm() {
               length_cm: pkg.length_cm || "",
               description: pkg.description || "",
               _key: crypto.randomUUID(),
-            }))
+            })),
           );
         } else if (listing.weight_kg) {
-          setPackages([{
-            weight_kg: listing.weight_kg || "",
-            height_cm: listing.height_cm || "",
-            width_cm: listing.width_cm || "",
-            length_cm: listing.length_cm || "",
-            description: "",
-            _key: crypto.randomUUID(),
-          }]);
+          setPackages([
+            {
+              weight_kg: listing.weight_kg || "",
+              height_cm: listing.height_cm || "",
+              width_cm: listing.width_cm || "",
+              length_cm: listing.length_cm || "",
+              description: "",
+              _key: crypto.randomUUID(),
+            },
+          ]);
         }
         setSelectedProduct({
           id: listing.product.id,
@@ -640,7 +674,11 @@ export function ListingForm() {
   }, [loadingMoreProducts, hasMoreProducts, productsPage]);
 
   const validateCurrentStep = (step: number): boolean => {
-    const newErrors = validateStepHelper(step, formData, step === 6 ? packages : undefined);
+    const newErrors = validateStepHelper(
+      step,
+      formData,
+      step === 6 ? packages : undefined,
+    );
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -842,10 +880,11 @@ export function ListingForm() {
   );
 
   const buildListingData = useCallback(
-    () => buildListingDataHelper(
-      formData,
-      packages.map(({ _key: _, ...pkg }) => pkg)
-    ),
+    () =>
+      buildListingDataHelper(
+        formData,
+        packages.map(({ _key: _, ...pkg }) => pkg),
+      ),
     [formData, packages],
   );
 
@@ -887,7 +926,12 @@ export function ListingForm() {
         setErrors({});
         setUploadError(null);
       } catch (err: unknown) {
-        const e = err as { response?: { data?: { detail?: string; non_field_errors?: string[] } }; message?: string };
+        const e = err as {
+          response?: {
+            data?: { detail?: string; non_field_errors?: string[] };
+          };
+          message?: string;
+        };
         const message =
           e.response?.data?.detail ||
           e.response?.data?.non_field_errors?.[0] ||
@@ -944,7 +988,11 @@ export function ListingForm() {
         // ── Edit mode ────────────────────────────────────────────────────
         const allErrors: Record<string, string> = {};
         for (let step = 1; step <= 6; step++) {
-          const stepErrors = validateStepHelper(step, formData, step === 6 ? packages : undefined);
+          const stepErrors = validateStepHelper(
+            step,
+            formData,
+            step === 6 ? packages : undefined,
+          );
           Object.assign(allErrors, stepErrors);
         }
         if (Object.keys(allErrors).length > 0) {
@@ -1056,7 +1104,10 @@ export function ListingForm() {
       navigate("/dashboard");
     } catch (err: unknown) {
       console.error("Erro ao salvar anúncio:", err);
-      const e = err as { response?: { data?: { detail?: string; non_field_errors?: string[] } }; message?: string };
+      const e = err as {
+        response?: { data?: { detail?: string; non_field_errors?: string[] } };
+        message?: string;
+      };
       const message =
         e.response?.data?.detail ||
         e.response?.data?.non_field_errors?.[0] ||
@@ -1079,15 +1130,23 @@ export function ListingForm() {
 
   if (meCheckLoading) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl p-10 max-w-sm w-full text-center">
-          <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
-            <Loader2 className="h-8 w-8 animate-spin text-blue-900" />
+      <div className="min-h-screen bg-bg-0 flex items-center justify-center p-4">
+        <div
+          className="bg-bg-1 border border-white/10 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] p-10 max-w-sm w-full text-center"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="w-16 h-16 bg-gold/10 border border-gold/30 rounded-2xl flex items-center justify-center mx-auto mb-5">
+            <Loader2
+              size={28}
+              className="animate-spin text-gold"
+              aria-hidden="true"
+            />
           </div>
-          <h2 className="text-lg font-bold text-gray-900 mb-1">
+          <h2 className="font-display text-xl font-bold text-ink-1 tracking-[-0.02em] mb-2">
             Verificando conexão
           </h2>
-          <p className="text-sm text-gray-500">
+          <p className="text-ink-2 text-sm leading-relaxed">
             Aguarde enquanto verificamos sua conta Melhor Envio…
           </p>
         </div>
@@ -1097,29 +1156,40 @@ export function ListingForm() {
 
   if (meCheckError) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden max-w-sm w-full">
-          <div className="bg-linear-to-r from-blue-900 to-gray-900 p-8 text-white text-center">
-            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
-              <AlertCircle size={32} className="text-white" />
+      <div className="min-h-screen bg-bg-0 flex items-center justify-center p-4">
+        <div
+          className="bg-bg-1 border border-white/10 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] overflow-hidden max-w-sm w-full"
+          role="alert"
+        >
+          <div className="bg-bg-2 p-6 md:p-8 border-b border-white/10 text-center">
+            <div className="w-16 h-16 bg-red-500/10 border border-red-500/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <AlertCircle
+                size={28}
+                className="text-red-400"
+                aria-hidden="true"
+              />
             </div>
-            <h2 className="text-xl font-bold mb-1">Erro de conexão</h2>
-            <p className="text-blue-100 text-sm">Melhor Envio</p>
+            <h2 className="font-display text-xl md:text-2xl font-bold text-ink-1 tracking-[-0.02em] mb-1">
+              Erro de conexão
+            </h2>
+            <p className="text-ink-2 text-sm">Melhor Envio</p>
           </div>
-          <div className="p-8 text-center">
-            <p className="text-gray-600 text-sm mb-6">
+          <div className="p-6 md:p-8 text-center space-y-3">
+            <p className="text-ink-2 text-sm leading-relaxed mb-3">
               Não foi possível verificar sua conexão com o Melhor Envio.
               Verifique sua conexão e tente novamente.
             </p>
             <button
+              type="button"
               onClick={() => window.location.reload()}
-              className="w-full px-6 py-3 bg-blue-900 text-white rounded-xl font-semibold hover:bg-blue-800 active:bg-blue-950 transition cursor-pointer"
+              className="w-full px-6 py-3 bg-gold text-gold-deep rounded-xl font-semibold text-sm hover:bg-gold/90 active:bg-gold/80 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1"
             >
               Tentar novamente
             </button>
             <button
+              type="button"
               onClick={() => navigate(-1)}
-              className="block w-full mt-3 py-2.5 text-sm text-gray-500 hover:text-gray-700 transition cursor-pointer"
+              className="block w-full py-2.5 text-sm text-ink-2 hover:text-ink-1 transition-colors"
             >
               Voltar
             </button>
@@ -1131,31 +1201,42 @@ export function ListingForm() {
 
   if (!meConnected) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden w-full max-w-xs mx-auto">
-          <div className="bg-linear-to-r from-blue-900 to-gray-900 p-8 text-white text-center">
-            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
-              <Package size={32} className="text-white" />
+      <div className="min-h-screen bg-bg-0 flex items-center justify-center p-4">
+        <div className="bg-bg-1 border border-white/10 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] overflow-hidden w-full max-w-md mx-auto">
+          <div className="bg-bg-2 p-6 md:p-8 border-b border-white/10 text-center">
+            <div className="w-16 h-16 bg-gold/10 border border-gold/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Package size={28} className="text-gold" aria-hidden="true" />
             </div>
-            <h2 className="text-xl font-bold mb-1">Conecte o Melhor Envio</h2>
-            <p className="text-blue-100 text-sm">
+            <h2 className="font-display text-xl md:text-2xl font-bold text-ink-1 tracking-[-0.02em] mb-1">
+              Conecte o Melhor Envio
+            </h2>
+            <p className="text-ink-2 text-sm">
               Necessário para anunciar produtos
             </p>
           </div>
-          <div className="p-8 text-center">
+          <div className="p-6 md:p-8 text-center">
             {mePolling ? (
               <>
-                <div className="flex items-center justify-center gap-2 mb-3">
-                  <Loader2 size={20} className="animate-spin text-blue-900" />
-                  <p className="text-sm font-semibold text-gray-800">
+                <div
+                  className="flex items-center justify-center gap-2 mb-3"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <Loader2
+                    size={20}
+                    className="animate-spin text-gold"
+                    aria-hidden="true"
+                  />
+                  <p className="text-sm font-semibold text-ink-1">
                     Aguardando autorização…
                   </p>
                 </div>
-                <p className="text-xs text-gray-500 mb-6">
+                <p className="text-xs text-ink-3 mb-6 leading-relaxed">
                   Conclua a autorização na janela do Melhor Envio que foi
                   aberta. Esta tela atualizará automaticamente.
                 </p>
                 <button
+                  type="button"
                   onClick={() => {
                     if (mePollingIntervalRef.current) {
                       clearInterval(mePollingIntervalRef.current);
@@ -1166,37 +1247,42 @@ export function ListingForm() {
                     }
                     setMePolling(false);
                   }}
-                  className="w-full px-6 py-2.5 border border-gray-200 text-gray-600 rounded-xl text-sm font-medium hover:bg-gray-50 transition cursor-pointer"
+                  className="w-full px-6 py-2.5 bg-bg-2 border border-white/10 text-ink-1 rounded-xl text-sm font-medium hover:bg-bg-3 hover:border-white/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1"
                 >
                   Cancelar
                 </button>
               </>
             ) : (
               <>
-                <p className="text-gray-600 text-sm mb-6">
+                <p className="text-ink-2 text-sm leading-relaxed mb-6">
                   Para anunciar produtos você precisa conectar sua conta do
                   Melhor Envio. Isso nos permite calcular fretes e processar
                   envios para seus compradores.
                 </p>
                 {meConnectUrl ? (
                   <button
+                    type="button"
                     onClick={startMeConnection}
-                    className="inline-flex items-center justify-center gap-2 w-full px-6 py-3 bg-blue-900 text-white rounded-xl font-semibold hover:bg-blue-800 active:bg-blue-950 transition cursor-pointer"
+                    className="inline-flex items-center justify-center gap-2 w-full px-6 py-3 bg-gold text-gold-deep rounded-xl font-semibold text-sm hover:bg-gold/90 active:bg-gold/80 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1"
                   >
-                    <ExternalLink size={18} />
+                    <ExternalLink size={18} aria-hidden="true" />
                     Conectar Melhor Envio
                   </button>
                 ) : (
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-                    <p className="text-sm text-amber-700">
+                  <div
+                    role="alert"
+                    className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3"
+                  >
+                    <p className="text-sm text-red-400">
                       Não foi possível obter o link de conexão. Entre em contato
                       com o suporte.
                     </p>
                   </div>
                 )}
                 <button
+                  type="button"
                   onClick={() => navigate(-1)}
-                  className="block w-full mt-3 py-2.5 text-sm text-gray-500 hover:text-gray-700 transition cursor-pointer"
+                  className="block w-full mt-3 py-2.5 text-sm text-ink-2 hover:text-ink-1 transition-colors"
                 >
                   Voltar
                 </button>
@@ -1214,15 +1300,23 @@ export function ListingForm() {
 
   if (stripeCheckLoading) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl p-10 max-w-sm w-full text-center">
-          <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
-            <Loader2 className="h-8 w-8 animate-spin text-blue-900" />
+      <div className="min-h-screen bg-bg-0 flex items-center justify-center p-4">
+        <div
+          className="bg-bg-1 border border-white/10 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] p-10 max-w-sm w-full text-center"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="w-16 h-16 bg-gold/10 border border-gold/30 rounded-2xl flex items-center justify-center mx-auto mb-5">
+            <Loader2
+              size={28}
+              className="animate-spin text-gold"
+              aria-hidden="true"
+            />
           </div>
-          <h2 className="text-lg font-bold text-gray-900 mb-1">
+          <h2 className="font-display text-xl font-bold text-ink-1 tracking-[-0.02em] mb-2">
             Verificando conexão
           </h2>
-          <p className="text-sm text-gray-500">
+          <p className="text-ink-2 text-sm leading-relaxed">
             Verificando conta Stripe…
           </p>
         </div>
@@ -1232,29 +1326,40 @@ export function ListingForm() {
 
   if (stripeCheckError) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden max-w-sm w-full">
-          <div className="bg-linear-to-r from-blue-900 to-gray-900 p-8 text-white text-center">
-            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
-              <AlertCircle size={32} className="text-white" />
+      <div className="min-h-screen bg-bg-0 flex items-center justify-center p-4">
+        <div
+          className="bg-bg-1 border border-white/10 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] overflow-hidden max-w-sm w-full"
+          role="alert"
+        >
+          <div className="bg-bg-2 p-6 md:p-8 border-b border-white/10 text-center">
+            <div className="w-16 h-16 bg-red-500/10 border border-red-500/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <AlertCircle
+                size={28}
+                className="text-red-400"
+                aria-hidden="true"
+              />
             </div>
-            <h2 className="text-xl font-bold mb-1">Erro de conexão</h2>
-            <p className="text-blue-100 text-sm">Stripe Connect</p>
+            <h2 className="font-display text-xl md:text-2xl font-bold text-ink-1 tracking-[-0.02em] mb-1">
+              Erro de conexão
+            </h2>
+            <p className="text-ink-2 text-sm">Stripe Connect</p>
           </div>
-          <div className="p-8 text-center">
-            <p className="text-gray-600 text-sm mb-6">
-              Não foi possível verificar sua conta Stripe. Verifique sua
-              conexão e tente novamente.
+          <div className="p-6 md:p-8 text-center space-y-3">
+            <p className="text-ink-2 text-sm leading-relaxed mb-3">
+              Não foi possível verificar sua conta Stripe. Verifique sua conexão
+              e tente novamente.
             </p>
             <button
+              type="button"
               onClick={() => window.location.reload()}
-              className="w-full px-6 py-3 bg-blue-900 text-white rounded-xl font-semibold hover:bg-blue-800 active:bg-blue-950 transition cursor-pointer"
+              className="w-full px-6 py-3 bg-gold text-gold-deep rounded-xl font-semibold text-sm hover:bg-gold/90 active:bg-gold/80 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1"
             >
               Tentar novamente
             </button>
             <button
+              type="button"
               onClick={() => navigate(-1)}
-              className="block w-full mt-3 py-2.5 text-sm text-gray-500 hover:text-gray-700 transition cursor-pointer"
+              className="block w-full py-2.5 text-sm text-ink-2 hover:text-ink-1 transition-colors"
             >
               Voltar
             </button>
@@ -1266,43 +1371,51 @@ export function ListingForm() {
 
   if (!stripeConnected) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden w-full max-w-xs mx-auto">
-          <div className="bg-linear-to-r from-blue-900 to-gray-900 p-8 text-white text-center">
-            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
-              <CreditCard size={32} className="text-white" />
+      <div className="min-h-screen bg-bg-0 flex items-center justify-center p-4">
+        <div className="bg-bg-1 border border-white/10 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] overflow-hidden w-full max-w-md mx-auto">
+          <div className="bg-bg-2 p-6 md:p-8 border-b border-white/10 text-center">
+            <div className="w-16 h-16 bg-gold/10 border border-gold/30 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <CreditCard size={28} className="text-gold" aria-hidden="true" />
             </div>
-            <h2 className="text-xl font-bold mb-1">Conecte sua conta Stripe</h2>
-            <p className="text-blue-100 text-sm">
+            <h2 className="font-display text-xl md:text-2xl font-bold text-ink-1 tracking-[-0.02em] mb-1">
+              Conecte sua conta Stripe
+            </h2>
+            <p className="text-ink-2 text-sm">
               Necessário para receber pagamentos
             </p>
           </div>
-          <div className="p-8 text-center">
-            <p className="text-gray-600 text-sm mb-6">
+          <div className="p-6 md:p-8 text-center">
+            <p className="text-ink-2 text-sm leading-relaxed mb-6">
               Para anunciar produtos você precisa conectar uma conta Stripe.
               Isso nos permite processar pagamentos e repassar os valores das
               suas vendas.
             </p>
             <button
+              type="button"
               onClick={startStripeOnboarding}
               disabled={stripeOnboardingLoading}
-              className="inline-flex items-center justify-center gap-2 w-full px-6 py-3 bg-blue-900 text-white rounded-xl font-semibold hover:bg-blue-800 active:bg-blue-950 transition disabled:opacity-50 cursor-pointer"
+              className="inline-flex items-center justify-center gap-2 w-full px-6 py-3 bg-gold text-gold-deep rounded-xl font-semibold text-sm hover:bg-gold/90 active:bg-gold/80 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {stripeOnboardingLoading ? (
                 <>
-                  <Loader2 size={18} className="animate-spin" />
+                  <Loader2
+                    size={18}
+                    className="animate-spin"
+                    aria-hidden="true"
+                  />
                   Aguarde...
                 </>
               ) : (
                 <>
-                  <CreditCard size={18} />
+                  <CreditCard size={18} aria-hidden="true" />
                   Conectar Stripe
                 </>
               )}
             </button>
             <button
+              type="button"
               onClick={() => navigate(-1)}
-              className="block w-full mt-3 py-2.5 text-sm text-gray-500 hover:text-gray-700 transition cursor-pointer"
+              className="block w-full mt-3 py-2.5 text-sm text-ink-2 hover:text-ink-1 transition-colors"
             >
               Voltar
             </button>
@@ -1318,13 +1431,25 @@ export function ListingForm() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-black via-gray-800 to-blue-900 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-2xl p-10 max-w-sm w-full text-center">
-          <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-5">
-            <Loader2 className="h-8 w-8 animate-spin text-blue-900" />
+      <div className="min-h-screen bg-bg-0 flex items-center justify-center p-4">
+        <div
+          className="bg-bg-1 border border-white/10 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] p-10 max-w-sm w-full text-center"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="w-16 h-16 bg-gold/10 border border-gold/30 rounded-2xl flex items-center justify-center mx-auto mb-5">
+            <Loader2
+              size={28}
+              className="animate-spin text-gold"
+              aria-hidden="true"
+            />
           </div>
-          <h2 className="text-lg font-bold text-gray-900 mb-1">Carregando</h2>
-          <p className="text-sm text-gray-500">Preparando o formulário…</p>
+          <h2 className="font-display text-xl font-bold text-ink-1 tracking-[-0.02em] mb-2">
+            Carregando
+          </h2>
+          <p className="text-ink-2 text-sm leading-relaxed">
+            Preparando o formulário…
+          </p>
         </div>
       </div>
     );
@@ -1338,29 +1463,30 @@ export function ListingForm() {
   // ============================================
 
   return (
-    <div className="min-h-screen bg-blue-900 pb-24">
-      {/* Page banner — mirrors dashboard header style */}
-      <div className="relative bg-linear-to-br from-primary via-primary to-secundary overflow-hidden">
+    <div className="min-h-screen bg-bg-0 pb-24">
+      {/* Page banner */}
+      <div className="relative bg-bg-1 border-b border-white/10 overflow-hidden">
         <div
-          className="absolute inset-0 opacity-10"
+          className="absolute inset-0 opacity-40"
           style={{
             backgroundImage:
-              "radial-gradient(circle at 20% 50%, #1761b9 0%, transparent 60%), radial-gradient(circle at 80% 20%, #1761b9 0%, transparent 50%)",
+              "radial-gradient(circle at 20% 50%, rgba(245, 158, 11, 0.08) 0%, transparent 60%), radial-gradient(circle at 80% 20%, rgba(245, 158, 11, 0.05) 0%, transparent 50%)",
           }}
           aria-hidden="true"
         />
         <div className="relative max-w-2xl mx-auto px-4 sm:px-6 py-7">
           <button
+            type="button"
             onClick={() => navigate(-1)}
-            className="flex items-center gap-1.5 text-white/60 hover:text-white transition text-sm mb-4 cursor-pointer"
+            className="inline-flex items-center gap-1.5 text-ink-2 hover:text-ink-1 transition-colors text-sm mb-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1 rounded-md px-1 -ml-1"
           >
-            <ArrowLeft size={15} />
+            <ArrowLeft size={15} aria-hidden="true" />
             Voltar ao painel
           </button>
-          <h1 className="text-xl font-bold text-white">
+          <h1 className="font-display text-2xl md:text-3xl font-bold text-ink-1 tracking-[-0.02em]">
             {isEditMode ? "Editar Anúncio" : "Criar Anúncio"}
           </h1>
-          <p className="text-white/60 text-xs mt-0.5">
+          <p className="text-ink-2 text-sm mt-1.5 leading-relaxed">
             {isEditMode
               ? "Atualize as informações do seu anúncio"
               : "Preencha as informações para publicar seu produto"}
@@ -1371,16 +1497,19 @@ export function ListingForm() {
       <div className="w-full max-w-xl mx-auto px-4 sm:px-6 mt-5">
         {/* Draft notice */}
         {hasDraft && !isEditMode && (
-          <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <div
+            role="status"
+            className="mb-4 bg-bg-1 border border-gold/30 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] p-4"
+          >
             <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0 mt-0.5">
-                <FileText size={15} className="text-amber-700" />
+              <div className="w-10 h-10 rounded-xl bg-gold/10 border border-gold/30 flex items-center justify-center shrink-0 mt-0.5">
+                <FileText size={16} className="text-gold" aria-hidden="true" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-amber-800 text-sm leading-tight">
+                <p className="font-semibold text-ink-1 text-sm leading-tight">
                   Rascunho encontrado
                 </p>
-                <p className="text-amber-700 text-xs mt-0.5">
+                <p className="text-ink-2 text-xs mt-1 leading-relaxed">
                   Você tem um rascunho salvo em "
                   {STEP_NAMES[draftStepRef.current] ??
                     `Passo ${draftStepRef.current}`}
@@ -1390,18 +1519,20 @@ export function ListingForm() {
             </div>
             <div className="flex gap-2 mt-3">
               <button
+                type="button"
                 onClick={() => {
                   draftJustLoadedRef.current = false;
                   setCurrentStep(draftStepRef.current);
                   setHasDraft(false);
                 }}
-                className="flex-1 text-xs px-3 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 active:bg-amber-800 transition font-medium cursor-pointer"
+                className="flex-1 text-xs px-3 py-2 bg-gold text-gold-deep rounded-xl font-semibold hover:bg-gold/90 active:bg-gold/80 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-0"
               >
                 Continuar rascunho
               </button>
               <button
+                type="button"
                 onClick={discardDraft}
-                className="flex-1 text-xs px-3 py-2 bg-white border border-amber-300 text-amber-700 rounded-lg hover:bg-amber-50 active:bg-amber-100 transition font-medium cursor-pointer"
+                className="flex-1 text-xs px-3 py-2 bg-bg-2 border border-white/10 text-ink-1 rounded-xl font-medium hover:bg-bg-3 hover:border-white/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-0"
               >
                 Descartar
               </button>
@@ -1425,10 +1556,10 @@ export function ListingForm() {
                   key={step}
                   className={`rounded-full transition-all duration-300 ${
                     step === currentStep
-                      ? "w-7 h-2 bg-white"
+                      ? "w-7 h-2 bg-gold"
                       : step < currentStep
-                        ? "w-2 h-2 bg-white/50"
-                        : "w-2 h-2 bg-white/20"
+                        ? "w-2 h-2 bg-gold/50"
+                        : "w-2 h-2 bg-white/10"
                   }`}
                   title={STEP_NAMES[step]}
                   aria-hidden="true"
@@ -1436,24 +1567,24 @@ export function ListingForm() {
               ),
             )}
           </div>
-          <p className="text-center text-xs text-white/50">
+          <p className="text-center text-xs text-ink-3">
             {currentStep} de {TOTAL_STEPS} — {STEP_NAMES[currentStep]}
           </p>
         </div>
 
         {/* Form card */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+        <div className="bg-bg-1 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] border border-white/10">
           {/* Step header */}
-          <div className="px-6 pt-6 pb-4 border-b border-gray-100">
+          <div className="px-6 pt-6 pb-4 border-b border-white/10">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center shrink-0">
-                <StepIcon size={20} className="text-blue-900" />
+              <div className="w-10 h-10 bg-gold/10 border border-gold/30 rounded-xl flex items-center justify-center shrink-0">
+                <StepIcon size={20} className="text-gold" aria-hidden="true" />
               </div>
               <div>
-                <h2 className="text-lg font-bold text-gray-900 leading-tight">
+                <h2 className="font-display text-lg md:text-xl font-bold text-ink-1 tracking-[-0.02em] leading-tight">
                   {STEP_NAMES[currentStep]}
                 </h2>
-                <p className="text-xs text-gray-400 mt-0.5">
+                <p className="text-xs text-ink-3 mt-0.5">
                   Passo {currentStep} de {TOTAL_STEPS}
                 </p>
               </div>
@@ -1465,7 +1596,7 @@ export function ListingForm() {
               {/* STEP 1 — Produto */}
               {currentStep === 1 && (
                 <div className="space-y-4">
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-ink-2 leading-relaxed">
                     Selecione o produto que você está anunciando.
                   </p>
 
@@ -1473,32 +1604,34 @@ export function ListingForm() {
                   <div className="relative">
                     <Search
                       size={16}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none"
+                      aria-hidden="true"
                     />
                     <input
                       type="text"
                       placeholder="Buscar produto…"
                       value={productSearch}
                       onChange={(e) => handleProductSearch(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                      className="w-full pl-9 pr-4 py-2.5 bg-bg-2 border border-white/10 rounded-xl text-ink-1 placeholder:text-ink-3 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors"
                     />
                     {searchingProducts && (
                       <Loader2
                         size={16}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-gray-400"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-gold"
+                        aria-hidden="true"
                       />
                     )}
                   </div>
 
                   {/* Selected product */}
                   {selectedProduct && (
-                    <div className="flex items-center justify-between bg-blue-50 border border-blue-100 rounded-xl px-4 py-3">
-                      <div>
-                        <p className="text-sm font-semibold text-blue-900">
+                    <div className="flex items-center justify-between bg-gold/10 border border-gold/30 rounded-xl px-4 py-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-ink-1 truncate">
                           {selectedProduct.name}
                         </p>
                         {selectedProduct.code && (
-                          <p className="text-xs text-blue-600">
+                          <p className="text-xs text-gold mt-0.5">
                             {selectedProduct.code}
                           </p>
                         )}
@@ -1506,28 +1639,29 @@ export function ListingForm() {
                       <button
                         type="button"
                         onClick={clearProduct}
-                        className="text-blue-400 hover:text-blue-700 transition cursor-pointer"
+                        className="text-ink-3 hover:text-ink-1 transition-colors shrink-0 ml-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 rounded"
+                        aria-label="Remover produto selecionado"
                       >
-                        <X size={18} />
+                        <X size={18} aria-hidden="true" />
                       </button>
                     </div>
                   )}
 
                   {/* Search results */}
                   {productSearch && productResults.length > 0 && (
-                    <div className="border border-gray-200 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
+                    <div className="border border-white/10 bg-bg-2 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
                       {productResults.map((product) => (
                         <button
                           key={product.id}
                           type="button"
                           onClick={() => selectProduct(product)}
-                          className="w-full text-left px-4 py-3 hover:bg-gray-50 transition border-b border-gray-100 last:border-0 cursor-pointer"
+                          className="w-full text-left px-4 py-3 hover:bg-bg-3 transition-colors border-b border-white/10 last:border-0 focus:outline-none focus-visible:bg-bg-3"
                         >
-                          <p className="text-sm font-medium text-gray-900">
+                          <p className="text-sm font-medium text-ink-1">
                             {product.name}
                           </p>
                           {product.code && (
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-ink-3 mt-0.5">
                               {product.code}
                             </p>
                           )}
@@ -1538,19 +1672,19 @@ export function ListingForm() {
 
                   {/* All products list */}
                   {!productSearch && !selectedProduct && (
-                    <div className="border border-gray-200 rounded-xl overflow-hidden max-h-60 overflow-y-auto">
+                    <div className="border border-white/10 bg-bg-2 rounded-xl overflow-hidden max-h-60 overflow-y-auto">
                       {allProducts.map((product) => (
                         <button
                           key={product.id}
                           type="button"
                           onClick={() => selectProduct(product)}
-                          className="w-full text-left px-4 py-3 hover:bg-gray-50 transition border-b border-gray-100 last:border-0 cursor-pointer"
+                          className="w-full text-left px-4 py-3 hover:bg-bg-3 transition-colors border-b border-white/10 last:border-0 focus:outline-none focus-visible:bg-bg-3"
                         >
-                          <p className="text-sm font-medium text-gray-900">
+                          <p className="text-sm font-medium text-ink-1">
                             {product.name}
                           </p>
                           {product.code && (
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-ink-3 mt-0.5">
                               {product.code}
                             </p>
                           )}
@@ -1561,12 +1695,13 @@ export function ListingForm() {
                           type="button"
                           onClick={loadMoreProducts}
                           disabled={loadingMoreProducts}
-                          className="w-full py-3 text-sm text-blue-900 font-medium hover:bg-gray-50 transition disabled:opacity-50 cursor-pointer"
+                          className="w-full py-3 text-sm text-gold font-medium hover:bg-bg-3 transition-colors disabled:opacity-50 focus:outline-none focus-visible:bg-bg-3"
                         >
                           {loadingMoreProducts ? (
                             <Loader2
                               size={16}
                               className="animate-spin mx-auto"
+                              aria-hidden="true"
                             />
                           ) : (
                             "Carregar mais"
@@ -1577,7 +1712,9 @@ export function ListingForm() {
                   )}
 
                   {errors.product && (
-                    <p className="text-sm text-red-500">{errors.product}</p>
+                    <p role="alert" className="text-sm text-red-400">
+                      {errors.product}
+                    </p>
                   )}
                 </div>
               )}
@@ -1585,25 +1722,31 @@ export function ListingForm() {
               {/* STEP 2 — Título */}
               {currentStep === 2 && (
                 <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label
+                    htmlFor="listing-title"
+                    className="block text-sm font-medium text-ink-1"
+                  >
                     Título do anúncio
                   </label>
                   <input
+                    id="listing-title"
                     type="text"
                     name="title"
                     value={formData.title}
                     onChange={handleChange}
                     maxLength={150}
                     placeholder="Ex: Monitor Ultrawide LG 34'' 144Hz"
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                    className="w-full px-4 py-2.5 bg-bg-2 border border-white/10 rounded-xl text-ink-1 placeholder:text-ink-3 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors"
                   />
                   <div className="flex items-center justify-between">
                     {errors.title ? (
-                      <p className="text-sm text-red-500">{errors.title}</p>
+                      <p role="alert" className="text-sm text-red-400">
+                        {errors.title}
+                      </p>
                     ) : (
                       <span />
                     )}
-                    <p className="text-xs text-gray-400">
+                    <p className="text-xs text-ink-3">
                       {formData.title.length}/150
                     </p>
                   </div>
@@ -1613,27 +1756,41 @@ export function ListingForm() {
               {/* STEP 3 — Descrição */}
               {currentStep === 3 && (
                 <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label
+                    htmlFor="listing-description"
+                    className="block text-sm font-medium text-ink-1"
+                  >
                     Descrição
                   </label>
                   <textarea
+                    id="listing-description"
                     name="description"
                     value={formData.description}
                     onChange={handleChange}
                     maxLength={255}
                     rows={5}
-                    placeholder="Descreva o produto com detalhes relevantes…"
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition resize-none"
+                    placeholder="Descreva o produto com detalhes relevantes (mínimo 30 caracteres)…"
+                    className="w-full px-4 py-2.5 bg-bg-2 border border-white/10 rounded-xl text-ink-1 placeholder:text-ink-3 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors resize-none"
                   />
                   <div className="flex items-center justify-between">
                     {errors.description ? (
-                      <p className="text-sm text-red-500">
+                      <p role="alert" className="text-sm text-red-400">
                         {errors.description}
                       </p>
                     ) : (
-                      <span />
+                      <p
+                        className={`text-xs transition-colors ${
+                          formData.description.trim().length >= 30
+                            ? "text-emerald-400"
+                            : "text-ink-3"
+                        }`}
+                      >
+                        {formData.description.trim().length < 30
+                          ? `Mínimo 30 caracteres • ${formData.description.trim().length}/30`
+                          : "Mínimo atingido ✓"}
+                      </p>
                     )}
-                    <p className="text-xs text-gray-400">
+                    <p className="text-xs text-ink-3">
                       {formData.description.length}/255
                     </p>
                   </div>
@@ -1644,71 +1801,101 @@ export function ListingForm() {
               {currentStep === 4 && (
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <label className="block text-sm font-medium text-gray-700">
+                    <label
+                      htmlFor="listing-brand"
+                      className="block text-sm font-medium text-ink-1"
+                    >
                       Marca
                     </label>
-                    <select
-                      name="brand"
-                      value={formData.brand}
-                      onChange={handleChange}
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition bg-white"
-                    >
-                      <option value="">Selecione uma marca</option>
-                      {filterOptions?.brands.map((b) => (
-                        <option key={b.id} value={b.id}>
-                          {b.name}
+                    <div className="relative">
+                      <select
+                        id="listing-brand"
+                        name="brand"
+                        value={formData.brand}
+                        onChange={handleChange}
+                        className="w-full px-4 py-2.5 pr-10 bg-bg-2 border border-white/10 rounded-xl text-ink-1 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors appearance-none cursor-pointer"
+                      >
+                        <option value="" className="bg-bg-2 text-ink-3">
+                          Selecione uma marca
                         </option>
-                      ))}
-                    </select>
+                        {filterOptions?.brands.map((b) => (
+                          <option
+                            key={b.id}
+                            value={b.id}
+                            className="bg-bg-2 text-ink-1"
+                          >
+                            {b.name}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown
+                        size={16}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-3 pointer-events-none"
+                        aria-hidden="true"
+                      />
+                    </div>
                     {errors.brand && (
-                      <p className="text-sm text-red-500">{errors.brand}</p>
+                      <p role="alert" className="text-sm text-red-400">
+                        {errors.brand}
+                      </p>
                     )}
                   </div>
 
                   <div className="space-y-2">
-                    <label className="block text-sm font-medium text-gray-700">
+                    <span className="block text-sm font-medium text-ink-1">
                       Condição
-                    </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {filterOptions?.conditions.map((c) => (
-                        <label
-                          key={c.id}
-                          className={`flex items-center gap-3 px-4 py-3 border-2 rounded-xl cursor-pointer transition ${
-                            formData.condition === String(c.id)
-                              ? "border-blue-900 bg-blue-50"
-                              : "border-gray-200 hover:border-gray-300"
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name="condition"
-                            value={c.id}
-                            checked={formData.condition === String(c.id)}
-                            onChange={handleChange}
-                            className="sr-only"
-                          />
-                          {formData.condition === String(c.id) ? (
-                            <CheckCircle
-                              size={18}
-                              className="text-blue-900 shrink-0"
-                            />
-                          ) : (
-                            <div className="w-4.5 h-4.5 border-2 border-gray-300 rounded-full shrink-0" />
-                          )}
-                          <span
-                            className={`text-sm font-medium ${
-                              formData.condition === String(c.id)
-                                ? "text-blue-900"
-                                : "text-gray-700"
+                    </span>
+                    <div
+                      role="radiogroup"
+                      aria-label="Condição do produto"
+                      className="grid grid-cols-1 sm:grid-cols-2 gap-3"
+                    >
+                      {filterOptions?.conditions.map((c) => {
+                        const selected = formData.condition === String(c.id);
+                        return (
+                          <label
+                            key={c.id}
+                            className={`flex items-center gap-3 px-4 py-3 border rounded-xl cursor-pointer transition-colors ${
+                              selected
+                                ? "border-gold/50 bg-gold/10"
+                                : "border-white/10 bg-bg-2 hover:border-white/20 hover:bg-bg-3"
                             }`}
                           >
-                            {c.name}
-                          </span>
-                        </label>
-                      ))}
+                            <input
+                              type="radio"
+                              name="condition"
+                              value={c.id}
+                              checked={selected}
+                              onChange={handleChange}
+                              className="sr-only"
+                            />
+                            {selected ? (
+                              <CheckCircle
+                                size={18}
+                                className="text-gold shrink-0"
+                                aria-hidden="true"
+                              />
+                            ) : (
+                              <div
+                                className="w-4.5 h-4.5 border-2 border-white/20 rounded-full shrink-0"
+                                aria-hidden="true"
+                              />
+                            )}
+                            <span
+                              className={`text-sm font-medium ${
+                                selected ? "text-ink-1" : "text-ink-2"
+                              }`}
+                            >
+                              {c.name}
+                            </span>
+                          </label>
+                        );
+                      })}
                     </div>
                     {errors.condition && (
-                      <p className="text-sm text-red-500">{errors.condition}</p>
+                      <p role="alert" className="text-sm text-red-400">
+                        {errors.condition}
+                      </p>
                     )}
                   </div>
                 </div>
@@ -1718,14 +1905,21 @@ export function ListingForm() {
               {currentStep === 5 && (
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <label className="block text-sm font-medium text-gray-700">
+                    <label
+                      htmlFor="listing-price"
+                      className="block text-sm font-medium text-ink-1"
+                    >
                       Preço (R$)
                     </label>
                     <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
+                      <span
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3 text-sm pointer-events-none"
+                        aria-hidden="true"
+                      >
                         R$
                       </span>
                       <input
+                        id="listing-price"
                         type="number"
                         name="price"
                         value={formData.price}
@@ -1733,11 +1927,13 @@ export function ListingForm() {
                         min="0.01"
                         step="0.01"
                         placeholder="0,00"
-                        className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                        className="w-full pl-10 pr-4 py-2.5 bg-bg-2 border border-white/10 rounded-xl text-ink-1 placeholder:text-ink-3 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors"
                       />
                     </div>
                     {errors.price && (
-                      <p className="text-sm text-red-500">{errors.price}</p>
+                      <p role="alert" className="text-sm text-red-400">
+                        {errors.price}
+                      </p>
                     )}
                     {(() => {
                       const priceNum = Number(formData.price);
@@ -1754,35 +1950,38 @@ export function ListingForm() {
                           priceNum * (1 - platformFeePercentage / 100) * 100,
                         ) / 100;
                       return (
-                        <p className="text-sm text-green-700">
+                        <p className="text-sm text-emerald-400">
                           Você irá receber{" "}
-                          <span className="font-semibold">
+                          <span className="font-semibold text-ink-1">
                             R${" "}
                             {netValue.toLocaleString("pt-BR", {
                               minimumFractionDigits: 2,
                               maximumFractionDigits: 2,
                             })}
                           </span>{" "}
-                          <span className="text-green-600">
+                          <span className="text-ink-3">
                             (-{platformFeePercentage}%)
                           </span>
                         </p>
                       );
                     })()}
                   </div>
-
                   <div className="space-y-2">
-                    <label className="block text-sm font-medium text-gray-700">
+                    <label
+                      htmlFor="listing-quantity"
+                      className="block text-sm font-medium text-ink-1"
+                    >
                       Quantidade em estoque
                     </label>
                     <input
+                      id="listing-quantity"
                       type="number"
                       name="quantity"
                       value={formData.quantity}
                       onChange={handleChange}
                       min="1"
                       step="1"
-                      className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                      className="w-full px-4 py-2.5 bg-bg-2 border border-white/10 rounded-xl text-ink-1 placeholder:text-ink-3 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors"
                     />
                   </div>
                 </div>
@@ -1793,66 +1992,79 @@ export function ListingForm() {
                 <div className="space-y-6">
                   {/* Shipping Method */}
                   <div className="space-y-2">
-                    <label className="block text-sm font-medium text-gray-700">
+                    <span className="block text-sm font-medium text-ink-1">
                       Método de envio
-                    </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2" role="radiogroup" aria-label="Método de envio">
-                      {(
-                        [
-                          { value: "both" as ShippingMethod, label: "Ambos" },
-                          { value: "melhor_envio" as ShippingMethod, label: "Somente Melhor Envio" },
-                          { value: "in_person" as ShippingMethod, label: "Somente Presencial" },
-                        ]
-                      ).map((opt) => (
-                        <label
-                          key={opt.value}
-                          className={`flex items-center gap-2.5 px-4 py-3 border-2 rounded-xl cursor-pointer transition ${
-                            formData.shipping_method === opt.value
-                              ? "border-blue-900 bg-blue-50"
-                              : "border-gray-200 hover:border-gray-300"
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name="shipping_method"
-                            value={opt.value}
-                            checked={formData.shipping_method === opt.value}
-                            onChange={() =>
-                              setFormData((prev) => ({ ...prev, shipping_method: opt.value }))
-                            }
-                            className="sr-only"
-                          />
-                          <Truck
-                            size={16}
-                            className={
-                              formData.shipping_method === opt.value
-                                ? "text-blue-900 shrink-0"
-                                : "text-gray-400 shrink-0"
-                            }
-                          />
-                          <span
-                            className={`text-sm font-medium ${
-                              formData.shipping_method === opt.value
-                                ? "text-blue-900"
-                                : "text-gray-700"
+                    </span>
+                    <div
+                      className="grid grid-cols-1 sm:grid-cols-3 gap-2"
+                      role="radiogroup"
+                      aria-label="Método de envio"
+                    >
+                      {[
+                        { value: "both" as ShippingMethod, label: "Ambos" },
+                        {
+                          value: "melhor_envio" as ShippingMethod,
+                          label: "Somente Melhor Envio",
+                        },
+                        {
+                          value: "in_person" as ShippingMethod,
+                          label: "Somente Presencial",
+                        },
+                      ].map((opt) => {
+                        const selected = formData.shipping_method === opt.value;
+                        return (
+                          <label
+                            key={opt.value}
+                            className={`flex items-center gap-2.5 px-4 py-3 border rounded-xl cursor-pointer transition-colors ${
+                              selected
+                                ? "border-gold/50 bg-gold/10"
+                                : "border-white/10 bg-bg-2 hover:border-white/20 hover:bg-bg-3"
                             }`}
                           >
-                            {opt.label}
-                          </span>
-                        </label>
-                      ))}
+                            <input
+                              type="radio"
+                              name="shipping_method"
+                              value={opt.value}
+                              checked={selected}
+                              onChange={() =>
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  shipping_method: opt.value,
+                                }))
+                              }
+                              className="sr-only"
+                            />
+                            <Truck
+                              size={16}
+                              className={
+                                selected
+                                  ? "text-gold shrink-0"
+                                  : "text-ink-3 shrink-0"
+                              }
+                              aria-hidden="true"
+                            />
+                            <span
+                              className={`text-sm font-medium ${
+                                selected ? "text-ink-1" : "text-ink-2"
+                              }`}
+                            >
+                              {opt.label}
+                            </span>
+                          </label>
+                        );
+                      })}
                     </div>
                   </div>
 
                   {/* Package list */}
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <label className="block text-sm font-medium text-gray-700">
+                      <span className="block text-sm font-medium text-ink-1">
                         Pacotes{" "}
-                        <span className="text-gray-400 font-normal">
+                        <span className="text-ink-3 font-normal">
                           ({packages.length})
                         </span>
-                      </label>
+                      </span>
                       <button
                         type="button"
                         onClick={() => {
@@ -1867,28 +2079,35 @@ export function ListingForm() {
                           setEditingPackageIndex(null);
                           setShowPackageModal(true);
                         }}
-                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-blue-900 text-white rounded-lg hover:bg-blue-800 transition cursor-pointer"
+                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-gold text-gold-deep rounded-lg font-semibold hover:bg-gold/90 active:bg-gold/80 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1"
                       >
-                        <Plus size={14} />
+                        <Plus size={14} aria-hidden="true" />
                         Adicionar Pacote
                       </button>
                     </div>
 
-                    <p className="text-sm text-gray-500">
-                      Informe as dimensões de cada pacote que será enviado. Esses dados são usados para calcular o frete.
+                    <p className="text-sm text-ink-2 leading-relaxed">
+                      Informe as dimensões de cada pacote que será enviado.
+                      Esses dados são usados para calcular o frete.
                     </p>
 
                     {errors.packages && (
-                      <p className="text-sm text-red-500">{errors.packages}</p>
+                      <p role="alert" className="text-sm text-red-400">
+                        {errors.packages}
+                      </p>
                     )}
 
                     {packages.length === 0 && (
-                      <div className="border-2 border-dashed border-gray-200 rounded-xl py-8 text-center">
-                        <Package size={28} className="mx-auto text-gray-300 mb-2" />
-                        <p className="text-sm text-gray-400">
+                      <div className="border border-dashed border-white/10 bg-bg-2 rounded-xl py-8 text-center">
+                        <Package
+                          size={28}
+                          className="mx-auto text-ink-3 mb-2"
+                          aria-hidden="true"
+                        />
+                        <p className="text-sm text-ink-2">
                           Nenhum pacote adicionado ainda.
                         </p>
-                        <p className="text-xs text-gray-300 mt-0.5">
+                        <p className="text-xs text-ink-3 mt-0.5">
                           Clique em "+ Adicionar Pacote" para começar.
                         </p>
                       </div>
@@ -1897,19 +2116,19 @@ export function ListingForm() {
                     {packages.map((pkg, idx) => (
                       <div
                         key={pkg._key}
-                        className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-xl px-4 py-3"
+                        className="flex items-center justify-between bg-bg-2 border border-white/10 rounded-xl px-4 py-3"
                       >
-                        <div>
-                          <p className="text-sm font-medium text-gray-800">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-ink-1">
                             Pacote {idx + 1}
                           </p>
-                          <p className="text-xs text-gray-500 mt-0.5">
+                          <p className="text-xs text-ink-3 mt-0.5">
                             {pkg.weight_kg} kg · {pkg.height_cm}×{pkg.width_cm}×
                             {pkg.length_cm} cm
                             {pkg.description ? ` · ${pkg.description}` : ""}
                           </p>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0 ml-2">
                           <button
                             type="button"
                             onClick={() => {
@@ -1919,7 +2138,7 @@ export function ListingForm() {
                               setEditingPackageIndex(idx);
                               setShowPackageModal(true);
                             }}
-                            className="text-xs px-2.5 py-1 border border-gray-200 text-gray-600 rounded-lg hover:bg-white transition cursor-pointer"
+                            className="text-xs px-2.5 py-1 bg-bg-3 border border-white/10 text-ink-1 rounded-lg font-medium hover:border-white/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40"
                           >
                             Editar
                           </button>
@@ -1927,12 +2146,14 @@ export function ListingForm() {
                             type="button"
                             disabled={packages.length <= 1}
                             onClick={() =>
-                              setPackages((prev) => prev.filter((_, i) => i !== idx))
+                              setPackages((prev) =>
+                                prev.filter((_, i) => i !== idx),
+                              )
                             }
-                            className="p-1.5 text-gray-400 hover:text-red-500 transition disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                            title="Remover pacote"
+                            className="p-1.5 text-ink-3 hover:text-red-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 rounded"
+                            aria-label={`Remover pacote ${idx + 1}`}
                           >
-                            <Trash2 size={15} />
+                            <Trash2 size={15} aria-hidden="true" />
                           </button>
                         </div>
                       </div>
@@ -1941,14 +2162,23 @@ export function ListingForm() {
 
                   {/* Package modal */}
                   {showPackageModal && (
-                    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+                    <div
+                      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+                      role="dialog"
+                      aria-modal="true"
+                      aria-labelledby="package-modal-title"
+                    >
                       <div
-                        className="absolute inset-0 bg-black/40"
+                        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
                         onClick={() => setShowPackageModal(false)}
+                        aria-hidden="true"
                       />
-                      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+                      <div className="relative bg-bg-1 border border-white/10 rounded-2xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.5)] w-full max-w-sm p-6 space-y-4">
                         <div className="flex items-center justify-between">
-                          <h3 className="text-base font-bold text-gray-900">
+                          <h3
+                            id="package-modal-title"
+                            className="font-display text-base font-bold text-ink-1 tracking-[-0.02em]"
+                          >
                             {editingPackageIndex !== null
                               ? "Editar pacote"
                               : "Adicionar pacote"}
@@ -1956,18 +2186,23 @@ export function ListingForm() {
                           <button
                             type="button"
                             onClick={() => setShowPackageModal(false)}
-                            className="text-gray-400 hover:text-gray-600 transition cursor-pointer"
+                            className="text-ink-3 hover:text-ink-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 rounded"
+                            aria-label="Fechar modal"
                           >
-                            <X size={20} />
+                            <X size={20} aria-hidden="true" />
                           </button>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3">
                           <div className="space-y-1">
-                            <label className="block text-xs font-medium text-gray-700">
+                            <label
+                              htmlFor="pkg-weight"
+                              className="block text-xs font-medium text-ink-1"
+                            >
                               Peso (kg)
                             </label>
                             <input
+                              id="pkg-weight"
                               type="number"
                               value={packageDraft.weight_kg}
                               onChange={(e) => {
@@ -1985,19 +2220,23 @@ export function ListingForm() {
                               min="0.01"
                               step="0.01"
                               placeholder="0.00"
-                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                              className="w-full px-3 py-2 bg-bg-2 border border-white/10 rounded-lg text-ink-1 placeholder:text-ink-3 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors"
                             />
                             {packageDraftErrors.weight_kg && (
-                              <p className="text-xs text-red-500">
+                              <p role="alert" className="text-xs text-red-400">
                                 {packageDraftErrors.weight_kg}
                               </p>
                             )}
                           </div>
                           <div className="space-y-1">
-                            <label className="block text-xs font-medium text-gray-700">
+                            <label
+                              htmlFor="pkg-height"
+                              className="block text-xs font-medium text-ink-1"
+                            >
                               Altura (cm)
                             </label>
                             <input
+                              id="pkg-height"
                               type="number"
                               value={packageDraft.height_cm}
                               onChange={(e) => {
@@ -2015,19 +2254,23 @@ export function ListingForm() {
                               min="0.1"
                               step="0.1"
                               placeholder="0.0"
-                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                              className="w-full px-3 py-2 bg-bg-2 border border-white/10 rounded-lg text-ink-1 placeholder:text-ink-3 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors"
                             />
                             {packageDraftErrors.height_cm && (
-                              <p className="text-xs text-red-500">
+                              <p role="alert" className="text-xs text-red-400">
                                 {packageDraftErrors.height_cm}
                               </p>
                             )}
                           </div>
                           <div className="space-y-1">
-                            <label className="block text-xs font-medium text-gray-700">
+                            <label
+                              htmlFor="pkg-width"
+                              className="block text-xs font-medium text-ink-1"
+                            >
                               Largura (cm)
                             </label>
                             <input
+                              id="pkg-width"
                               type="number"
                               value={packageDraft.width_cm}
                               onChange={(e) => {
@@ -2045,19 +2288,23 @@ export function ListingForm() {
                               min="0.1"
                               step="0.1"
                               placeholder="0.0"
-                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                              className="w-full px-3 py-2 bg-bg-2 border border-white/10 rounded-lg text-ink-1 placeholder:text-ink-3 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors"
                             />
                             {packageDraftErrors.width_cm && (
-                              <p className="text-xs text-red-500">
+                              <p role="alert" className="text-xs text-red-400">
                                 {packageDraftErrors.width_cm}
                               </p>
                             )}
                           </div>
                           <div className="space-y-1">
-                            <label className="block text-xs font-medium text-gray-700">
+                            <label
+                              htmlFor="pkg-length"
+                              className="block text-xs font-medium text-ink-1"
+                            >
                               Comprimento (cm)
                             </label>
                             <input
+                              id="pkg-length"
                               type="number"
                               value={packageDraft.length_cm}
                               onChange={(e) => {
@@ -2075,10 +2322,10 @@ export function ListingForm() {
                               min="0.1"
                               step="0.1"
                               placeholder="0.0"
-                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                              className="w-full px-3 py-2 bg-bg-2 border border-white/10 rounded-lg text-ink-1 placeholder:text-ink-3 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors"
                             />
                             {packageDraftErrors.length_cm && (
-                              <p className="text-xs text-red-500">
+                              <p role="alert" className="text-xs text-red-400">
                                 {packageDraftErrors.length_cm}
                               </p>
                             )}
@@ -2086,11 +2333,17 @@ export function ListingForm() {
                         </div>
 
                         <div className="space-y-1">
-                          <label className="block text-xs font-medium text-gray-700">
+                          <label
+                            htmlFor="pkg-description"
+                            className="block text-xs font-medium text-ink-1"
+                          >
                             Descrição{" "}
-                            <span className="text-gray-400 font-normal">(opcional)</span>
+                            <span className="text-ink-3 font-normal">
+                              (opcional)
+                            </span>
                           </label>
                           <input
+                            id="pkg-description"
                             type="text"
                             value={packageDraft.description || ""}
                             onChange={(e) =>
@@ -2101,7 +2354,7 @@ export function ListingForm() {
                             }
                             maxLength={100}
                             placeholder="Ex: Caixa com espuma protetora"
-                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-900/20 focus:border-blue-900 transition"
+                            className="w-full px-3 py-2 bg-bg-2 border border-white/10 rounded-lg text-ink-1 placeholder:text-ink-3 text-sm focus:border-gold/50 focus:ring-2 focus:ring-gold/20 focus:outline-none transition-colors"
                           />
                         </div>
 
@@ -2109,24 +2362,35 @@ export function ListingForm() {
                           <button
                             type="button"
                             onClick={() => setShowPackageModal(false)}
-                            className="flex-1 px-4 py-2.5 border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition cursor-pointer"
+                            className="flex-1 px-4 py-2.5 bg-bg-2 border border-white/10 text-ink-1 rounded-xl text-sm font-medium hover:bg-bg-3 hover:border-white/20 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1"
                           >
                             Cancelar
                           </button>
                           <button
                             type="button"
                             onClick={() => {
-                              const errs = validatePackageDraftHelper(packageDraft);
+                              const errs =
+                                validatePackageDraftHelper(packageDraft);
                               if (Object.keys(errs).length > 0) {
                                 setPackageDraftErrors(errs);
                                 return;
                               }
                               if (editingPackageIndex !== null) {
                                 setPackages((prev) =>
-                                  prev.map((p, i) => (i === editingPackageIndex ? { ...packageDraft, _key: p._key } : p))
+                                  prev.map((p, i) =>
+                                    i === editingPackageIndex
+                                      ? { ...packageDraft, _key: p._key }
+                                      : p,
+                                  ),
                                 );
                               } else {
-                                setPackages((prev) => [...prev, { ...packageDraft, _key: crypto.randomUUID() }]);
+                                setPackages((prev) => [
+                                  ...prev,
+                                  {
+                                    ...packageDraft,
+                                    _key: crypto.randomUUID(),
+                                  },
+                                ]);
                               }
                               if (errors.packages) {
                                 setErrors((prev) => {
@@ -2137,9 +2401,11 @@ export function ListingForm() {
                               }
                               setShowPackageModal(false);
                             }}
-                            className="flex-1 px-4 py-2.5 bg-blue-900 text-white rounded-xl text-sm font-semibold hover:bg-blue-800 transition cursor-pointer"
+                            className="flex-1 px-4 py-2.5 bg-gold text-gold-deep rounded-xl text-sm font-semibold hover:bg-gold/90 active:bg-gold/80 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1"
                           >
-                            {editingPackageIndex !== null ? "Salvar" : "Adicionar"}
+                            {editingPackageIndex !== null
+                              ? "Salvar"
+                              : "Adicionar"}
                           </button>
                         </div>
                       </div>
@@ -2151,20 +2417,20 @@ export function ListingForm() {
               {/* STEP 7 — Imagens */}
               {currentStep === 7 && (
                 <div className="space-y-4">
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-ink-2 leading-relaxed">
                     Adicione fotos do produto. A primeira imagem será a capa do
                     anúncio.{" "}
-                    <span className="font-medium">
+                    <span className="font-medium text-ink-1">
                       Máximo {MAX_IMAGES} imagens.
                     </span>
                   </p>
 
                   {/* Drag & drop zone */}
                   <label
-                    className={`block border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
+                    className={`block border border-dashed rounded-xl p-8 text-center cursor-pointer transition-all ${
                       isDragging
-                        ? "border-blue-900 bg-blue-50 scale-[1.01]"
-                        : "border-gray-200 hover:border-blue-300 hover:bg-gray-50/50"
+                        ? "border-gold/50 bg-gold/10 scale-[1.01]"
+                        : "border-white/10 bg-bg-2 hover:border-gold/30 hover:bg-bg-3"
                     }`}
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
@@ -2178,52 +2444,64 @@ export function ListingForm() {
                       className="sr-only"
                     />
                     <div
-                      className={`w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-3 transition-colors ${isDragging ? "bg-blue-100" : "bg-gray-100"}`}
+                      className={`w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-3 transition-colors ${
+                        isDragging
+                          ? "bg-gold/20 border border-gold/30"
+                          : "bg-bg-3 border border-white/10"
+                      }`}
                     >
                       <ImagePlus
                         size={22}
-                        className={
-                          isDragging ? "text-blue-900" : "text-gray-400"
-                        }
+                        className={isDragging ? "text-gold" : "text-ink-3"}
+                        aria-hidden="true"
                       />
                     </div>
-                    <p className="text-sm font-semibold text-gray-700">
+                    <p className="text-sm font-semibold text-ink-1">
                       {isDragging
                         ? "Solte as imagens aqui"
                         : "Clique para selecionar ou arraste"}
                     </p>
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className="text-xs text-ink-3 mt-1">
                       JPEG, PNG ou WebP · Máx{" "}
                       {IMAGE_UPLOAD_LIMITS.MAX_FILE_SIZE_MB}MB por imagem
                     </p>
                   </label>
 
                   {uploadError && (
-                    <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-start gap-2">
+                    <div
+                      role="alert"
+                      className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 flex items-start gap-2"
+                    >
                       <AlertCircle
                         size={16}
-                        className="text-red-500 shrink-0 mt-0.5"
+                        className="text-red-400 shrink-0 mt-0.5"
+                        aria-hidden="true"
                       />
-                      <p className="text-sm text-red-700">{uploadError}</p>
+                      <p className="text-sm text-red-400">{uploadError}</p>
                     </div>
                   )}
 
                   {/* Uploading progress */}
                   {uploading && (
-                    <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      className="bg-gold/10 border border-gold/30 rounded-xl px-4 py-3"
+                    >
                       <div className="flex items-center gap-2 mb-2">
                         <Loader2
                           size={16}
-                          className="animate-spin text-blue-900"
+                          className="animate-spin text-gold"
+                          aria-hidden="true"
                         />
-                        <p className="text-sm text-blue-900 font-medium">
+                        <p className="text-sm text-ink-1 font-medium">
                           Enviando imagem {uploadProgress.current} de{" "}
                           {uploadProgress.total}…
                         </p>
                       </div>
-                      <div className="w-full bg-blue-100 rounded-full h-1.5">
+                      <div className="w-full bg-bg-2 rounded-full h-1.5 overflow-hidden">
                         <div
-                          className="bg-blue-900 h-1.5 rounded-full transition-all duration-300"
+                          className="bg-gold h-1.5 rounded-full transition-all duration-300"
                           style={{
                             width: `${(uploadProgress.current / uploadProgress.total) * 100}%`,
                           }}
@@ -2235,17 +2513,15 @@ export function ListingForm() {
                   {/* Existing images (edit mode) */}
                   {existingImages.length > 0 && (
                     <div>
-                      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+                      <p className="text-xs font-medium text-ink-3 uppercase tracking-wide mb-2">
                         Imagens atuais
                       </p>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         {existingImages.map((img) => (
                           <div
                             key={img.id}
-                            className={`relative rounded-xl overflow-hidden aspect-square border-2 transition ${
-                              img.is_primary
-                                ? "border-blue-900"
-                                : "border-transparent"
+                            className={`relative rounded-xl overflow-hidden aspect-square border transition-colors ${
+                              img.is_primary ? "border-gold" : "border-white/10"
                             }`}
                           >
                             <img
@@ -2254,8 +2530,8 @@ export function ListingForm() {
                               className="w-full h-full object-cover"
                             />
                             {img.is_primary && (
-                              <div className="absolute top-1 left-1 bg-blue-900 text-white text-xs px-1.5 py-0.5 rounded-md flex items-center gap-1">
-                                <Star size={10} />
+                              <div className="absolute top-1 left-1 bg-gold text-gold-deep text-xs font-semibold px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                                <Star size={10} aria-hidden="true" />
                                 Capa
                               </div>
                             )}
@@ -2268,17 +2544,15 @@ export function ListingForm() {
                   {/* Pending images */}
                   {pendingImages.length > 0 && (
                     <div>
-                      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+                      <p className="text-xs font-medium text-ink-3 uppercase tracking-wide mb-2">
                         Novas imagens ({pendingImages.length})
                       </p>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         {pendingImages.map((img) => (
                           <div
                             key={img.id}
-                            className={`relative rounded-xl overflow-hidden aspect-square border-2 transition ${
-                              img.isPrimary
-                                ? "border-blue-900"
-                                : "border-transparent"
+                            className={`relative rounded-xl overflow-hidden aspect-square border transition-colors ${
+                              img.isPrimary ? "border-gold" : "border-white/10"
                             }`}
                           >
                             <img
@@ -2289,31 +2563,39 @@ export function ListingForm() {
 
                             {/* Primary badge */}
                             {img.isPrimary && (
-                              <div className="absolute top-1 left-1 bg-blue-900 text-white text-xs px-1.5 py-0.5 rounded-md flex items-center gap-1">
-                                <Star size={10} />
+                              <div className="absolute top-1 left-1 bg-gold text-gold-deep text-xs font-semibold px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                                <Star size={10} aria-hidden="true" />
                                 Capa
                               </div>
                             )}
 
                             {/* Actions overlay */}
-                            <div className="absolute inset-0 bg-black/0 hover:bg-black/30 transition flex items-center justify-center gap-2 opacity-0 hover:opacity-100">
+                            <div className="absolute inset-0 bg-black/0 hover:bg-black/50 transition flex items-center justify-center gap-2 opacity-0 hover:opacity-100">
                               {!img.isPrimary && (
                                 <button
                                   type="button"
                                   onClick={() => setPendingPrimary(img.id)}
-                                  title="Definir como capa"
-                                  className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow hover:bg-blue-50 transition cursor-pointer"
+                                  className="w-8 h-8 bg-bg-1 border border-white/10 rounded-lg flex items-center justify-center hover:border-gold/40 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40"
+                                  aria-label="Definir como capa"
                                 >
-                                  <Star size={14} className="text-blue-900" />
+                                  <Star
+                                    size={14}
+                                    className="text-gold"
+                                    aria-hidden="true"
+                                  />
                                 </button>
                               )}
                               <button
                                 type="button"
                                 onClick={() => removePendingImage(img.id)}
-                                title="Remover imagem"
-                                className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow hover:bg-red-50 transition cursor-pointer"
+                                className="w-8 h-8 bg-bg-1 border border-white/10 rounded-lg flex items-center justify-center hover:border-red-500/40 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40"
+                                aria-label="Remover imagem"
                               >
-                                <Trash2 size={14} className="text-red-500" />
+                                <Trash2
+                                  size={14}
+                                  className="text-red-400"
+                                  aria-hidden="true"
+                                />
                               </button>
                             </div>
                           </div>
@@ -2324,7 +2606,7 @@ export function ListingForm() {
 
                   {pendingImages.length === 0 &&
                     existingImages.length === 0 && (
-                      <p className="text-sm text-gray-400 text-center py-2">
+                      <p className="text-sm text-ink-3 text-center py-2">
                         Nenhuma imagem selecionada. As imagens são opcionais,
                         mas aumentam as chances de venda.
                       </p>
@@ -2334,15 +2616,15 @@ export function ListingForm() {
             </div>
 
             {/* Navigation buttons */}
-            <div className="px-6 pb-6 pt-2 flex items-center gap-3">
+            <div className="px-6 pb-6 pt-2 flex items-center gap-3 border-t border-white/10 mt-2">
               {currentStep > 1 ? (
                 <button
                   type="button"
                   onClick={handleBack}
                   disabled={submitting || uploading}
-                  className="flex items-center gap-2 px-5 py-2.5 border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 active:bg-gray-100 transition disabled:opacity-50 cursor-pointer"
+                  className="flex items-center gap-2 px-5 py-2.5 bg-bg-2 border border-white/10 text-ink-1 rounded-xl text-sm font-medium hover:bg-bg-3 hover:border-white/20 transition-colors disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1"
                 >
-                  <ArrowLeft size={16} />
+                  <ArrowLeft size={16} aria-hidden="true" />
                   Voltar
                 </button>
               ) : (
@@ -2352,18 +2634,20 @@ export function ListingForm() {
               <button
                 type="submit"
                 disabled={submitting || uploading}
-                className="flex items-center justify-center gap-2 px-6 py-2.5 bg-blue-900 text-white rounded-xl text-sm font-semibold hover:bg-blue-800 active:bg-blue-950 transition disabled:opacity-60 cursor-pointer ml-auto min-w-32.5"
+                className="flex items-center justify-center gap-2 px-6 py-2.5 bg-gold text-gold-deep rounded-xl text-sm font-semibold hover:bg-gold/90 active:bg-gold/80 transition-colors disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/40 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-1 ml-auto min-w-32.5"
               >
                 {submitting || uploading ? (
                   <>
-                    <Loader2 size={16} className="animate-spin" />
-                    <span>
-                      {uploading ? "Enviando…" : "Aguarde…"}
-                    </span>
+                    <Loader2
+                      size={16}
+                      className="animate-spin"
+                      aria-hidden="true"
+                    />
+                    <span>{uploading ? "Enviando…" : "Aguarde…"}</span>
                   </>
                 ) : isLastStep ? (
                   <>
-                    <CheckCircle size={16} />
+                    <CheckCircle size={16} aria-hidden="true" />
                     <span>
                       {isEditMode ? "Salvar alterações" : "Publicar Anúncio"}
                     </span>
@@ -2371,7 +2655,7 @@ export function ListingForm() {
                 ) : (
                   <>
                     <span>Próximo</span>
-                    <ArrowRight size={16} />
+                    <ArrowRight size={16} aria-hidden="true" />
                   </>
                 )}
               </button>

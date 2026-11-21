@@ -213,24 +213,19 @@ export function useNotifications(options: UseNotificationsOptions): UseNotificat
   }, []);
 
   const markAsRead = useCallback(async (notificationId: string) => {
+    try {
+      await notificationsApi.markAsRead(notificationId);
+    } catch (err) {
+      console.error('[useNotifications] markAsRead error:', err);
+      throw err;
+    }
+    if (!isMountedRef.current) return;
     setNotifications((prev) =>
       prev.map((n) =>
         n.id === notificationId ? { ...n, is_read: true, read_at: new Date().toISOString() } : n
       )
     );
     setUnreadCount((prev) => Math.max(0, prev - 1));
-    try {
-      await notificationsApi.markAsRead(notificationId);
-    } catch (err) {
-      setNotifications((prev) =>
-        prev.map((n) =>
-          n.id === notificationId ? { ...n, is_read: false, read_at: null } : n
-        )
-      );
-      setUnreadCount((prev) => prev + 1);
-      console.error('[useNotifications] markAsRead error:', err);
-      throw err;
-    }
   }, []);
 
   const markAllAsRead = useCallback(async () => {
